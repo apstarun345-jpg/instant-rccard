@@ -1,0 +1,10 @@
+{
+  "name": "Instant RC Download",
+  "short_name": "Instant RC",
+  "description": "Vehicle RC card images download karo — fast, simple aur secure.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#fffaf4",
+  "theme_color": "#e85d04",
+  "icons": []
+}
