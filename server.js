@@ -383,8 +383,15 @@ async function handleAdminRecharge(req, res) {
 
 async function serveStatic(req, res, pathname) {
   const requested = pathname === '/' ? '/index.html' : pathname;
-  const candidate = path.normalize(path.join(publicDir, decodeURIComponent(requested)));
-  if (!candidate.startsWith(publicDir)) return sendError(res, 403, 'Forbidden');
+  // Supports both the packaged public/ layout and the flat GitHub upload layout.
+  let staticRoot = publicDir;
+  try {
+    await fs.access(path.join(publicDir, 'index.html'));
+  } catch {
+    staticRoot = __dirname;
+  }
+  const candidate = path.normalize(path.join(staticRoot, decodeURIComponent(requested)));
+  if (!candidate.startsWith(staticRoot)) return sendError(res, 403, 'Forbidden');
   try {
     const stat = await fs.stat(candidate);
     if (!stat.isFile()) throw new Error('not file');
