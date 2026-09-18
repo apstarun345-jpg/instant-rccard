@@ -15,7 +15,10 @@ const ADMIN_MOBILE = normalizeMobile(process.env.ADMIN_MOBILE || '');
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
 const SHEET_WEBHOOK_URL = process.env.SHEET_WEBHOOK_URL || '';
 const SHEET_SYNC_SECRET = process.env.SHEET_SYNC_SECRET || '';
-const RC_PRICE = 15;
+const RC_PRICES = Object.freeze({
+  mparivahan: 10,
+  'rc-card': 15
+});
 const SESSION_SECONDS = 60 * 60 * 24 * 7;
 const MAX_BODY_BYTES = 1_500_000;
 const UPSTREAM_TIMEOUT_MS = 30_000;
@@ -55,13 +58,21 @@ function validVrn(vrn) {
   return /^[A-Z0-9]{4,15}$/.test(vrn);
 }
 
+function priceForDownload(downloadType) {
+  return RC_PRICES[downloadType] || RC_PRICES.mparivahan;
+}
+
 function publicUser(user) {
   return {
     name: user.name,
     mobile: user.mobile,
     wallet: Number(user.wallet || 0),
     role: user.role,
-    pricePerRc: RC_PRICE
+    pricePerRc: RC_PRICES.mparivahan,
+    prices: {
+      mparivahan: RC_PRICES.mparivahan,
+      rcCard: RC_PRICES['rc-card']
+    }
   };
 }
 
@@ -323,23 +334,33 @@ async function handlePurchase(req, res) {
   const body = await readJson(req);
   const vrn = normalizeVrn(body.vrn);
   const downloadType = body.downloadType === 'rc-card' ? 'rc-card' : 'mparivahan';
+  const price = priceForDownload(downloadType);
   if (!validVrn(vrn)) return sendError(res, 422, 'Valid vehicle number daalo, jaise RJ14AB1234.');
 
   return withMutationLock(async () => {
     const fresh = syncAdminRole(findUser(user.mobile));
     if (!fresh) return sendError(res, 401, 'User account nahi mila.');
-    if (Number(fresh.wallet) < RC_PRICE) return sendJson(res, 200, { success: false, code: 'LOW_BALANCE', message: 'Recharge your wallet. Minimum ₹15 balance required.', wallet: Number(fresh.wallet) });
+    if (Number(fresh.wallet) < price) {
+      return sendJson(res, 200, {
+        success: false,
+        code: 'LOW_BALANCE',
+        message: `Recharge your wallet. Minimum ₹${price} balance required for this format.`,
+        wallet: Number(fresh.wallet),
+        requiredPrice: price,
+        downloadType
+      });
+    }
 
     const provider = await fetchProvider(vrn);
-    if (!provider.success) return sendJson(res, 200, { success: false, message: provider.message, wallet: Number(fresh.wallet) });
+    if (!provider.success) return sendJson(res, 200, { success: false, message: provider.message, wallet: Number(fresh.wallet), requiredPrice: price, downloadType });
 
-    fresh.wallet = Number(fresh.wallet) - RC_PRICE;
-    const downloadLabel = downloadType === 'rc-card' ? 'RC Card PNG download' : 'mParivahan A4 PNG download';
-    appendTransaction(fresh.mobile, 'RC_PURCHASE', -RC_PRICE, fresh.wallet, vrn, downloadLabel);
+    fresh.wallet = Number(fresh.wallet) - price;
+    const downloadLabel = downloadType === 'rc-card' ? 'RC Card PNG download' : 'MParivahan A4 PNG download';
+    appendTransaction(fresh.mobile, 'RC_PURCHASE', -price, fresh.wallet, vrn, downloadLabel);
     await persistDatabase();
     queueSheetSync('user', sheetUserPayload(fresh));
     queueSheetSync('transaction', db.transactions[db.transactions.length - 1]);
-    return sendJson(res, 200, { success: true, data: { vrn, front: provider.images.front, back: provider.images.back, downloadType }, wallet: fresh.wallet, charged: RC_PRICE });
+    return sendJson(res, 200, { success: true, data: { vrn, front: provider.images.front, back: provider.images.back, downloadType }, wallet: fresh.wallet, charged: price, requiredPrice: price });
   });
 }
 

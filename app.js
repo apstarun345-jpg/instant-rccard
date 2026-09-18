@@ -1,7 +1,51 @@
 
     var state = { token: '', user: null, selectedAdminMobile: '', pendingVrn: '', busy: false };
+    var DOWNLOAD_PRICES = { mparivahan: 10, 'rc-card': 15 };
     var $ = function (selector) { return document.querySelector(selector); };
     var $$ = function (selector) { return Array.prototype.slice.call(document.querySelectorAll(selector)); };
+    var installPrompt = null;
+
+    function appIsInstalled() {
+      return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+    }
+
+    function updateInstallButtons() {
+      var hidden = appIsInstalled() || !installPrompt;
+      ['#install-auth-button', '#install-dashboard-button'].forEach(function (selector) {
+        var button = $(selector);
+        if (button) button.hidden = hidden;
+      });
+    }
+
+    async function installApp() {
+      if (!installPrompt) {
+        toast('Install option', 'Chrome menu se Install InstantRCcard choose karo. iPhone par Share → Add to Home Screen use karo.', 'info');
+        return;
+      }
+      installPrompt.prompt();
+      var choice = await installPrompt.userChoice;
+      if (choice && choice.outcome === 'accepted') toast('App installed', 'InstantRCcard ab app ki tarah open hoga.', 'success');
+      installPrompt = null;
+      updateInstallButtons();
+    }
+
+    window.addEventListener('beforeinstallprompt', function (event) {
+      event.preventDefault();
+      installPrompt = event;
+      updateInstallButtons();
+    });
+    window.addEventListener('appinstalled', function () {
+      installPrompt = null;
+      updateInstallButtons();
+      toast('App installed', 'InstantRCcard app ready hai.', 'success');
+    });
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', function () {
+        navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(function () {
+          // The website remains fully usable if a browser blocks offline installation.
+        });
+      });
+    }
 
     // Refresh par pehle cookie session verify hota hai, isliye login flash nahi dikhega.
     $('#auth-view').hidden = true;
@@ -33,6 +77,12 @@
     function escapeHtml(value) { return String(value == null ? '' : value).replace(/[&<>"']/g, function (c) { return ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[c]; }); }
     function formatMoney(value) { return '₹' + Number(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 }); }
     function formatDate(value) { var d = new Date(value); return isNaN(d.getTime()) ? 'Just now' : d.toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }); }
+    function priceForDownload(downloadType) {
+      var serverPrices = state.user && state.user.prices;
+      if (downloadType === 'rc-card' && serverPrices && serverPrices.rcCard != null) return Number(serverPrices.rcCard);
+      if (downloadType === 'mparivahan' && serverPrices && serverPrices.mparivahan != null) return Number(serverPrices.mparivahan);
+      return DOWNLOAD_PRICES[downloadType] || DOWNLOAD_PRICES.mparivahan;
+    }
 
     function toast(title, message, type) {
       var item = document.createElement('div');
@@ -51,8 +101,15 @@
       box.hidden = false;
     }
 
+    function setFetchingOverlay(visible) {
+      var overlay = $('#fetching-overlay');
+      if (!overlay) return;
+      overlay.hidden = !visible;
+      document.body.style.overflow = visible ? 'hidden' : '';
+    }
+
     function showWalletAlert(text) {
-      $('#wallet-alert-text').textContent = text || 'Wallet balance ₹15 se kam hai. Admin se recharge karwao.';
+      $('#wallet-alert-text').textContent = text || 'Format ke hisaab se ₹10 ya ₹15 wallet balance chahiye. Admin se recharge karwao.';
       $('#wallet-alert').hidden = false;
     }
 
@@ -190,12 +247,13 @@
       var back = await loadImage(backSource);
       var dpi = 300;
       var mm = function (value) { return Math.round(value * dpi / 25.4); };
+      // RC Card output is exactly two standard card faces, stacked without an A4-sized canvas.
       var pageWidth = mm(85.6);
       var cardHeight = mm(54);
-      var gap = mm(8);
+      var gap = 0;
       var canvas = document.createElement('canvas');
       canvas.width = pageWidth;
-      canvas.height = cardHeight * 2 + gap;
+      canvas.height = cardHeight * 2;
       var context = canvas.getContext('2d');
       context.fillStyle = '#ffffff';
       context.fillRect(0, 0, canvas.width, canvas.height);
@@ -236,9 +294,12 @@
         input.classList.remove('shake'); void input.offsetWidth; input.classList.add('shake');
         toast('Vehicle number check karo', 'Example format: RJ14AB1234', 'error'); return;
       }
-      if (state.user && Number(state.user.wallet || 0) < 15) {
-        showWalletAlert('Wallet balance ' + formatMoney(state.user.wallet || 0) + ' hai. Admin se recharge karwao, phir RC download karo.');
-        setDownloadStatus('Recharge your wallet', 'Is download ke liye minimum ₹15 wallet balance chahiye.', 'error');
+      // Format select hone se pehle minimum price MParivahan ka ₹10 hai.
+      // RC Card ke ₹15 check ko purchaseAndDownload me dobara kiya jaata hai.
+      if (state.user && Number(state.user.wallet || 0) < priceForDownload('mparivahan')) {
+        var minimum = priceForDownload('mparivahan');
+        showWalletAlert('Wallet balance ' + formatMoney(state.user.wallet || 0) + ' hai. Minimum ' + formatMoney(minimum) + ' chahiye.');
+        setDownloadStatus('Recharge your wallet', 'Download ke liye minimum ' + formatMoney(minimum) + ' wallet balance chahiye.', 'error');
         toast('Recharge your wallet', 'Wallet balance kam hai. Admin se recharge karwao.', 'error');
         return;
       }
@@ -254,20 +315,33 @@
 
     async function purchaseAndDownload(downloadType) {
       var vrn = state.pendingVrn;
+      var price = priceForDownload(downloadType);
       if (!vrn || state.busy) return;
+
+      // Format choose hone ke baad exact price check; low balance par provider call nahi hoga.
+      if (state.user && Number(state.user.wallet || 0) < price) {
+        closeDownloadOptions();
+        showWalletAlert('Wallet balance ' + formatMoney(state.user.wallet || 0) + ' hai. Is format ke liye ' + formatMoney(price) + ' chahiye.');
+        setDownloadStatus('Recharge your wallet', 'Is format ke liye minimum ' + formatMoney(price) + ' wallet balance chahiye.', 'error');
+        toast('Recharge your wallet', 'RC Card ke liye ₹15 aur MParivahan ke liye ₹10 chahiye.', 'error');
+        return;
+      }
+
       closeDownloadOptions();
       state.busy = true;
       var button = $('#rc-button');
       setButtonLoading(button, true);
       setDownloadStatus('RC fetch ho rahi hai…', 'Front aur back image provider se aa rahi hai.', 'loading');
+      setFetchingOverlay(true);
       hideWalletAlert();
       try {
         var response = await callServer('buyRc', [vrn, downloadType]);
         if (!response.success) {
           if (response.code === 'LOW_BALANCE') {
-            showWalletAlert('Wallet balance ' + formatMoney(response.wallet || 0) + ' hai. Admin se recharge karwao, phir RC download karo.');
-            setDownloadStatus('Recharge your wallet', 'Is download ke liye minimum ₹15 wallet balance chahiye.', 'error');
-            toast('Recharge your wallet', 'Wallet balance kam hai. Admin se recharge karwao.', 'error');
+            var requiredPrice = Number(response.requiredPrice || price);
+            showWalletAlert('Wallet balance ' + formatMoney(response.wallet || 0) + ' hai. Is format ke liye ' + formatMoney(requiredPrice) + ' chahiye.');
+            setDownloadStatus('Recharge your wallet', 'Is format ke liye minimum ' + formatMoney(requiredPrice) + ' wallet balance chahiye.', 'error');
+            toast('Recharge your wallet', 'RC Card ke liye ₹15 aur MParivahan ke liye ₹10 chahiye.', 'error');
           } else {
             setDownloadStatus('RC download failed', response.message, 'error');
             toast('RC fetch failed', response.message, 'error');
@@ -280,7 +354,7 @@
           : await makeA4Png(response.data.front, response.data.back);
         updateWallet(response.wallet);
         await loadTransactions();
-        var label = downloadType === 'rc-card' ? 'RC-Card' : 'mParivahan-RC';
+        var label = downloadType === 'rc-card' ? 'RC-Card' : 'MParivahan-RC';
         downloadData(combined, response.data.vrn + '-' + label + '.png');
         setDownloadStatus('PNG download started ✓', response.data.vrn + '-' + label + '.png save ho rahi hai.', 'success');
         toast('Instant download ready', response.data.vrn + ' ki selected RC PNG download ho rahi hai.', 'success');
@@ -290,8 +364,9 @@
         setDownloadStatus('Download failed', error.message, 'error');
         toast('Something went wrong', error.message, 'error');
       } finally {
+        setFetchingOverlay(false);
         state.busy = false;
-        setButtonLoading(button, false, 'Download RC ₹15 <span>↗</span>');
+        setButtonLoading(button, false, 'Download RC <span>↗</span>');
       }
     }
 
@@ -383,6 +458,9 @@
     $$('.format-option').forEach(function (option) { option.addEventListener('click', function () { purchaseAndDownload(option.dataset.downloadFormat); }); });
     $('#close-download-status').addEventListener('click', function () { $('#download-status').hidden = true; });
     $('#close-wallet-alert').addEventListener('click', hideWalletAlert);
+    $('#install-auth-button').addEventListener('click', installApp);
+    $('#install-dashboard-button').addEventListener('click', installApp);
+    updateInstallButtons();
     $('#logout-button').addEventListener('click', async function () { try { await callServer('logout', []); } catch (error) {} clearSession(); toast('Logged out', 'Aapka session close ho gaya.', 'success'); });
     $('#refresh-transactions').addEventListener('click', loadTransactions);
     $('#admin-search-button').addEventListener('click', findAdminUser);
