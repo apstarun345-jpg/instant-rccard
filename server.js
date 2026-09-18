@@ -581,14 +581,23 @@ async function handleGetAds(req, res) {
   return sendJson(res, 200, { success: true, ads });
 }
 
+const DEFAULT_SETTINGS = { usersBaseline: 200000, downloadsBaseline: 171000 };
+
+function settingsNumber(key) {
+  const raw = db.settings ? db.settings[key] : undefined;
+  if (raw === undefined || raw === null || raw === '') return DEFAULT_SETTINGS[key] || 0;
+  const value = Number(raw);
+  return Number.isFinite(value) && value >= 0 ? value : (DEFAULT_SETTINGS[key] || 0);
+}
+
 async function handlePublicStats(req, res) {
   const activeUsers = db.users.filter((user) => user.active !== false && user.role !== 'admin').length;
   const completedDownloads = db.transactions.filter((tx) => tx.type === 'RC_PURCHASE' && tx.status === 'SUCCESS').length;
   const rating = String((db.settings && db.settings.rating) || process.env.PUBLIC_RATING || '').trim();
   return sendJson(res, 200, {
     success: true,
-    users: activeUsers,
-    downloads: completedDownloads,
+    users: activeUsers + settingsNumber('usersBaseline'),
+    downloads: completedDownloads + settingsNumber('downloadsBaseline'),
     rating: /^\d(?:\.\d)?$/.test(rating) ? rating : ''
   });
 }
@@ -668,7 +677,15 @@ async function handleAdminStats(req, res, searchParams) {
   const from = validDay.test(fromRaw) ? fromRaw : '';
   const to = validDay.test(toRaw) ? toRaw : '';
   const stats = computeAdminStats(from, to);
-  return sendJson(res, 200, { success: true, stats });
+  return sendJson(res, 200, {
+    success: true,
+    stats,
+    settings: {
+      rating: String((db.settings && db.settings.rating) || ''),
+      usersBaseline: settingsNumber('usersBaseline'),
+      downloadsBaseline: settingsNumber('downloadsBaseline')
+    }
+  });
 }
 
 async function handleAdminUpdateRating(req, res) {
@@ -684,6 +701,26 @@ async function handleAdminUpdateRating(req, res) {
   await persistDatabase();
   queueSheetSync('settings', { rating });
   return sendJson(res, 200, { success: true, rating });
+}
+
+async function handleAdminUpdateBaseline(req, res) {
+  const admin = requireAdmin(req, res);
+  if (!admin) return;
+  const body = await readJson(req);
+  const usersBaseline = Number(body.usersBaseline);
+  const downloadsBaseline = Number(body.downloadsBaseline);
+  if (!Number.isFinite(usersBaseline) || usersBaseline < 0 || usersBaseline > 100_000_000) {
+    return sendError(res, 422, 'Users baseline 0 se 10 crore ke beech ek valid number hona chahiye.');
+  }
+  if (!Number.isFinite(downloadsBaseline) || downloadsBaseline < 0 || downloadsBaseline > 100_000_000) {
+    return sendError(res, 422, 'RC downloads baseline 0 se 10 crore ke beech ek valid number hona chahiye.');
+  }
+  db.settings = db.settings || {};
+  db.settings.usersBaseline = usersBaseline;
+  db.settings.downloadsBaseline = downloadsBaseline;
+  await persistDatabase();
+  queueSheetSync('settings', { usersBaseline, downloadsBaseline });
+  return sendJson(res, 200, { success: true, usersBaseline, downloadsBaseline });
 }
 
 async function handleAdminGetAds(req, res) {
@@ -786,6 +823,7 @@ const server = http.createServer(async (req, res) => {
     if (adRoute && req.method === 'POST') return await handleAdminToggleAd(req, res, decodeURIComponent(adRoute[1]));
     if (req.method === 'GET' && pathname === '/api/admin/stats') return await handleAdminStats(req, res, url.searchParams);
     if (req.method === 'POST' && pathname === '/api/admin/settings/rating') return await handleAdminUpdateRating(req, res);
+    if (req.method === 'POST' && pathname === '/api/admin/settings/baseline') return await handleAdminUpdateBaseline(req, res);
     if (req.method === 'GET' && pathname === '/api/admin/transactions') {
       const admin = requireAdmin(req, res);
       if (!admin) return;

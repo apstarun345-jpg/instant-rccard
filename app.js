@@ -73,6 +73,7 @@
         url = '/api/admin/stats' + (qs.toString() ? '?' + qs.toString() : '');
       }
       else if (name === 'adminSetRating') { url = '/api/admin/settings/rating'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ rating: args[0] }); }
+      else if (name === 'adminSetBaseline') { url = '/api/admin/settings/baseline'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ usersBaseline: args[0], downloadsBaseline: args[1] }); }
       else if (name === 'adminGetAds') { url = '/api/admin/ads'; }
       else if (name === 'adminAddAd') { url = '/api/admin/ads'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ title: args[0], imageData: args[1] }); }
       else if (name === 'adminDeleteAd') { url = '/api/admin/ads/' + encodeURIComponent(args[0]); options.method = 'DELETE'; }
@@ -189,6 +190,7 @@
       if ($('#account-email')) $('#account-email').textContent = user.email || 'Email not set';
       $('#admin-nav').hidden = user.role !== 'admin';
       $('#admin-card').hidden = user.role !== 'admin';
+      $('#admin-kpi-section').hidden = user.role !== 'admin';
       updateWallet(user.wallet);
       loadAds();
       loadPublicStats();
@@ -217,6 +219,7 @@
       $('#topbar').hidden = true;
       $('#dashboard').hidden = true;
       $('#admin-card').hidden = true;
+      $('#admin-kpi-section').hidden = true;
       setAuthMode('login');
     }
 
@@ -272,12 +275,25 @@
       } catch (error) { /* advertisements are non-critical */ }
     }
 
+    function trimDecimals(value) {
+      var rounded = Math.round(value * 100) / 100;
+      return String(rounded).replace(/\.00$/, '').replace(/(\.\d)0$/, '$1');
+    }
+
+    function formatBigCount(value) {
+      var n = Number(value || 0);
+      if (n <= 0) return '';
+      if (n >= 10000000) return trimDecimals(n / 10000000) + ' Cr+';
+      if (n >= 100000) return trimDecimals(n / 100000) + ' Lakh+';
+      return n.toLocaleString('en-IN') + '+';
+    }
+
     async function loadPublicStats() {
       try {
         var result = await callServer('getStats', []);
         if (!result.success) return;
-        $('#stat-users').textContent = result.users > 0 ? Number(result.users).toLocaleString('en-IN') + '+' : 'Growing';
-        $('#stat-downloads').textContent = result.downloads > 0 ? Number(result.downloads).toLocaleString('en-IN') + '+' : 'Ready';
+        $('#stat-users').textContent = formatBigCount(result.users) || 'Growing';
+        $('#stat-downloads').textContent = formatBigCount(result.downloads) || 'Ready';
         $('#stat-rating').textContent = result.rating ? result.rating + '/5' : '—';
       } catch (error) { /* public stats are non-critical */ }
     }
@@ -667,12 +683,15 @@
       if (!state.user || state.user.role !== 'admin') return;
       try {
         var response = await callServer('adminGetStats', [range || null]);
-        if (response.success) renderAdminStats(response.stats);
+        if (response.success) {
+          renderAdminStats(response.stats);
+          if (response.settings) {
+            if (response.settings.rating) $('#admin-rating-input').value = response.settings.rating;
+            $('#admin-users-baseline-input').value = response.settings.usersBaseline;
+            $('#admin-downloads-baseline-input').value = response.settings.downloadsBaseline;
+          }
+        }
       } catch (error) { /* KPI dashboard is non-critical */ }
-      try {
-        var statsResult = await callServer('getStats', []);
-        if (statsResult.success && statsResult.rating) $('#admin-rating-input').value = statsResult.rating;
-      } catch (error) { /* rating prefill is non-critical */ }
     }
 
     function applyAdminStatsFilter() {
@@ -700,6 +719,24 @@
         loadPublicStats();
       } catch (error) { toast('Rating error', error.message, 'error'); }
       finally { setButtonLoading(button, false, 'Save rating'); }
+    }
+
+    async function saveAdminBaseline() {
+      var button = $('#admin-baseline-save');
+      var users = Number($('#admin-users-baseline-input').value);
+      var downloads = Number($('#admin-downloads-baseline-input').value);
+      if (!Number.isFinite(users) || users < 0 || !Number.isFinite(downloads) || downloads < 0) {
+        toast('Baseline error', 'Valid non-negative numbers daalo.', 'error');
+        return;
+      }
+      setButtonLoading(button, true, 'Save baseline');
+      try {
+        var response = await callServer('adminSetBaseline', [users, downloads]);
+        if (!response.success) throw new Error(response.message || 'Baseline save nahi ho paayi.');
+        toast('Baseline updated', 'Homepage stats ab is baseline ke saath show honge.', 'success');
+        loadPublicStats();
+      } catch (error) { toast('Baseline error', error.message, 'error'); }
+      finally { setButtonLoading(button, false, 'Save baseline'); }
     }
 
     $$('.auth-tab').forEach(function (button) { button.addEventListener('click', function () { setAuthMode(button.dataset.authTab); }); });
@@ -793,6 +830,7 @@
     $('#admin-stats-apply').addEventListener('click', applyAdminStatsFilter);
     $('#admin-stats-reset').addEventListener('click', resetAdminStatsFilter);
     $('#admin-rating-save').addEventListener('click', saveAdminRating);
+    $('#admin-baseline-save').addEventListener('click', saveAdminBaseline);
     $('#admin-ad-upload').addEventListener('click', uploadAdvertisement);
     $$('[data-admin-section]').forEach(function (button) { button.addEventListener('click', function () { setAdminSection(button.dataset.adminSection); }); });
     $$('.topbar-nav button').forEach(function (button) { button.addEventListener('click', function () { var target = $('#' + button.dataset.scroll); if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' }); $$('.topbar-nav button').forEach(function (item) { item.classList.remove('active'); }); button.classList.add('active'); }); });
