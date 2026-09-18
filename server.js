@@ -581,7 +581,7 @@ async function handleGetAds(req, res) {
   return sendJson(res, 200, { success: true, ads });
 }
 
-const DEFAULT_SETTINGS = { usersBaseline: 200000, downloadsBaseline: 171000 };
+const DEFAULT_SETTINGS = { usersBaseline: 200000, downloadsBaseline: 171000, rating: '4.9' };
 
 function settingsNumber(key) {
   const raw = db.settings ? db.settings[key] : undefined;
@@ -593,7 +593,8 @@ function settingsNumber(key) {
 async function handlePublicStats(req, res) {
   const activeUsers = db.users.filter((user) => user.active !== false && user.role !== 'admin').length;
   const completedDownloads = db.transactions.filter((tx) => tx.type === 'RC_PURCHASE' && tx.status === 'SUCCESS').length;
-  const rating = String((db.settings && db.settings.rating) || process.env.PUBLIC_RATING || '').trim();
+  const configuredRating = String((db.settings && db.settings.rating) || '').trim();
+  const rating = configuredRating || String(process.env.PUBLIC_RATING || '').trim() || DEFAULT_SETTINGS.rating;
   return sendJson(res, 200, {
     success: true,
     users: activeUsers + settingsNumber('usersBaseline'),
@@ -681,7 +682,7 @@ async function handleAdminStats(req, res, searchParams) {
     success: true,
     stats,
     settings: {
-      rating: String((db.settings && db.settings.rating) || ''),
+      rating: String((db.settings && db.settings.rating) || DEFAULT_SETTINGS.rating),
       usersBaseline: settingsNumber('usersBaseline'),
       downloadsBaseline: settingsNumber('downloadsBaseline')
     }
