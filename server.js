@@ -485,6 +485,7 @@ async function handlePurchase(req, res) {
   const downloadType = body.downloadType === 'rc-card' ? 'rc-card' : 'mparivahan';
   const price = priceForDownload(downloadType);
   if (!validVrn(vrn)) return sendError(res, 422, 'Valid vehicle number daalo, jaise RJ14AB1234.');
+  if (downloadType === 'mparivahan') return sendJson(res, 200, { success: false, code: 'COMING_SOON', message: 'MParivahan RC format Coming Soon!', downloadType, requiredPrice: price });
 
   return withMutationLock(async () => {
     const fresh = syncAdminRole(findUser(user.mobile));
@@ -578,6 +579,18 @@ async function handleGetAds(req, res) {
   return sendJson(res, 200, { success: true, ads });
 }
 
+async function handlePublicStats(req, res) {
+  const activeUsers = db.users.filter((user) => user.active !== false && user.role !== 'admin').length;
+  const completedDownloads = db.transactions.filter((tx) => tx.type === 'RC_PURCHASE' && tx.status === 'SUCCESS').length;
+  const rating = String(process.env.PUBLIC_RATING || '').trim();
+  return sendJson(res, 200, {
+    success: true,
+    users: activeUsers,
+    downloads: completedDownloads,
+    rating: /^\d(?:\.\d)?$/.test(rating) ? rating : ''
+  });
+}
+
 async function handleAdminGetAds(req, res) {
   const admin = requireAdmin(req, res);
   if (!admin) return;
@@ -662,6 +675,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && pathname === '/api/auth/forgot-password') return await handleForgotPassword(req, res);
     if (req.method === 'POST' && pathname === '/api/auth/logout') return sendJson(res, 200, { success: true }, { 'Set-Cookie': clearAuthCookie() });
     if (req.method === 'GET' && pathname === '/api/ads') return await handleGetAds(req, res);
+    if (req.method === 'GET' && pathname === '/api/public/stats') return await handlePublicStats(req, res);
     if (req.method === 'GET' && pathname === '/api/account/transactions') {
       const user = currentUser(req);
       if (!user) return sendError(res, 401, 'Session expire ho gaya.');

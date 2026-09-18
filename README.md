@@ -10,7 +10,7 @@ A blue-and-white Node website for secure RC front-and-back downloads.
 - Cookie-based login that survives browser refreshes
 - Durable Google Sheet account restore after Render restarts/redeploys when the Sheet mirror is configured
 - Separate wallet per mobile number
-- `MParivahan RC`: ₹10, A4 page PNG with front above back, matching the attached A4 reference
+- `MParivahan RC`: marked **Coming Soon!** in the customer flow; the future price is ₹10
 - `RC Card`: ₹15, compact output with two standard card-size faces stacked front above back, without an A4 canvas
 - Charge is deducted only after both front and back RC images are available
 - Provider image normalization for base64, data-URL, URL, PNG, JPG and WEBP responses
@@ -53,6 +53,7 @@ Open the HTTPS website in Chrome. Use the install icon in the address bar or cho
 - `POST /api/auth/logout`
 - `GET /api/account/transactions`
 - `GET /api/ads`
+- `GET /api/public/stats`
 - `POST /api/rc/purchase`
 - `POST /api/admin/users/search`
 - `POST /api/admin/recharge`

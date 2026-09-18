@@ -62,6 +62,7 @@
       else if (name === 'buyRc') { url = '/api/rc/purchase'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ vrn: args[0], downloadType: args[1] || 'mparivahan' }); }
       else if (name === 'getMyTransactions') { url = '/api/account/transactions'; }
       else if (name === 'getAds') { url = '/api/ads'; }
+      else if (name === 'getStats') { url = '/api/public/stats'; }
       else if (name === 'adminFindUser') { url = '/api/admin/users/search'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ mobile: args[0] }); }
       else if (name === 'adminRecharge') { url = '/api/admin/recharge'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ mobile: args[0], amount: args[1], note: args[2] }); }
       else if (name === 'adminGetTransactions') { url = '/api/admin/transactions'; }
@@ -116,12 +117,39 @@
     }
 
     function showWalletAlert(text) {
-      $('#wallet-alert-text').textContent = text || 'Format ke hisaab se ₹10 ya ₹15 wallet balance chahiye. Admin se recharge karwao.';
+      $('#wallet-alert-text').textContent = text || 'RC Card download ke liye ₹15 wallet balance chahiye. Admin se recharge karwao.';
       $('#wallet-alert').hidden = false;
     }
 
     function hideWalletAlert() {
       $('#wallet-alert').hidden = true;
+    }
+
+    function openWalletTopup() {
+      var current = state.user ? Number(state.user.wallet || 0) : 0;
+      $('#topup-current-balance').textContent = formatMoney(current);
+      $('#topup-amount').value = '';
+      $('#wallet-topup-modal').hidden = false;
+      document.body.style.overflow = 'hidden';
+      setTimeout(function () { $('#topup-amount').focus(); }, 30);
+    }
+
+    function closeWalletTopup() {
+      $('#wallet-topup-modal').hidden = true;
+      if ($('#fetching-overlay').hidden && $('#download-options-modal').hidden) document.body.style.overflow = '';
+    }
+
+    function redirectToWalletTopupWhatsapp() {
+      var amount = Number($('#topup-amount').value);
+      if (!Number.isFinite(amount) || amount < 1) {
+        toast('Amount enter karo', 'Jitna wallet topup chahiye, woh amount daalo.', 'error');
+        return;
+      }
+      var message = 'Hello InstantRCcard support. Mujhe wallet topup karna hai. Amount: ₹' + amount + '. Kripya payment QR bhej dijiye.';
+      var whatsappUrl = 'https://wa.me/919057838589?text=' + encodeURIComponent(message);
+      closeWalletTopup();
+      toast('WhatsApp open ho raha hai', 'Wallet topup ke liye WhatsApp par redirect kiya ja raha hai.', 'success');
+      window.location.href = whatsappUrl;
     }
 
     function setAuthMode(mode) {
@@ -156,6 +184,7 @@
       $('#admin-card').hidden = user.role !== 'admin';
       updateWallet(user.wallet);
       loadAds();
+      loadPublicStats();
       loadTransactions();
       if (user.role === 'admin') {
         loadAdminTransactions();
@@ -233,6 +262,16 @@
         var result = await callServer('getAds', []);
         if (result.success) renderAds(result.ads || []);
       } catch (error) { /* advertisements are non-critical */ }
+    }
+
+    async function loadPublicStats() {
+      try {
+        var result = await callServer('getStats', []);
+        if (!result.success) return;
+        $('#stat-users').textContent = result.users > 0 ? Number(result.users).toLocaleString('en-IN') + '+' : 'Growing';
+        $('#stat-downloads').textContent = result.downloads > 0 ? Number(result.downloads).toLocaleString('en-IN') + '+' : 'Ready';
+        $('#stat-rating').textContent = result.rating ? result.rating + '/5' : '—';
+      } catch (error) { /* public stats are non-critical */ }
     }
 
     async function loadAdminAds() {
@@ -467,15 +506,6 @@
         input.classList.remove('shake'); void input.offsetWidth; input.classList.add('shake');
         toast('Vehicle number check karo', 'Example format: RJ14AB1234', 'error'); return;
       }
-      // Format select hone se pehle minimum price MParivahan ka ₹10 hai.
-      // RC Card ke ₹15 check ko purchaseAndDownload me dobara kiya jaata hai.
-      if (state.user && Number(state.user.wallet || 0) < priceForDownload('mparivahan')) {
-        var minimum = priceForDownload('mparivahan');
-        showWalletAlert('Wallet balance ' + formatMoney(state.user.wallet || 0) + ' hai. Minimum ' + formatMoney(minimum) + ' chahiye.');
-        setDownloadStatus('Recharge your wallet', 'Download ke liye minimum ' + formatMoney(minimum) + ' wallet balance chahiye.', 'error');
-        toast('Recharge your wallet', 'Wallet balance kam hai. Admin se recharge karwao.', 'error');
-        return;
-      }
       state.pendingVrn = vrn;
       $('#download-options-modal').hidden = false;
       document.body.style.overflow = 'hidden';
@@ -490,13 +520,19 @@
       var vrn = state.pendingVrn;
       var price = priceForDownload(downloadType);
       if (!vrn || state.busy) return;
+      if (downloadType === 'mparivahan') {
+        closeDownloadOptions();
+        setDownloadStatus('MParivahan RC — Coming Soon!', 'Ye format jaldi available hoga. Abhi RC Card option use karein.', 'error');
+        toast('Coming Soon!', 'MParivahan RC format abhi available nahi hai.', 'info');
+        return;
+      }
 
       // Format choose hone ke baad exact price check; low balance par provider call nahi hoga.
       if (state.user && Number(state.user.wallet || 0) < price) {
         closeDownloadOptions();
         showWalletAlert('Wallet balance ' + formatMoney(state.user.wallet || 0) + ' hai. Is format ke liye ' + formatMoney(price) + ' chahiye.');
         setDownloadStatus('Recharge your wallet', 'Is format ke liye minimum ' + formatMoney(price) + ' wallet balance chahiye.', 'error');
-        toast('Recharge your wallet', 'RC Card ke liye ₹15 aur MParivahan ke liye ₹10 chahiye.', 'error');
+        toast('Recharge your wallet', 'RC Card download ke liye ₹15 chahiye.', 'error');
         return;
       }
 
@@ -510,11 +546,14 @@
       try {
         var response = await callServer('buyRc', [vrn, downloadType]);
         if (!response.success) {
-          if (response.code === 'LOW_BALANCE') {
+          if (response.code === 'COMING_SOON') {
+            setDownloadStatus('MParivahan RC — Coming Soon!', response.message, 'error');
+            toast('Coming Soon!', response.message, 'info');
+          } else if (response.code === 'LOW_BALANCE') {
             var requiredPrice = Number(response.requiredPrice || price);
             showWalletAlert('Wallet balance ' + formatMoney(response.wallet || 0) + ' hai. Is format ke liye ' + formatMoney(requiredPrice) + ' chahiye.');
             setDownloadStatus('Recharge your wallet', 'Is format ke liye minimum ' + formatMoney(requiredPrice) + ' wallet balance chahiye.', 'error');
-            toast('Recharge your wallet', 'RC Card ke liye ₹15 aur MParivahan ke liye ₹10 chahiye.', 'error');
+            toast('Recharge your wallet', 'RC Card download ke liye ₹15 chahiye.', 'error');
           } else {
             setDownloadStatus('RC download failed', response.message, 'error');
             toast('RC fetch failed', response.message, 'error');
@@ -661,7 +700,17 @@
     $('#rc-form').addEventListener('submit', function (event) { event.preventDefault(); showDownloadOptions(); });
     $('#close-format-modal').addEventListener('click', closeDownloadOptions);
     $('#download-options-modal').addEventListener('click', function (event) { if (event.target === $('#download-options-modal')) closeDownloadOptions(); });
-    document.addEventListener('keydown', function (event) { if (event.key === 'Escape' && !$('#download-options-modal').hidden) closeDownloadOptions(); });
+    $('#wallet-top-trigger').addEventListener('click', openWalletTopup);
+    $('#wallet-card-trigger').addEventListener('click', openWalletTopup);
+    $('#wallet-card-trigger').addEventListener('keydown', function (event) { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openWalletTopup(); } });
+    $('#close-wallet-topup').addEventListener('click', closeWalletTopup);
+    $('#wallet-topup-modal').addEventListener('click', function (event) { if (event.target === $('#wallet-topup-modal')) closeWalletTopup(); });
+    $('#topup-whatsapp-button').addEventListener('click', redirectToWalletTopupWhatsapp);
+    document.addEventListener('keydown', function (event) {
+      if (event.key !== 'Escape') return;
+      if (!$('#download-options-modal').hidden) closeDownloadOptions();
+      if (!$('#wallet-topup-modal').hidden) closeWalletTopup();
+    });
     $$('.format-option').forEach(function (option) { option.addEventListener('click', function () { purchaseAndDownload(option.dataset.downloadFormat); }); });
     $('#close-download-status').addEventListener('click', function () { $('#download-status').hidden = true; });
     $('#close-wallet-alert').addEventListener('click', hideWalletAlert);
