@@ -20,7 +20,8 @@ const RC_PRICES = Object.freeze({
   'rc-card': 15
 });
 const SESSION_SECONDS = 60 * 60 * 24 * 7;
-const MAX_BODY_BYTES = 1_500_000;
+const MAX_BODY_BYTES = 5_000_000;
+const MAX_AD_BYTES = 40_000;
 const UPSTREAM_TIMEOUT_MS = 30_000;
 
 const MIME_TYPES = {
@@ -36,7 +37,7 @@ const MIME_TYPES = {
   '.ico': 'image/x-icon'
 };
 
-let db = { users: [], transactions: [] };
+let db = { users: [], transactions: [], ads: [] };
 let mutationQueue = Promise.resolve();
 let sheetSyncQueue = Promise.resolve();
 
@@ -48,6 +49,14 @@ function normalizeMobile(value) {
 
 function validMobile(mobile) {
   return /^[6-9]\d{9}$/.test(mobile);
+}
+
+function normalizeEmail(value) {
+  return String(value ?? '').trim().toLowerCase();
+}
+
+function validEmail(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email);
 }
 
 function normalizeVrn(value) {
@@ -65,6 +74,7 @@ function priceForDownload(downloadType) {
 function publicUser(user) {
   return {
     name: user.name,
+    email: user.email || '',
     mobile: user.mobile,
     wallet: Number(user.wallet || 0),
     role: user.role,
@@ -124,11 +134,12 @@ async function loadDatabase() {
     const parsed = JSON.parse(raw);
     db = {
       users: Array.isArray(parsed.users) ? parsed.users : [],
-      transactions: Array.isArray(parsed.transactions) ? parsed.transactions : []
+      transactions: Array.isArray(parsed.transactions) ? parsed.transactions : [],
+      ads: Array.isArray(parsed.ads) ? parsed.ads : []
     };
   } catch (error) {
     if (error.code !== 'ENOENT') throw error;
-    db = { users: [], transactions: [] };
+    db = { users: [], transactions: [], ads: [] };
     await persistDatabase();
   }
 }
@@ -233,12 +244,26 @@ function sheetUserPayload(user) {
   return {
     userId: user.id,
     name: user.name,
+    email: user.email || '',
     mobile: user.mobile,
+    passwordHash: user.passwordHash || '',
+    salt: user.salt || '',
     role: user.role,
     wallet: Number(user.wallet || 0),
     createdAt: user.createdAt,
     lastLogin: user.lastLogin,
     active: Boolean(user.active)
+  };
+}
+
+function sheetAdPayload(ad) {
+  return {
+    id: ad.id,
+    title: ad.title || '',
+    imageData: ad.imageData || '',
+    active: ad.active !== false,
+    createdAt: ad.createdAt,
+    updatedAt: ad.updatedAt
   };
 }
 
@@ -264,11 +289,50 @@ async function syncToSheet(action, payload) {
   }
 }
 
+function imageValue(value) {
+  if (typeof value === 'string' && value.trim()) return value.trim();
+  if (!value || typeof value !== 'object') return '';
+  for (const key of ['base64', 'data', 'url', 'src', 'image']) {
+    if (typeof value[key] === 'string' && value[key].trim()) return value[key].trim();
+  }
+  return '';
+}
+
 function providerImages(payload) {
   const data = payload?.data ?? payload?.result ?? payload;
-  const base64 = data?.base64;
-  if (!base64 || typeof base64 !== 'object' || typeof base64.front !== 'string' || typeof base64.back !== 'string' || !base64.front || !base64.back) return null;
-  return { front: base64.front, back: base64.back };
+  const groups = [data?.base64, data?.images, data?.image, data];
+  for (const group of groups) {
+    if (!group || typeof group !== 'object') continue;
+    const front = imageValue(group.front ?? group.frontImage ?? group.front_image ?? group.frontSide ?? group.front_side);
+    const back = imageValue(group.back ?? group.backImage ?? group.back_image ?? group.backSide ?? group.back_side);
+    if (front && back) return { front, back };
+  }
+  return null;
+}
+
+async function normalizeProviderImage(value) {
+  const source = String(value || '').trim();
+  if (!source) return '';
+  if (/^data:image\//i.test(source)) return source;
+  if (/^https?:\/\//i.test(source)) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15_000);
+    try {
+      const response = await fetch(source, { headers: { Accept: 'image/*', Authorization: RC_API_TOKEN }, signal: controller.signal });
+      if (!response.ok) return '';
+      const contentType = String(response.headers.get('content-type') || 'image/png').split(';')[0];
+      if (!contentType.startsWith('image/')) return '';
+      const bytes = Buffer.from(await response.arrayBuffer());
+      if (bytes.byteLength > 4_000_000) return '';
+      return `data:${contentType};base64,${bytes.toString('base64')}`;
+    } catch {
+      return '';
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+  const raw = source.replace(/\s/g, '');
+  return /^[A-Za-z0-9+/=_-]+$/.test(raw) ? `data:image/png;base64,${raw}` : '';
 }
 
 async function fetchProvider(vrn) {
@@ -288,7 +352,10 @@ async function fetchProvider(vrn) {
     if (!response.ok || payload?.success === false) return { success: false, message: payload?.message || payload?.error || 'RC image nahi mili. Vehicle number check karo.' };
     const images = providerImages(payload);
     if (!images) return { success: false, message: 'Front aur back RC image available nahi hai.' };
-    return { success: true, images };
+    const front = await normalizeProviderImage(images.front);
+    const back = await normalizeProviderImage(images.back);
+    if (!front || !back) return { success: false, message: 'Front aur back RC image download nahi ho paayi.' };
+    return { success: true, images: { front, back } };
   } catch (error) {
     return { success: false, message: error.name === 'AbortError' ? 'RC provider timeout ho gaya.' : 'RC provider se connection nahi ho paaya.' };
   } finally {
@@ -296,19 +363,70 @@ async function fetchProvider(vrn) {
   }
 }
 
+async function restoreFromSheet() {
+  if (!SHEET_WEBHOOK_URL || !SHEET_SYNC_SECRET) return;
+  try {
+    const snapshotUrl = new URL(SHEET_WEBHOOK_URL);
+    snapshotUrl.searchParams.set('action', 'snapshot');
+    snapshotUrl.searchParams.set('secret', SHEET_SYNC_SECRET);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10_000);
+    const response = await fetch(snapshotUrl, { headers: { Accept: 'application/json' }, signal: controller.signal });
+    clearTimeout(timeout);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const snapshot = await response.json();
+    if (!snapshot.success) throw new Error(snapshot.message || 'Snapshot unavailable');
+
+    const accounts = Array.isArray(snapshot.accounts) ? snapshot.accounts : [];
+    const transactions = Array.isArray(snapshot.transactions) ? snapshot.transactions : [];
+    const ads = Array.isArray(snapshot.ads) ? snapshot.ads : [];
+
+    // Google Sheet is the durable source when it contains account records.
+    // Keep a local database if the sheet is empty/unavailable during first setup.
+    if (accounts.length || !db.users.length) db.users = accounts.map((account) => ({
+      id: String(account.userId || account.id || `sheet-${account.mobile}`),
+      name: String(account.name || ''),
+      email: normalizeEmail(account.email),
+      mobile: normalizeMobile(account.mobile),
+      salt: String(account.salt || ''),
+      passwordHash: String(account.passwordHash || ''),
+      wallet: Number(account.wallet || 0),
+      role: account.role === 'admin' ? 'admin' : 'user',
+      createdAt: account.createdAt || new Date().toISOString(),
+      lastLogin: account.lastLogin || account.createdAt || new Date().toISOString(),
+      active: account.active !== false && String(account.active).toLowerCase() !== 'false'
+    }));
+    if (transactions.length || !db.transactions.length) db.transactions = transactions;
+    if (ads.length || !db.ads.length) db.ads = ads.map((ad) => ({
+      id: String(ad.id || crypto.randomUUID()),
+      title: String(ad.title || ''),
+      imageData: String(ad.imageData || ''),
+      active: ad.active !== false && String(ad.active).toLowerCase() !== 'false',
+      createdAt: ad.createdAt || new Date().toISOString(),
+      updatedAt: ad.updatedAt || ad.createdAt || new Date().toISOString()
+    }));
+    await persistDatabase();
+    console.log(`Restored ${db.users.length} account(s), ${db.transactions.length} transaction(s), ${db.ads.length} ad(s) from Google Sheet.`);
+  } catch (error) {
+    console.warn('Google Sheet restore skipped:', error.message);
+  }
+}
+
 async function handleSignup(req, res) {
   const body = await readJson(req);
   const name = String(body.name || '').trim();
+  const email = normalizeEmail(body.email);
   const mobile = normalizeMobile(body.mobile);
   const password = String(body.password || '');
   if (name.length < 2) return sendError(res, 422, 'Apna naam enter karo.');
+  if (!validEmail(email)) return sendError(res, 422, 'Valid email address daalo.');
   if (!validMobile(mobile)) return sendError(res, 422, 'Valid 10-digit mobile number daalo.');
   if (password.length < 6) return sendError(res, 422, 'Password minimum 6 characters ka hona chahiye.');
 
   return withMutationLock(async () => {
     if (findUser(mobile)) return sendError(res, 409, 'Is mobile number ka account pehle se bana hua hai.');
     const salt = crypto.randomBytes(16).toString('hex');
-    const user = { id: crypto.randomUUID(), name, mobile, salt, passwordHash: passwordHash(password, salt), wallet: 0, role: ADMIN_MOBILE && mobile === ADMIN_MOBILE ? 'admin' : 'user', createdAt: new Date().toISOString(), lastLogin: new Date().toISOString(), active: true };
+    const user = { id: crypto.randomUUID(), name, email, mobile, salt, passwordHash: passwordHash(password, salt), wallet: 0, role: ADMIN_MOBILE && mobile === ADMIN_MOBILE ? 'admin' : 'user', createdAt: new Date().toISOString(), lastLogin: new Date().toISOString(), active: true };
     db.users.push(user);
     await persistDatabase();
     queueSheetSync('user', sheetUserPayload(user));
@@ -318,14 +436,45 @@ async function handleSignup(req, res) {
 
 async function handleLogin(req, res) {
   const body = await readJson(req);
+  const email = normalizeEmail(body.email);
   const mobile = normalizeMobile(body.mobile);
   const password = String(body.password || '');
+  if (!validEmail(email) || !validMobile(mobile) || !password) return sendError(res, 422, 'Email, mobile number aur password enter karo.');
   const user = syncAdminRole(findUser(mobile));
-  if (!user || !user.active || !passwordMatches(password, user)) return sendError(res, 401, 'Mobile number ya password galat hai.');
+  if (!user || !user.active || !passwordMatches(password, user)) return sendError(res, 401, 'Email, mobile number ya password galat hai.');
+  // Older accounts may not have an email yet. A successful password login migrates it once.
+  if (!user.email) user.email = email;
+  if (user.email !== email) return sendError(res, 401, 'Email, mobile number ya password galat hai.');
   user.lastLogin = new Date().toISOString();
   await persistDatabase();
   queueSheetSync('user', sheetUserPayload(user));
   return sendJson(res, 200, { success: true, user: publicUser(user) }, { 'Set-Cookie': authCookie(user.id) });
+}
+
+async function handleForgotPassword(req, res) {
+  const body = await readJson(req);
+  const email = normalizeEmail(body.email);
+  const mobile = normalizeMobile(body.mobile);
+  const newPassword = String(body.newPassword || '');
+  const confirmPassword = String(body.confirmPassword || '');
+  if (!validEmail(email) || !validMobile(mobile)) return sendError(res, 422, 'Valid email aur 10-digit mobile number daalo.');
+  if (newPassword.length < 6) return sendError(res, 422, 'New password minimum 6 characters ka hona chahiye.');
+  if (newPassword !== confirmPassword) return sendError(res, 422, 'New password aur confirm password match nahi karte.');
+
+  return withMutationLock(async () => {
+    const user = findUser(mobile);
+    if (!user || !user.active || (user.email && user.email !== email)) {
+      return sendError(res, 404, 'Email aur mobile se account verify nahi ho paaya.');
+    }
+    const salt = crypto.randomBytes(16).toString('hex');
+    user.email = email;
+    user.salt = salt;
+    user.passwordHash = passwordHash(newPassword, salt);
+    user.lastLogin = new Date().toISOString();
+    await persistDatabase();
+    queueSheetSync('user', sheetUserPayload(user));
+    return sendJson(res, 200, { success: true, message: 'Password reset successful. Ab naye password se login karo.' });
+  });
 }
 
 async function handlePurchase(req, res) {
@@ -402,6 +551,77 @@ async function handleAdminRecharge(req, res) {
   });
 }
 
+function publicAd(ad) {
+  return {
+    id: String(ad.id),
+    title: String(ad.title || ''),
+    imageData: String(ad.imageData || ''),
+    active: ad.active !== false,
+    createdAt: ad.createdAt,
+    updatedAt: ad.updatedAt || ad.createdAt
+  };
+}
+
+function validAdImage(imageData) {
+  if (typeof imageData !== 'string') return false;
+  if (!/^data:image\/(?:png|jpe?g|webp|gif);base64,[A-Za-z0-9+/=\s]+$/i.test(imageData)) return false;
+  const base64 = imageData.slice(imageData.indexOf(',') + 1).replace(/\s/g, '');
+  try {
+    return Buffer.from(base64, 'base64').byteLength <= MAX_AD_BYTES;
+  } catch {
+    return false;
+  }
+}
+
+async function handleGetAds(req, res) {
+  const ads = db.ads.filter((ad) => ad.active !== false).sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt))).map(publicAd);
+  return sendJson(res, 200, { success: true, ads });
+}
+
+async function handleAdminGetAds(req, res) {
+  const admin = requireAdmin(req, res);
+  if (!admin) return;
+  return sendJson(res, 200, { success: true, ads: db.ads.slice().reverse().map(publicAd) });
+}
+
+async function handleAdminAddAd(req, res) {
+  const admin = requireAdmin(req, res);
+  if (!admin) return;
+  const body = await readJson(req);
+  const title = String(body.title || 'InstantRCcard offer').trim().slice(0, 120);
+  const imageData = String(body.imageData || '');
+  if (!validAdImage(imageData)) return sendError(res, 422, 'PNG, JPG, WEBP ya GIF image upload karo. Image size 40 KB se kam rakho.');
+  const now = new Date().toISOString();
+  const ad = { id: crypto.randomUUID(), title, imageData, active: true, createdAt: now, updatedAt: now };
+  db.ads.push(ad);
+  await persistDatabase();
+  queueSheetSync('ad', sheetAdPayload(ad));
+  return sendJson(res, 200, { success: true, ad: publicAd(ad) });
+}
+
+async function handleAdminDeleteAd(req, res, adId) {
+  const admin = requireAdmin(req, res);
+  if (!admin) return;
+  const before = db.ads.length;
+  db.ads = db.ads.filter((ad) => String(ad.id) !== String(adId));
+  if (db.ads.length === before) return sendError(res, 404, 'Advertisement nahi mila.');
+  await persistDatabase();
+  queueSheetSync('adDelete', { id: String(adId) });
+  return sendJson(res, 200, { success: true, message: 'Advertisement remove ho gaya.' });
+}
+
+async function handleAdminToggleAd(req, res, adId) {
+  const admin = requireAdmin(req, res);
+  if (!admin) return;
+  const ad = db.ads.find((item) => String(item.id) === String(adId));
+  if (!ad) return sendError(res, 404, 'Advertisement nahi mila.');
+  ad.active = ad.active === false;
+  ad.updatedAt = new Date().toISOString();
+  await persistDatabase();
+  queueSheetSync('ad', sheetAdPayload(ad));
+  return sendJson(res, 200, { success: true, ad: publicAd(ad) });
+}
+
 async function serveStatic(req, res, pathname) {
   const requested = pathname === '/' ? '/index.html' : pathname;
   // Supports both the packaged public/ layout and the flat GitHub upload layout.
@@ -439,7 +659,9 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'POST' && pathname === '/api/auth/signup') return await handleSignup(req, res);
     if (req.method === 'POST' && pathname === '/api/auth/login') return await handleLogin(req, res);
+    if (req.method === 'POST' && pathname === '/api/auth/forgot-password') return await handleForgotPassword(req, res);
     if (req.method === 'POST' && pathname === '/api/auth/logout') return sendJson(res, 200, { success: true }, { 'Set-Cookie': clearAuthCookie() });
+    if (req.method === 'GET' && pathname === '/api/ads') return await handleGetAds(req, res);
     if (req.method === 'GET' && pathname === '/api/account/transactions') {
       const user = currentUser(req);
       if (!user) return sendError(res, 401, 'Session expire ho gaya.');
@@ -448,6 +670,11 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && pathname === '/api/rc/purchase') return await handlePurchase(req, res);
     if (req.method === 'POST' && pathname === '/api/admin/users/search') return await handleAdminSearch(req, res);
     if (req.method === 'POST' && pathname === '/api/admin/recharge') return await handleAdminRecharge(req, res);
+    if (req.method === 'GET' && pathname === '/api/admin/ads') return await handleAdminGetAds(req, res);
+    if (req.method === 'POST' && pathname === '/api/admin/ads') return await handleAdminAddAd(req, res);
+    const adRoute = pathname.match(/^\/api\/admin\/ads\/([^/]+)$/);
+    if (adRoute && req.method === 'DELETE') return await handleAdminDeleteAd(req, res, decodeURIComponent(adRoute[1]));
+    if (adRoute && req.method === 'POST') return await handleAdminToggleAd(req, res, decodeURIComponent(adRoute[1]));
     if (req.method === 'GET' && pathname === '/api/admin/transactions') {
       const admin = requireAdmin(req, res);
       if (!admin) return;
@@ -462,6 +689,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 await loadDatabase();
+await restoreFromSheet();
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`InstantRCcard running on http://0.0.0.0:${PORT}`);
   console.log(`RC provider: ${RC_API_URL}`);

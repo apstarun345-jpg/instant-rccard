@@ -192,8 +192,48 @@
     .support-link { display: inline-flex; align-items: center; gap: 8px; padding: 8px 11px; border: 1px solid #dfe9f6; border-radius: 10px; color: #5f759a; background: #fff; font-size: 11px; font-weight: 850; transition: all .2s; }
     .support-link:hover { color: var(--blue); border-color: #a8c4f7; background: var(--blue-50); }
     .support-link.whatsapp:hover { color: #159b68; border-color: #a5e8cc; background: #eefcf6; }
-    .whatsapp-icon { display: block; width: 34px; height: 34px; flex: 0 0 34px; border-radius: 50%; object-fit: cover; box-shadow: 0 4px 10px rgba(22, 163, 74, .20); }
+    .whatsapp-icon { display: block; width: 40px; height: 40px; flex: 0 0 40px; border-radius: 50%; object-fit: cover; box-shadow: 0 4px 10px rgba(22, 163, 74, .20); }
     .format-option b i { margin-left: 5px; color: var(--blue); font-size: 12px; font-style: normal; font-weight: 900; }
+    .password-wrap { position: relative; }
+    .password-wrap input { padding-right: 59px; }
+    .password-toggle { position: absolute; top: 50%; right: 8px; transform: translateY(-50%); border: 0; padding: 5px 6px; border-radius: 7px; color: var(--blue); background: var(--blue-50); font-size: 10px; font-weight: 850; }
+    .password-toggle:hover { background: var(--blue-100); }
+    .forgot-link { justify-self: center; border: 0; padding: 1px 5px; color: var(--blue); background: transparent; font-size: 12px; font-weight: 800; }
+    .forgot-link:hover { text-decoration: underline; }
+    .ad-ticker { display: flex; align-items: center; gap: 15px; overflow: hidden; min-height: 82px; margin: 0 0 18px; padding: 10px 13px; border: 1px solid #dbe8f8; border-radius: 18px; background: rgba(255,255,255,.90); box-shadow: var(--shadow-soft); }
+    .ad-ticker[hidden] { display: none; }
+    .ad-ticker-label { display: grid; gap: 4px; min-width: 145px; padding-left: 4px; }
+    .ad-ticker-label span { color: var(--blue); font-size: 10px; font-weight: 900; letter-spacing: .17em; }
+    .ad-ticker-label b { color: var(--blue-950); font-size: 12px; }
+    .ad-viewport { min-width: 0; flex: 1; overflow: hidden; }
+    .ad-track { display: flex; align-items: center; gap: 12px; width: max-content; animation: ad-scroll 28s linear infinite; }
+    .ad-ticker:hover .ad-track { animation-play-state: paused; }
+    .ad-item { display: flex; align-items: center; gap: 9px; width: 255px; height: 58px; padding: 4px 9px 4px 4px; border: 1px solid #e5edf8; border-radius: 12px; background: #fbfdff; }
+    .ad-item img { width: 132px; height: 48px; flex: 0 0 132px; border-radius: 8px; object-fit: cover; background: #eef4ff; }
+    .ad-item span { max-width: 100px; overflow: hidden; color: #5a6f91; font-size: 10px; font-weight: 850; line-height: 1.3; text-overflow: ellipsis; }
+    .admin-layout { display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 20px; align-items: start; }
+    .admin-sidebar { display: grid; gap: 8px; padding: 8px; border: 1px solid #e2ebf8; border-radius: 14px; background: #f7faff; }
+    .admin-side-button { width: 100%; border: 0; padding: 12px 10px; border-radius: 10px; color: #7d8ea8; background: transparent; font-size: 11px; font-weight: 850; text-align: left; }
+    .admin-side-button:hover, .admin-side-button.active { color: var(--blue); background: #e4efff; }
+    .admin-content { min-width: 0; }
+    .ads-manager-heading h4 { margin: 6px 0 4px; color: var(--blue-950); font-size: 16px; }
+    .ads-manager-heading p { margin: 0 0 15px; color: var(--muted); font-size: 11px; }
+    .admin-ad-form { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 10px; align-items: end; }
+    .admin-ad-form label { display: block; margin-bottom: 6px; color: #70819c; font-size: 10px; font-weight: 850; }
+    .admin-ad-form input[type="text"], .admin-ad-form input[type="file"] { width: 100%; min-height: 38px; padding: 8px 10px; border: 1px solid #dfe8f5; border-radius: 9px; color: var(--ink); background: #fff; font-size: 11px; }
+    .admin-ad-form input[type="file"] { padding: 9px 8px; }
+    .admin-help { display: block; margin-top: 8px; color: #8b9ab0; font-size: 10px; }
+    .admin-ads-list { display: grid; gap: 9px; margin-top: 16px; }
+    .admin-ad-row { display: grid; grid-template-columns: 120px minmax(0, 1fr) auto auto; gap: 10px; align-items: center; padding: 8px; border: 1px solid #e2ebf8; border-radius: 12px; background: #fff; }
+    .admin-ad-row img { width: 120px; height: 56px; border-radius: 8px; object-fit: cover; background: #eef4ff; }
+    .admin-ad-row b, .admin-ad-row small { display: block; }
+    .admin-ad-row b { overflow: hidden; color: #536883; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+    .admin-ad-row small { margin-top: 3px; color: #91a0b5; font-size: 9px; }
+    .ad-toggle-button, .ad-delete-button { border: 1px solid #dce7f5; padding: 7px 8px; border-radius: 8px; color: var(--blue); background: #f6f9ff; font-size: 9px; font-weight: 850; }
+    .ad-delete-button { color: #c64d61; background: #fff6f7; }
+    .ad-toggle-button:hover { background: #e8f1ff; }
+    .ad-delete-button:hover { background: #ffecef; }
+    @keyframes ad-scroll { from { transform: translateX(0); } to { transform: translateX(calc(-50% - 6px)); } }
     .fetching-backdrop { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 18px; background: rgba(8, 25, 69, .48); backdrop-filter: blur(8px); }
     .fetching-backdrop[hidden] { display: none; }
     .fetching-modal { display: grid; justify-items: center; gap: 9px; width: min(340px, 100%); padding: 29px 24px; border: 1px solid rgba(255,255,255,.82); border-radius: 22px; background: rgba(255,255,255,.98); box-shadow: 0 30px 80px rgba(8,31,86,.30); animation: modal-pop .24s ease both; text-align: center; }
@@ -369,6 +409,18 @@
       .admin-tools > div:first-child { grid-column: 1 / -1; }
       .admin-tools > div:nth-child(3) { grid-column: 1 / -1; }
       .admin-tools .small-blue { width: 100%; }
+      .admin-layout { grid-template-columns: 1fr; gap: 13px; }
+      .admin-sidebar { grid-template-columns: 1fr 1fr; }
+      .admin-side-button { text-align: center; }
+      .admin-ad-form { grid-template-columns: 1fr; }
+      .admin-ad-form .small-blue { width: 100%; }
+      .admin-ad-row { grid-template-columns: 82px minmax(0, 1fr) auto; }
+      .admin-ad-row img { width: 82px; height: 48px; }
+      .admin-ad-row .ad-toggle-button { grid-column: 2; }
+      .admin-ad-row .ad-delete-button { grid-column: 3; grid-row: 2; }
+      .ad-ticker { align-items: flex-start; flex-direction: column; gap: 7px; padding: 11px; }
+      .ad-ticker-label { min-width: 0; }
+      .ad-viewport { width: 100%; }
       .admin-user-result { align-items: flex-start; flex-direction: column; }
       .admin-result-balance small { text-align: left; }
       .auth-shell { width: calc(100% - 30px); }
@@ -410,20 +462,33 @@
         <div id="login-copy"><h2>Welcome back 👋</h2><p>Apne InstantRCcard account me login karo.</p></div>
         <div id="signup-copy" hidden><h2>Account banao ✨</h2><p>Mobile number se apna wallet account create karo.</p></div>
         <form class="auth-form" id="login-form">
+          <div class="field"><label>Email address</label><input id="login-email" type="email" placeholder="you@example.com" autocomplete="email" /></div>
           <div class="field"><label>Mobile number</label><div class="phone-input"><span>+91</span><input id="login-mobile" type="tel" inputmode="numeric" maxlength="10" placeholder="9876543210" autocomplete="tel" /></div></div>
-          <div class="field"><label>Password</label><input id="login-password" type="password" placeholder="Apna password daalo" autocomplete="current-password" /></div>
+          <div class="field password-field"><label>Password</label><div class="password-wrap"><input id="login-password" type="password" placeholder="Apna password daalo" autocomplete="current-password" /><button class="password-toggle" data-toggle-password="login-password" type="button">Show</button></div></div>
           <div class="auth-error" id="login-error"></div>
           <button class="blue-button" type="submit" id="login-button">Login karo <span>→</span></button>
+          <button class="forgot-link" id="open-forgot" type="button">Forgot password?</button>
           <p class="form-footnote">Account nahi hai? Upar <b>Create account</b> select karo.</p>
           <button class="install-button" id="install-auth-button" type="button" hidden>＋ Install InstantRCcard app</button>
         </form>
         <form class="auth-form" id="signup-form" hidden>
           <div class="field"><label>Full name</label><input id="signup-name" type="text" placeholder="Apna naam" autocomplete="name" /></div>
+          <div class="field"><label>Email address</label><input id="signup-email" type="email" placeholder="you@example.com" autocomplete="email" /></div>
           <div class="field"><label>Mobile number</label><div class="phone-input"><span>+91</span><input id="signup-mobile" type="tel" inputmode="numeric" maxlength="10" placeholder="9876543210" autocomplete="tel" /></div></div>
-          <div class="field"><label>Password</label><input id="signup-password" type="password" placeholder="Minimum 6 characters" autocomplete="new-password" /></div>
+          <div class="field password-field"><label>Password</label><div class="password-wrap"><input id="signup-password" type="password" placeholder="Minimum 6 characters" autocomplete="new-password" /><button class="password-toggle" data-toggle-password="signup-password" type="button">Show</button></div></div>
           <div class="auth-error" id="signup-error"></div>
           <button class="blue-button" type="submit" id="signup-button">Account banao <span>→</span></button>
           <p class="form-footnote">Wallet recharge ke baad MParivahan ₹10 aur RC Card ₹15 me download hoga.</p>
+        </form>
+        <form class="auth-form" id="forgot-form" hidden>
+          <div id="forgot-copy"><h2>Password reset</h2><p>Email aur mobile verify karke naya password set karo.</p></div>
+          <div class="field"><label>Email address</label><input id="forgot-email" type="email" placeholder="you@example.com" autocomplete="email" /></div>
+          <div class="field"><label>Mobile number</label><div class="phone-input"><span>+91</span><input id="forgot-mobile" type="tel" inputmode="numeric" maxlength="10" placeholder="9876543210" autocomplete="tel" /></div></div>
+          <div class="field password-field"><label>New password</label><div class="password-wrap"><input id="forgot-password" type="password" placeholder="Minimum 6 characters" autocomplete="new-password" /><button class="password-toggle" data-toggle-password="forgot-password" type="button">Show</button></div></div>
+          <div class="field password-field"><label>Confirm new password</label><div class="password-wrap"><input id="forgot-confirm-password" type="password" placeholder="Password dobara daalo" autocomplete="new-password" /><button class="password-toggle" data-toggle-password="forgot-confirm-password" type="button">Show</button></div></div>
+          <div class="auth-error" id="forgot-error"></div>
+          <button class="blue-button" type="submit" id="forgot-button">Set new password <span>→</span></button>
+          <button class="forgot-link" id="back-to-login" type="button">Back to login</button>
         </form>
       </div>
     </section>
@@ -436,6 +501,10 @@
 
     <main class="dashboard" id="dashboard" hidden>
       <div class="welcome-line"><div><div class="section-label">INSTANT RCCARD DESK</div><h1 id="welcome-title">RC download karo.</h1><p id="welcome-subtitle">Vehicle number dalo aur combined PNG seedha download karo.</p></div><div class="price-note"><b>₹10 / ₹15</b><span>MParivahan / RC Card<br />front + back PNG</span></div></div>
+      <section class="ad-ticker" id="ad-ticker" hidden aria-label="Current offers">
+        <div class="ad-ticker-label"><span>OFFERS</span><b>InstantRCcard updates</b></div>
+        <div class="ad-viewport"><div class="ad-track" id="ad-track"></div></div>
+      </section>
       <section class="download-hero" id="app">
         <div class="hero-content"><div class="section-label">QUICK RC DOWNLOAD</div><h2>Gadi number dalo.</h2><p>Front aur back images ko aapke selected format me combine karke seedha PNG download kar denge.</p><form class="vrn-form" id="rc-form"><input id="vrn-input" type="text" maxlength="16" autocapitalize="characters" autocomplete="off" placeholder="RJ14AB1234" /><button id="rc-button" type="submit"><span id="rc-button-label">Download RC</span><span>↗</span></button></form><p class="hero-hint">Example: RJ14AB1234 • Format choose karein • Selected format ka charge hi successful download par deduct hoga.</p><div class="download-status" id="download-status" role="status" hidden><span class="status-icon" id="download-status-icon">✓</span><span><b id="download-status-title">Download ready</b><small id="download-status-text"></small></span><button id="close-download-status" type="button" aria-label="Close status">×</button></div></div>
         <div class="hero-card-art" aria-hidden="true"><div class="hero-rc back"></div><div class="hero-rc"><div class="mini-top"><span>🇮🇳 INDIA RC</span><b>RC</b></div><div class="mini-main"><div class="mini-lines"><i></i><i></i><i></i></div><div><small>REGISTRATION NO.</small><strong>RJ 14 AB 1234</strong></div></div><div class="mini-bottom"><span>SMART CARD</span><span>VALID</span></div></div></div>
@@ -443,9 +512,30 @@
       <div class="wallet-alert" id="wallet-alert" role="alert" hidden><span class="wallet-alert-icon">!</span><span><b>Recharge your wallet</b><small id="wallet-alert-text">Format ke hisaab se ₹10 ya ₹15 wallet balance chahiye.</small></span><button id="close-wallet-alert" type="button" aria-label="Close alert">×</button></div>
 
       <div class="content-grid">
-        <div class="side-stack"><section class="panel balance-card wallet-card"><div class="section-label">CURRENT WALLET</div><div class="balance-amount" id="balance-large">₹0</div><p>Admin recharge ke baad RC download start karo.</p></section><section class="panel account-card"><div class="card-heading"><h3>Account details</h3></div><div class="account-row"><span class="account-icon">◉</span><span><b id="account-name">User</b><span>Registered name</span></span></div><div class="account-row"><span class="account-icon">⌕</span><span><b id="account-mobile">+91 —</b><span>Mobile account</span></span></div><div class="account-row"><span class="account-icon">₹</span><span><b>MParivahan ₹10 · RC Card ₹15</b><span>Format ke hisaab se charge</span></span></div></section></div>
+        <div class="side-stack"><section class="panel balance-card wallet-card"><div class="section-label">CURRENT WALLET</div><div class="balance-amount" id="balance-large">₹0</div><p>Admin recharge ke baad RC download start karo.</p></section><section class="panel account-card"><div class="card-heading"><h3>Account details</h3></div><div class="account-row"><span class="account-icon">◉</span><span><b id="account-name">User</b><span>Registered name</span></span></div><div class="account-row"><span class="account-icon">⌕</span><span><b id="account-mobile">+91 —</b><span>Mobile account</span></span></div><div class="account-row"><span class="account-icon">@</span><span><b id="account-email">Email not set</b><span>Recovery email</span></span></div><div class="account-row"><span class="account-icon">₹</span><span><b>MParivahan ₹10 · RC Card ₹15</b><span>Format ke hisaab se charge</span></span></div></section></div>
         <section class="panel transactions-card" id="transactions"><div class="card-heading"><h3>Recent wallet history</h3><button id="refresh-transactions" type="button">Refresh ↻</button></div><div class="transaction-list" id="transaction-list"><div class="empty-list">Abhi koi transaction nahi hai.</div></div></section>
-        <section class="panel admin-card" id="admin-card" hidden><div class="admin-header"><div><div class="section-label">OWNER ACCESS</div><h3>Admin wallet control</h3></div><span class="admin-tag">ADMIN ONLY</span></div><div class="admin-tools"><div><label>User mobile number</label><input id="admin-search-mobile" type="tel" inputmode="numeric" maxlength="10" placeholder="9876543210" /></div><button class="blue-button small-blue" id="admin-search-button" type="button">Find user</button><div><label>Recharge amount ₹</label><input id="admin-amount" type="number" min="1" step="1" placeholder="100" /></div><button class="blue-button small-blue" id="admin-recharge-button" type="button" disabled>Recharge</button></div><div class="admin-user-result" id="admin-user-result" hidden><div><h4 id="admin-user-name">User</h4><p id="admin-user-mobile">+91 —</p></div><div class="admin-result-balance" id="admin-user-balance">₹0<small>current wallet</small></div></div><div class="admin-tx"><h4>Latest platform transactions</h4><div class="table-wrap"><table class="admin-table"><thead><tr><th>TIME</th><th>MOBILE</th><th>TYPE</th><th>AMOUNT</th><th>VRN</th></tr></thead><tbody id="admin-tx-body"><tr><td colspan="5">No transactions yet.</td></tr></tbody></table></div></div></section>
+        <section class="panel admin-card" id="admin-card" hidden>
+          <div class="admin-header"><div><div class="section-label">OWNER ACCESS</div><h3>Admin control center</h3></div><span class="admin-tag">ADMIN ONLY</span></div>
+          <div class="admin-layout">
+            <aside class="admin-sidebar" aria-label="Admin sections">
+              <button class="admin-side-button active" data-admin-section="wallet" type="button">₹ Wallet control</button>
+              <button class="admin-side-button" data-admin-section="ads" type="button">▣ Advertisement</button>
+            </aside>
+            <div class="admin-content">
+              <div id="admin-wallet-section">
+                <div class="admin-tools"><div><label>User mobile number</label><input id="admin-search-mobile" type="tel" inputmode="numeric" maxlength="10" placeholder="9876543210" /></div><button class="blue-button small-blue" id="admin-search-button" type="button">Find user</button><div><label>Recharge amount ₹</label><input id="admin-amount" type="number" min="1" step="1" placeholder="100" /></div><button class="blue-button small-blue" id="admin-recharge-button" type="button" disabled>Recharge</button></div>
+                <div class="admin-user-result" id="admin-user-result" hidden><div><h4 id="admin-user-name">User</h4><p id="admin-user-mobile">+91 —</p></div><div class="admin-result-balance" id="admin-user-balance">₹0<small>current wallet</small></div></div>
+                <div class="admin-tx"><h4>Latest platform transactions</h4><div class="table-wrap"><table class="admin-table"><thead><tr><th>TIME</th><th>MOBILE</th><th>TYPE</th><th>AMOUNT</th><th>VRN</th></tr></thead><tbody id="admin-tx-body"><tr><td colspan="5">No transactions yet.</td></tr></tbody></table></div></div>
+              </div>
+              <div id="admin-ads-section" hidden>
+                <div class="ads-manager-heading"><div><div class="section-label">PUBLIC BANNERS</div><h4>Offer ya festival advertisement</h4><p>Image upload karo; active users ke main page par horizontal ticker me show hogi.</p></div></div>
+                <div class="admin-ad-form"><div><label>Title / short message</label><input id="admin-ad-title" type="text" maxlength="120" placeholder="Diwali offer — RC download ₹10" /></div><div><label>Banner image</label><input id="admin-ad-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif" /></div><button class="blue-button small-blue" id="admin-ad-upload" type="button">Upload</button></div>
+                <div class="admin-help">JPG, PNG, WEBP ya GIF. Mobile banner ko horizontal rakho; image automatically compress hogi.</div>
+                <div class="admin-ads-list" id="admin-ads-list"><div class="empty-list">Abhi koi advertisement nahi hai.</div></div>
+              </div>
+            </div>
+          </div>
+        </section>
       </div>
       <footer class="site-footer">
         <div class="site-footer-copy"><b>Need help with your RC?</b><small>Support available for recharge, download and account issues.</small></div>
