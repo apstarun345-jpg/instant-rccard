@@ -376,6 +376,28 @@
     .admin-table .credit { color: var(--green); font-weight: 800; }
     .admin-table .debit { color: var(--red); font-weight: 800; }
 
+    .admin-kpi-bar { margin-bottom: 18px; padding-bottom: 17px; border-bottom: 1px solid #e2ebf8; }
+    .admin-kpi-filters { display: flex; flex-wrap: wrap; align-items: end; gap: 9px; margin-bottom: 12px; }
+    .admin-kpi-filters label { display: block; margin-bottom: 6px; color: #70819c; font-size: 10px; font-weight: 800; }
+    .admin-kpi-filters input[type="date"] { height: 38px; padding: 0 10px; border: 1px solid #dfe8f5; border-radius: 9px; color: var(--ink); background: white; font-size: 11px; }
+    .ghost-button { border: 1px solid #dfe8f5; color: #70819c; background: #fff; }
+    .admin-kpi-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+    .admin-kpi-card { padding: 12px 13px; border: 1px solid #e2ebf8; border-radius: 12px; background: #fff; }
+    .admin-kpi-card small { display: block; color: #8b9ab0; font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; }
+    .admin-kpi-card b { display: block; margin-top: 6px; color: var(--blue-950); font-size: 17px; font-weight: 800; letter-spacing: -.02em; }
+    .admin-kpi-card.range-card { grid-column: span 2; border-color: #bcd4ff; background: linear-gradient(135deg, #eef4ff, #e4efff); }
+    .admin-kpi-card.range-card span { display: block; margin-top: 3px; color: #4a71c9; font-size: 10px; font-weight: 700; }
+    .admin-rating-row { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; margin-top: 14px; }
+    .admin-rating-row label { display: block; margin-bottom: 6px; color: #70819c; font-size: 10px; font-weight: 800; }
+    .admin-rating-row input { width: 100px; height: 38px; padding: 0 10px; border: 1px solid #dfe8f5; border-radius: 9px; color: var(--ink); background: white; font-size: 11px; }
+    .admin-rating-row small { color: #8b9ab0; font-size: 10px; }
+    @media (max-width: 720px) {
+      .admin-kpi-grid { grid-template-columns: 1fr 1fr; }
+      .admin-kpi-card.range-card { grid-column: 1 / -1; }
+      .admin-kpi-filters { flex-direction: column; align-items: stretch; }
+      .admin-kpi-filters > div, .admin-kpi-filters button { width: 100%; }
+    }
+
     .session-loading { position: fixed; inset: 0; z-index: 50; display: grid; place-content: center; gap: 10px; text-align: center; color: var(--blue-900); background: rgba(247,250,255,.97); }
     .session-loading .loader { width: 25px; height: 25px; margin: 0 auto 4px; border-width: 3px; }
     .session-loading b { font-size: 14px; font-weight: 800; }
@@ -543,6 +565,30 @@
         <section class="panel transactions-card" id="transactions"><div class="card-heading"><h3>Recent wallet history</h3><button id="refresh-transactions" type="button">Refresh ↻</button></div><div class="transaction-list" id="transaction-list"><div class="empty-list">Abhi koi transaction nahi hai.</div></div></section>
         <section class="panel admin-card" id="admin-card" hidden>
           <div class="admin-header"><div><div class="section-label">OWNER ACCESS</div><h3>Admin control center</h3></div><span class="admin-tag">ADMIN ONLY</span></div>
+          <div class="admin-kpi-bar">
+            <div class="admin-kpi-filters">
+              <div><label>From date</label><input id="admin-stats-from" type="date" /></div>
+              <div><label>To date</label><input id="admin-stats-to" type="date" /></div>
+              <button class="blue-button small-blue" id="admin-stats-apply" type="button">Apply filter</button>
+              <button class="ghost-button small-blue" id="admin-stats-reset" type="button">Reset</button>
+            </div>
+            <div class="admin-kpi-grid" id="admin-kpi-grid">
+              <div class="admin-kpi-card"><small>Total users</small><b id="kpi-total-users">0</b></div>
+              <div class="admin-kpi-card"><small>Active users</small><b id="kpi-active-users">0</b></div>
+              <div class="admin-kpi-card"><small>Today topup</small><b id="kpi-today-topup">₹0</b></div>
+              <div class="admin-kpi-card"><small>This month topup</small><b id="kpi-month-topup">₹0</b></div>
+              <div class="admin-kpi-card"><small>Last month topup</small><b id="kpi-last-month-topup">₹0</b></div>
+              <div class="admin-kpi-card"><small>Today RC downloaded</small><b id="kpi-today-rc">0</b></div>
+              <div class="admin-kpi-card"><small>This month RC downloaded</small><b id="kpi-month-rc">0</b></div>
+              <div class="admin-kpi-card"><small>Last month RC downloaded</small><b id="kpi-last-month-rc">0</b></div>
+              <div class="admin-kpi-card range-card" id="admin-kpi-range" hidden><small id="kpi-range-label">Selected range</small><b id="kpi-range-topup">₹0</b><span id="kpi-range-rc">0 RC downloads</span></div>
+            </div>
+            <div class="admin-rating-row">
+              <div><label>Homepage rating (0–5)</label><input id="admin-rating-input" type="number" min="0" max="5" step="0.1" placeholder="4.8" /></div>
+              <button class="blue-button small-blue" id="admin-rating-save" type="button">Save rating</button>
+              <small>Yahi number site ke "verified rating" section me niche show hoga.</small>
+            </div>
+          </div>
           <div class="admin-layout">
             <aside class="admin-sidebar" aria-label="Admin sections">
               <button class="admin-side-button active" data-admin-section="wallet" type="button">₹ Wallet control</button>

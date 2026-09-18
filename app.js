@@ -66,6 +66,13 @@
       else if (name === 'adminFindUser') { url = '/api/admin/users/search'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ mobile: args[0] }); }
       else if (name === 'adminRecharge') { url = '/api/admin/recharge'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ mobile: args[0], amount: args[1], note: args[2] }); }
       else if (name === 'adminGetTransactions') { url = '/api/admin/transactions'; }
+      else if (name === 'adminGetStats') {
+        var qs = new URLSearchParams();
+        if (args[0] && args[0].from) qs.set('from', args[0].from);
+        if (args[0] && args[0].to) qs.set('to', args[0].to);
+        url = '/api/admin/stats' + (qs.toString() ? '?' + qs.toString() : '');
+      }
+      else if (name === 'adminSetRating') { url = '/api/admin/settings/rating'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ rating: args[0] }); }
       else if (name === 'adminGetAds') { url = '/api/admin/ads'; }
       else if (name === 'adminAddAd') { url = '/api/admin/ads'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ title: args[0], imageData: args[1] }); }
       else if (name === 'adminDeleteAd') { url = '/api/admin/ads/' + encodeURIComponent(args[0]); options.method = 'DELETE'; }
@@ -189,6 +196,7 @@
       if (user.role === 'admin') {
         loadAdminTransactions();
         loadAdminAds();
+        loadAdminStats();
       }
     }
 
@@ -614,6 +622,7 @@
         $('#admin-user-balance').innerHTML = formatMoney(response.user.wallet) + '<small>current wallet</small>';
         $('#admin-amount').value = '';
         await loadAdminTransactions();
+        loadAdminStats();
         toast('Recharge successful', response.user.name + ' ke wallet me ' + formatMoney(amount) + ' add ho gaye.', 'success');
       } catch (error) { toast('Recharge error', error.message, 'error'); }
       finally { setButtonLoading(button, false, 'Recharge'); }
@@ -631,6 +640,66 @@
           return '<tr><td>' + escapeHtml(formatDate(tx.time)) + '</td><td>' + escapeHtml(tx.mobile) + '</td><td>' + escapeHtml(tx.type) + '</td><td class="' + (credit ? 'credit' : 'debit') + '">' + (credit ? '+' : '') + escapeHtml(formatMoney(tx.amount)) + '</td><td>' + escapeHtml(tx.vrn || '—') + '</td></tr>';
         }).join('');
       } catch (error) { /* admin table is non-critical */ }
+    }
+
+    function renderAdminStats(stats) {
+      if (!stats) return;
+      $('#kpi-total-users').textContent = Number(stats.totalUsers || 0).toLocaleString('en-IN');
+      $('#kpi-active-users').textContent = Number(stats.activeUsers || 0).toLocaleString('en-IN');
+      $('#kpi-today-topup').textContent = formatMoney(stats.todayTopup);
+      $('#kpi-month-topup').textContent = formatMoney(stats.monthTopup);
+      $('#kpi-last-month-topup').textContent = formatMoney(stats.lastMonthTopup);
+      $('#kpi-today-rc').textContent = Number(stats.todayRcDownloads || 0).toLocaleString('en-IN');
+      $('#kpi-month-rc').textContent = Number(stats.monthRcDownloads || 0).toLocaleString('en-IN');
+      $('#kpi-last-month-rc').textContent = Number(stats.lastMonthRcDownloads || 0).toLocaleString('en-IN');
+      var rangeCard = $('#admin-kpi-range');
+      if (stats.range) {
+        rangeCard.hidden = false;
+        $('#kpi-range-label').textContent = stats.range.from + ' se ' + stats.range.to;
+        $('#kpi-range-topup').textContent = formatMoney(stats.range.topup);
+        $('#kpi-range-rc').textContent = Number(stats.range.rcDownloads || 0).toLocaleString('en-IN') + ' RC downloads • ' + Number(stats.range.newUsers || 0).toLocaleString('en-IN') + ' new users';
+      } else {
+        rangeCard.hidden = true;
+      }
+    }
+
+    async function loadAdminStats(range) {
+      if (!state.user || state.user.role !== 'admin') return;
+      try {
+        var response = await callServer('adminGetStats', [range || null]);
+        if (response.success) renderAdminStats(response.stats);
+      } catch (error) { /* KPI dashboard is non-critical */ }
+      try {
+        var statsResult = await callServer('getStats', []);
+        if (statsResult.success && statsResult.rating) $('#admin-rating-input').value = statsResult.rating;
+      } catch (error) { /* rating prefill is non-critical */ }
+    }
+
+    function applyAdminStatsFilter() {
+      var from = $('#admin-stats-from').value;
+      var to = $('#admin-stats-to').value;
+      if (!from || !to) { toast('Date filter', 'From aur To dono date choose karo.', 'error'); return; }
+      if (from > to) { toast('Date filter', 'From date, To date se pehle honi chahiye.', 'error'); return; }
+      loadAdminStats({ from: from, to: to });
+    }
+
+    function resetAdminStatsFilter() {
+      $('#admin-stats-from').value = '';
+      $('#admin-stats-to').value = '';
+      loadAdminStats();
+    }
+
+    async function saveAdminRating() {
+      var button = $('#admin-rating-save');
+      var value = $('#admin-rating-input').value.trim();
+      setButtonLoading(button, true, 'Save rating');
+      try {
+        var response = await callServer('adminSetRating', [value]);
+        if (!response.success) throw new Error(response.message || 'Rating save nahi ho paayi.');
+        toast('Rating updated', 'Homepage rating ab ' + (value || '—') + ' show hogi.', 'success');
+        loadPublicStats();
+      } catch (error) { toast('Rating error', error.message, 'error'); }
+      finally { setButtonLoading(button, false, 'Save rating'); }
     }
 
     $$('.auth-tab').forEach(function (button) { button.addEventListener('click', function () { setAuthMode(button.dataset.authTab); }); });
@@ -721,6 +790,9 @@
     $('#refresh-transactions').addEventListener('click', loadTransactions);
     $('#admin-search-button').addEventListener('click', findAdminUser);
     $('#admin-recharge-button').addEventListener('click', rechargeAdminUser);
+    $('#admin-stats-apply').addEventListener('click', applyAdminStatsFilter);
+    $('#admin-stats-reset').addEventListener('click', resetAdminStatsFilter);
+    $('#admin-rating-save').addEventListener('click', saveAdminRating);
     $('#admin-ad-upload').addEventListener('click', uploadAdvertisement);
     $$('[data-admin-section]').forEach(function (button) { button.addEventListener('click', function () { setAdminSection(button.dataset.adminSection); }); });
     $$('.topbar-nav button').forEach(function (button) { button.addEventListener('click', function () { var target = $('#' + button.dataset.scroll); if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' }); $$('.topbar-nav button').forEach(function (item) { item.classList.remove('active'); }); button.classList.add('active'); }); });

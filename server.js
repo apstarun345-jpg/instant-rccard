@@ -37,7 +37,7 @@ const MIME_TYPES = {
   '.ico': 'image/x-icon'
 };
 
-let db = { users: [], transactions: [], ads: [] };
+let db = { users: [], transactions: [], ads: [], settings: {} };
 let mutationQueue = Promise.resolve();
 let sheetSyncQueue = Promise.resolve();
 
@@ -135,11 +135,12 @@ async function loadDatabase() {
     db = {
       users: Array.isArray(parsed.users) ? parsed.users : [],
       transactions: Array.isArray(parsed.transactions) ? parsed.transactions : [],
-      ads: Array.isArray(parsed.ads) ? parsed.ads : []
+      ads: Array.isArray(parsed.ads) ? parsed.ads : [],
+      settings: parsed.settings && typeof parsed.settings === 'object' ? parsed.settings : {}
     };
   } catch (error) {
     if (error.code !== 'ENOENT') throw error;
-    db = { users: [], transactions: [], ads: [] };
+    db = { users: [], transactions: [], ads: [], settings: {} };
     await persistDatabase();
   }
 }
@@ -397,6 +398,7 @@ async function restoreFromSheet() {
       active: account.active !== false && String(account.active).toLowerCase() !== 'false'
     }));
     if (transactions.length || !db.transactions.length) db.transactions = transactions;
+    if (snapshot.settings && typeof snapshot.settings === 'object') db.settings = { ...db.settings, ...snapshot.settings };
     if (ads.length || !db.ads.length) db.ads = ads.map((ad) => ({
       id: String(ad.id || crypto.randomUUID()),
       title: String(ad.title || ''),
@@ -582,13 +584,106 @@ async function handleGetAds(req, res) {
 async function handlePublicStats(req, res) {
   const activeUsers = db.users.filter((user) => user.active !== false && user.role !== 'admin').length;
   const completedDownloads = db.transactions.filter((tx) => tx.type === 'RC_PURCHASE' && tx.status === 'SUCCESS').length;
-  const rating = String(process.env.PUBLIC_RATING || '').trim();
+  const rating = String((db.settings && db.settings.rating) || process.env.PUBLIC_RATING || '').trim();
   return sendJson(res, 200, {
     success: true,
     users: activeUsers,
     downloads: completedDownloads,
     rating: /^\d(?:\.\d)?$/.test(rating) ? rating : ''
   });
+}
+
+function dayKey(iso) {
+  return String(iso || '').slice(0, 10);
+}
+
+function monthKey(iso) {
+  return String(iso || '').slice(0, 7);
+}
+
+function sumAmount(list) {
+  return list.reduce((total, tx) => total + Number(tx.amount || 0), 0);
+}
+
+function computeAdminStats(fromDay, toDay) {
+  const now = new Date();
+  const todayKey = now.toISOString().slice(0, 10);
+  const monthNowKey = now.toISOString().slice(0, 7);
+  const lastMonthDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
+  const lastMonthKey = lastMonthDate.toISOString().slice(0, 7);
+
+  const totalUsers = db.users.filter((user) => user.role !== 'admin').length;
+  const activeUsers = db.users.filter((user) => user.role !== 'admin' && user.active !== false).length;
+
+  // "Topup" = wallet credits the admin has given users (manual admin recharge).
+  const topups = db.transactions.filter((tx) => tx.type === 'RECHARGE');
+  const rcDownloads = db.transactions.filter((tx) => tx.type === 'RC_PURCHASE' && tx.status === 'SUCCESS');
+
+  const todayTopup = sumAmount(topups.filter((tx) => dayKey(tx.time) === todayKey));
+  const monthTopup = sumAmount(topups.filter((tx) => monthKey(tx.time) === monthNowKey));
+  const lastMonthTopup = sumAmount(topups.filter((tx) => monthKey(tx.time) === lastMonthKey));
+
+  const todayRcDownloads = rcDownloads.filter((tx) => dayKey(tx.time) === todayKey).length;
+  const monthRcDownloads = rcDownloads.filter((tx) => monthKey(tx.time) === monthNowKey).length;
+  const lastMonthRcDownloads = rcDownloads.filter((tx) => monthKey(tx.time) === lastMonthKey).length;
+
+  let range = null;
+  if (fromDay && toDay) {
+    const inRange = (tx) => {
+      const key = dayKey(tx.time);
+      return key >= fromDay && key <= toDay;
+    };
+    range = {
+      from: fromDay,
+      to: toDay,
+      topup: sumAmount(topups.filter(inRange)),
+      rcDownloads: rcDownloads.filter(inRange).length,
+      newUsers: db.users.filter((user) => {
+        if (user.role === 'admin') return false;
+        const key = dayKey(user.createdAt);
+        return key >= fromDay && key <= toDay;
+      }).length
+    };
+  }
+
+  return {
+    totalUsers,
+    activeUsers,
+    todayTopup,
+    monthTopup,
+    lastMonthTopup,
+    todayRcDownloads,
+    monthRcDownloads,
+    lastMonthRcDownloads,
+    range
+  };
+}
+
+async function handleAdminStats(req, res, searchParams) {
+  const admin = requireAdmin(req, res);
+  if (!admin) return;
+  const fromRaw = String(searchParams.get('from') || '');
+  const toRaw = String(searchParams.get('to') || '');
+  const validDay = /^\d{4}-\d{2}-\d{2}$/;
+  const from = validDay.test(fromRaw) ? fromRaw : '';
+  const to = validDay.test(toRaw) ? toRaw : '';
+  const stats = computeAdminStats(from, to);
+  return sendJson(res, 200, { success: true, stats });
+}
+
+async function handleAdminUpdateRating(req, res) {
+  const admin = requireAdmin(req, res);
+  if (!admin) return;
+  const body = await readJson(req);
+  const rating = String(body.rating ?? '').trim();
+  if (rating && !/^[0-5](?:\.\d)?$/.test(rating)) {
+    return sendError(res, 422, 'Rating 0 se 5 ke beech ek decimal ke saath daalo, jaise 4.8.');
+  }
+  db.settings = db.settings || {};
+  db.settings.rating = rating;
+  await persistDatabase();
+  queueSheetSync('settings', { rating });
+  return sendJson(res, 200, { success: true, rating });
 }
 
 async function handleAdminGetAds(req, res) {
@@ -689,6 +784,8 @@ const server = http.createServer(async (req, res) => {
     const adRoute = pathname.match(/^\/api\/admin\/ads\/([^/]+)$/);
     if (adRoute && req.method === 'DELETE') return await handleAdminDeleteAd(req, res, decodeURIComponent(adRoute[1]));
     if (adRoute && req.method === 'POST') return await handleAdminToggleAd(req, res, decodeURIComponent(adRoute[1]));
+    if (req.method === 'GET' && pathname === '/api/admin/stats') return await handleAdminStats(req, res, url.searchParams);
+    if (req.method === 'POST' && pathname === '/api/admin/settings/rating') return await handleAdminUpdateRating(req, res);
     if (req.method === 'GET' && pathname === '/api/admin/transactions') {
       const admin = requireAdmin(req, res);
       if (!admin) return;
