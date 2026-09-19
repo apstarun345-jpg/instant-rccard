@@ -1,5 +1,5 @@
 
-    var state = { token: '', user: null, selectedAdminMobile: '', selectedAdminQuery: '', defaultRcCardPrice: 15, pendingVrn: '', busy: false, adminUsersQuery: '', adminAccessQuery: '', bulkConfirm: false };
+    var state = { token: '', user: null, selectedAdminMobile: '', selectedAdminQuery: '', defaultRcCardPrice: 15, pendingVrn: '', busy: false, adminUsersQuery: '', adminAccessQuery: '', bulkConfirm: false, supportWhatsapp: '', supportPaymentQr: '', supportPaymentQrUrl: '' };
     var DOWNLOAD_PRICES = { mparivahan: 10, 'rc-card': 15 };
     var $ = function (selector) { return document.querySelector(selector); };
     var $$ = function (selector) { return Array.prototype.slice.call(document.querySelectorAll(selector)); };
@@ -67,6 +67,7 @@
       else if (name === 'buyRc') { url = '/api/rc/purchase'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ vrn: args[0], downloadType: args[1] || 'mparivahan' }); }
       else if (name === 'getMyTransactions') { url = '/api/account/transactions'; }
       else if (name === 'getAds') { url = '/api/ads'; }
+      else if (name === 'getSupportSettings') { url = '/api/support-settings'; }
       else if (name === 'getStats') { url = '/api/public/stats'; }
       else if (name === 'adminFindUser') { url = '/api/admin/users/search'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ query: args[0] }); }
       else if (name === 'adminSetUserRate') { url = '/api/admin/users/set-rate'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ query: args[0], price: args[1], clear: args[2] === true }); }
@@ -86,6 +87,7 @@
       else if (name === 'adminSetRating') { url = '/api/admin/settings/rating'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ rating: args[0] }); }
       else if (name === 'adminSetBaseline') { url = '/api/admin/settings/baseline'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ usersBaseline: args[0], downloadsBaseline: args[1] }); }
       else if (name === 'adminSetRcPrice') { url = '/api/admin/settings/rc-price'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ price: args[0] }); }
+      else if (name === 'adminSetSupport') { url = '/api/admin/settings/support'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ whatsapp: args[0], paymentQr: args[1], clearQr: args[2] === true }); }
       else if (name === 'adminGetAds') { url = '/api/admin/ads'; }
       else if (name === 'adminAddAd') { url = '/api/admin/ads'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ title: args[0], imageData: args[1] }); }
       else if (name === 'adminDeleteAd') { url = '/api/admin/ads/' + encodeURIComponent(args[0]); options.method = 'DELETE'; }
@@ -277,8 +279,15 @@
         toast('Amount enter karo', 'Jitna wallet topup chahiye, woh amount daalo.', 'error');
         return;
       }
-      var message = 'Hello InstantRCcard support. Mujhe wallet topup karna hai. Amount: ₹' + amount + '. Kripya payment QR bhej dijiye.';
-      var whatsappUrl = 'https://wa.me/919057838589?text=' + encodeURIComponent(message);
+      if (!state.supportWhatsapp) {
+        toast('WhatsApp number not set', 'Main Admin pehle WhatsApp support number configure karein.', 'error');
+        return;
+      }
+      var qrLine = state.supportPaymentQrUrl
+        ? ' Payment QR: ' + state.supportPaymentQrUrl
+        : ' Kripya payment QR bhej dijiye.';
+      var message = 'Hello InstantRCcard support. Mujhe wallet topup karna hai. Amount: ₹' + amount + '.' + qrLine;
+      var whatsappUrl = 'https://wa.me/91' + state.supportWhatsapp + '?text=' + encodeURIComponent(message);
       closeWalletTopup();
       toast('WhatsApp open ho raha hai', 'Wallet topup ke liye WhatsApp par redirect kiya ja raha hai.', 'success');
       window.location.href = whatsappUrl;
@@ -409,7 +418,7 @@
       if (rateHint) rateHint.hidden = !hasAdminPermission('rates');
       var transactionsBlock = $('#admin-transactions-block');
       if (transactionsBlock) transactionsBlock.hidden = !hasAdminPermission('transactions');
-      ['#admin-settings-rating', '#admin-settings-baseline', '#admin-settings-price'].forEach(function (selector) {
+      ['#admin-settings-rating', '#admin-settings-baseline', '#admin-settings-price', '#admin-settings-support'].forEach(function (selector) {
         var settingsRow = $(selector);
         if (settingsRow) settingsRow.hidden = !isMainAdminUser(user);
       });
@@ -558,6 +567,48 @@
         $('#stat-downloads').textContent = formatBigCount(result.downloads) || 'Ready';
         $('#stat-rating').textContent = result.rating ? result.rating + '/5' : '—';
       } catch (error) { /* public stats are non-critical */ }
+    }
+
+    function renderAdminSupportFields() {
+      var input = $('#admin-support-whatsapp-input');
+      if (input) input.value = state.supportWhatsapp || '';
+      var preview = $('#admin-payment-qr-preview');
+      if (preview) {
+        var source = state.supportPaymentQr || state.supportPaymentQrUrl || '';
+        preview.src = source;
+        preview.hidden = !source;
+      }
+    }
+
+    function applySupportSettings(support) {
+      support = support || {};
+      if (Object.prototype.hasOwnProperty.call(support, 'whatsapp')) state.supportWhatsapp = normalizeMobile(support.whatsapp || '');
+      if (Object.prototype.hasOwnProperty.call(support, 'paymentQr')) state.supportPaymentQr = support.paymentQr || '';
+      if (Object.prototype.hasOwnProperty.call(support, 'paymentQrUrl')) state.supportPaymentQrUrl = support.paymentQrUrl || '';
+      renderAdminSupportFields();
+      var message = 'Hello InstantRCcard support. Mujhe RC download ya account help chahiye.';
+      var url = state.supportWhatsapp
+        ? 'https://wa.me/91' + state.supportWhatsapp + '?text=' + encodeURIComponent(message)
+        : '#';
+      $$('[data-whatsapp-support]').forEach(function (link) {
+        link.href = url;
+        link.dataset.configured = state.supportWhatsapp ? '1' : '0';
+        link.setAttribute('aria-disabled', state.supportWhatsapp ? 'false' : 'true');
+      });
+      var qrBox = $('#topup-payment-qr-box');
+      var qrImage = $('#topup-payment-qr');
+      if (qrBox && qrImage) {
+        var qrSource = state.supportPaymentQr || state.supportPaymentQrUrl;
+        qrImage.src = qrSource || '';
+        qrBox.hidden = !qrSource;
+      }
+    }
+
+    async function loadSupportSettings() {
+      try {
+        var result = await callServer('getSupportSettings', []);
+        if (result.success) applySupportSettings(result.support);
+      } catch (error) { /* support configuration is non-critical */ }
     }
 
     async function loadAdminAds() {
@@ -794,6 +845,61 @@
       return canvas;
     }
 
+    async function renderReferenceCanvas(frontValue, backValue) {
+      var frontSource = safeImage(frontValue);
+      var backSource = safeImage(backValue);
+      if (!frontSource || !backSource) throw new Error('Front/back RC image valid nahi hai.');
+      var loadedImages = await Promise.all([loadImage(frontSource), loadImage(backSource)]);
+      var front = loadedImages[0];
+      var back = loadedImages[1];
+      var dpi = 300;
+      var mm = function (value) { return Math.round(value * dpi / 25.4); };
+      var pageWidth = mm(210);
+      var pageHeight = mm(297);
+      var cardWidth = mm(85.6);
+      var cardHeight = mm(54);
+      var gap = mm(4);
+      var sideMargin = Math.round((pageWidth - (cardWidth * 2 + gap)) / 2);
+      var top = mm(18);
+      var canvas = document.createElement('canvas');
+      canvas.width = pageWidth;
+      canvas.height = pageHeight;
+      var context = canvas.getContext('2d');
+      context.fillStyle = '#ffffff';
+      context.fillRect(0, 0, pageWidth, pageHeight);
+      context.imageSmoothingEnabled = true;
+      context.imageSmoothingQuality = 'high';
+
+      function roundBox(x, y, width, height) {
+        context.save();
+        context.beginPath();
+        if (context.roundRect) context.roundRect(x, y, width, height, mm(2));
+        else context.rect(x, y, width, height);
+        context.fillStyle = '#eef7fb';
+        context.fill();
+        context.strokeStyle = '#c8dce5';
+        context.lineWidth = mm(.7);
+        context.stroke();
+        context.restore();
+      }
+
+      function drawCard(image, x) {
+        roundBox(x, top, cardWidth, cardHeight);
+        var inset = mm(1.2);
+        var maxWidth = cardWidth - inset * 2;
+        var maxHeight = cardHeight - inset * 2;
+        var scale = Math.min(maxWidth / image.naturalWidth, maxHeight / image.naturalHeight);
+        var width = Math.max(1, Math.round(image.naturalWidth * scale));
+        var height = Math.max(1, Math.round(image.naturalHeight * scale));
+        var imageX = x + Math.round((cardWidth - width) / 2);
+        var imageY = top + Math.round((cardHeight - height) / 2);
+        context.drawImage(image, imageX, imageY, width, height);
+      }
+      drawCard(front, sideMargin);
+      drawCard(back, sideMargin + cardWidth + gap);
+      return canvas;
+    }
+
     function canvasBlob(canvas, type, quality) {
       return new Promise(function (resolve, reject) {
         canvas.toBlob(function (blob) {
@@ -810,15 +916,15 @@
       return new TextEncoder().encode(value);
     }
 
-    function makePdfFromCanvas(canvas) {
+    function makePdfFromCanvas(canvas, pageWidth, pageHeight) {
       var dataUrl = canvas.toDataURL('image/jpeg', .98);
       var encoded = dataUrl.slice(dataUrl.indexOf(',') + 1);
       var binary = atob(encoded);
       var imageBytes = new Uint8Array(binary.length);
       for (var i = 0; i < binary.length; i += 1) imageBytes[i] = binary.charCodeAt(i);
 
-      var pageWidth = 85.6 / 25.4 * 72;
-      var pageHeight = 54 / 25.4 * 72 * 2;
+      pageWidth = pageWidth || (210 / 25.4 * 72);
+      pageHeight = pageHeight || (297 / 25.4 * 72);
       var content = 'q\n' + pageWidth.toFixed(2) + ' 0 0 ' + pageHeight.toFixed(2) + ' 0 0 cm\n/Im0 Do\nQ\n';
       var chunks = [];
       var offsets = [0];
@@ -849,7 +955,8 @@
     }
 
     async function makeCardPdf(frontValue, backValue) {
-      return makePdfFromCanvas(await renderCardCanvas(frontValue, backValue));
+      var canvas = await renderReferenceCanvas(frontValue, backValue);
+      return makePdfFromCanvas(canvas, 210 / 25.4 * 72, 297 / 25.4 * 72);
     }
 
     function downloadData(blob, fileName) {
@@ -1456,6 +1563,10 @@
             $('#admin-users-baseline-input').value = response.settings.usersBaseline;
             $('#admin-downloads-baseline-input').value = response.settings.downloadsBaseline;
             if (response.settings.rcCardPrice) $('#admin-rc-price-input').value = response.settings.rcCardPrice;
+            applySupportSettings({
+              whatsapp: response.settings.supportWhatsapp || state.supportWhatsapp,
+              paymentQr: Object.prototype.hasOwnProperty.call(response.settings, 'paymentQr') ? response.settings.paymentQr : state.supportPaymentQr
+            });
           }
         }
       } catch (error) { /* KPI dashboard is non-critical */ }
@@ -1506,6 +1617,36 @@
         loadPublicStats();
       } catch (error) { toast('Baseline error', error.message, 'error'); }
       finally { setButtonLoading(button, false, 'Save baseline'); }
+    }
+
+    function readPaymentQr(file) {
+      return new Promise(function (resolve, reject) {
+        if (!file || !file.type || file.type.indexOf('image/') !== 0) return reject(new Error('Payment QR image select karo.'));
+        if (file.size > 1_500_000) return reject(new Error('Payment QR image 1.5 MB se chhoti rakho.'));
+        var reader = new FileReader();
+        reader.onerror = function () { reject(new Error('Payment QR read nahi ho paaya.')); };
+        reader.onload = function () { resolve(String(reader.result || '')); };
+        reader.readAsDataURL(file);
+      });
+    }
+
+    async function saveAdminSupport(clearQr) {
+      if (!isMainAdminUser(state.user)) { toast('Main Admin only', 'WhatsApp aur payment QR sirf Main Admin update kar sakta hai.', 'error'); return; }
+      var number = normalizeMobile($('#admin-support-whatsapp-input').value || '');
+      if (!validMobile(number)) { toast('Number check karo', 'Valid 10-digit WhatsApp support number daalo.', 'error'); return; }
+      var fileInput = $('#admin-payment-qr-file');
+      var button = clearQr ? $('#admin-support-clear-qr') : $('#admin-support-save');
+      setButtonLoading(button, true, clearQr ? 'Clear QR' : 'Save WhatsApp & QR');
+      try {
+        var qr = clearQr ? '' : state.supportPaymentQr;
+        if (!clearQr && fileInput.files && fileInput.files[0]) qr = await readPaymentQr(fileInput.files[0]);
+        var response = await callServer('adminSetSupport', [number, qr, clearQr === true]);
+        if (!response.success) throw new Error(response.message || 'WhatsApp settings save nahi ho paayi.');
+        applySupportSettings(response.support);
+        if (fileInput) fileInput.value = '';
+        toast('WhatsApp settings saved', clearQr ? 'WhatsApp number save hai, payment QR clear ho gaya.' : 'WhatsApp number aur payment QR update ho gaya.', 'success');
+      } catch (error) { toast('Support settings error', error.message, 'error'); }
+      finally { setButtonLoading(button, false, clearQr ? 'Clear QR' : 'Save WhatsApp & QR'); }
     }
 
     async function saveAdminRcPrice() {
@@ -1691,6 +1832,14 @@
     $('#close-robo-help').addEventListener('click', function () { closeRoboHelp(true); });
     $('#robo-whatsapp-help').addEventListener('click', function () { releaseRoboGreeting(); });
     $('#robo-email-help').addEventListener('click', function () { releaseRoboGreeting(); });
+    $$('[data-whatsapp-support]').forEach(function (link) {
+      link.addEventListener('click', function (event) {
+        if (link.dataset.configured !== '1') {
+          event.preventDefault();
+          toast('WhatsApp number not set', 'Main Admin pehle WhatsApp support number configure karein.', 'error');
+        }
+      });
+    });
     $('#refresh-transactions').addEventListener('click', loadTransactions);
     $('#admin-search-button').addEventListener('click', findAdminUser);
     $('#admin-search-mobile').addEventListener('keydown', function (event) {
@@ -1740,12 +1889,15 @@
     $('#admin-rating-save').addEventListener('click', saveAdminRating);
     $('#admin-baseline-save').addEventListener('click', saveAdminBaseline);
     $('#admin-rc-price-save').addEventListener('click', saveAdminRcPrice);
+    $('#admin-support-save').addEventListener('click', function () { saveAdminSupport(false); });
+    $('#admin-support-clear-qr').addEventListener('click', function () { saveAdminSupport(true); });
     $('#admin-ad-upload').addEventListener('click', uploadAdvertisement);
     $$('[data-admin-section]').forEach(function (button) { button.addEventListener('click', function () { setAdminSection(button.dataset.adminSection); }); });
     $$('.topbar-nav button').forEach(function (button) { button.addEventListener('click', function () { var target = $('#' + button.dataset.scroll); if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' }); $$('.topbar-nav button').forEach(function (item) { item.classList.remove('active'); }); button.classList.add('active'); }); });
 
     async function boot() {
       loadPublicPricing();
+      loadSupportSettings();
       try {
         var response = await callServer('getMe', []);
         if (response.success) showApp(response.user); else clearSession();

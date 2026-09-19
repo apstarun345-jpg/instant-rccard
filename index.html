@@ -262,6 +262,9 @@
     .wallet-modal { position: relative; width: min(450px, 100%); padding: 26px; border: 1px solid rgba(255,255,255,.82); border-radius: 22px; background: #fff; box-shadow: 0 28px 80px rgba(8,31,86,.28); animation: modal-pop .24s ease both; }
     .wallet-modal h2 { margin: 8px 0 7px; color: var(--blue-950); font-size: 23px; letter-spacing: -.05em; }
     .wallet-modal > p { margin: 0 0 16px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+    .topup-payment-qr { display: grid; justify-items: center; gap: 6px; margin: 0 0 14px; padding: 10px; border: 1px solid #dfe8f7; border-radius: 13px; background: #fbfdff; }
+    .topup-payment-qr span { color: #7890b1; font-size: 9px; font-weight: 850; letter-spacing: .08em; }
+    .topup-payment-qr img { width: 138px; height: 138px; object-fit: contain; border-radius: 8px; background: #fff; }
     .topup-balance { display: flex; align-items: center; justify-content: space-between; margin: 0 0 14px; padding: 11px 12px; border: 1px solid #dfeafa; border-radius: 11px; color: #7b8da9; background: #f7faff; font-size: 11px; }
     .topup-balance b { color: var(--blue); font-size: 17px; }
     .wallet-modal-note { display: block; margin-top: 10px; color: #8d9bb0; font-size: 10px; line-height: 1.45; text-align: center; }
@@ -534,7 +537,11 @@
     .admin-rating-row label { display: block; margin-bottom: 6px; color: #70819c; font-size: 10px; font-weight: 800; }
     .admin-rating-row input { width: 100px; height: 38px; padding: 0 10px; border: 1px solid #dfe8f5; border-radius: 9px; color: var(--ink); background: white; font-size: 11px; }
     .admin-rating-row small { color: #8b9ab0; font-size: 10px; }
+    .admin-support-row input[type="file"] { width: 220px; height: auto; padding: 8px; }
+    .admin-support-qr-preview { width: 64px; height: 64px; object-fit: contain; padding: 4px; border: 1px solid #dfe8f5; border-radius: 9px; background: #fff; }
     @media (max-width: 720px) {
+      .admin-support-row input[type="file"] { width: 100%; }
+
       .admin-kpi-grid { grid-template-columns: 1fr 1fr; }
       .kpi-range { grid-column: 1 / -1; }
       .admin-kpi-filters { flex-direction: column; align-items: stretch; }
@@ -793,7 +800,7 @@
     </header>
 
     <main class="dashboard" id="dashboard" hidden>
-      <div class="welcome-line"><div><div class="section-label">INSTANT RCCARD DESK</div><h1 id="welcome-title">RC download karo.</h1><p id="welcome-subtitle">Vehicle number dalo aur clear compact RC Card PDF seedha download karo.</p></div><div class="price-note"><b id="price-note-amount">₹15</b><span>RC Card download<br />MParivahan Coming Soon</span></div></div>
+      <div class="welcome-line"><div><div class="section-label">INSTANT RCCARD DESK</div><h1 id="welcome-title">RC download karo.</h1><p id="welcome-subtitle">Vehicle number dalo aur reference-layout RC Card PDF seedha download karo.</p></div><div class="price-note"><b id="price-note-amount">₹15</b><span>RC Card download<br />MParivahan Coming Soon</span></div></div>
       <section class="admin-kpi-section" id="admin-kpi-section" hidden>
         <div class="admin-kpi-heading"><div><div class="section-label" id="admin-kpi-role-label">MAIN ADMIN · LIVE OVERVIEW</div><h2 id="admin-kpi-title">Admin KPI dashboard</h2><p id="admin-kpi-description">Users, topup aur RC download ka real-time overview.</p></div><span class="admin-tag" id="admin-kpi-scope-tag">ALL PLATFORM</span></div>
         <div class="admin-kpi-filters">
@@ -833,6 +840,14 @@
           <div><label>Default RC Card rate (₹)</label><input id="admin-rc-price-input" type="number" min="1" max="1000" step="1" placeholder="15" /></div>
           <button class="blue-button small-blue" id="admin-rc-price-save" type="button">Save default</button>
           <small>Ye global default rate hai. Jis user ka custom rate set nahi hai, unke liye yahi charge hoga. User-wise rate neeche Wallet control se set karo.</small>
+        </div>
+        <div class="admin-rating-row admin-support-row" id="admin-settings-support">
+          <div><label>WhatsApp support number</label><input id="admin-support-whatsapp-input" type="tel" inputmode="numeric" maxlength="13" placeholder="10-digit mobile" /></div>
+          <div><label>Payment QR image</label><input id="admin-payment-qr-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif" /></div>
+          <img id="admin-payment-qr-preview" class="admin-support-qr-preview" alt="Payment QR preview" hidden />
+          <button class="blue-button small-blue" id="admin-support-save" type="button">Save WhatsApp & QR</button>
+          <button class="ghost-button small-blue" id="admin-support-clear-qr" type="button">Clear QR</button>
+          <small>Footer, robot help aur wallet topup ke WhatsApp links isi number par jayenge. QR wallet modal me show hoga aur WhatsApp message me QR link jayega.</small>
         </div>
       </section>
       <section class="ad-ticker" id="ad-ticker" hidden aria-label="Current offers">
@@ -945,7 +960,7 @@
       </section>
       <footer class="site-footer">
         <div class="site-footer-copy"><b>Need help with your RC?</b><small>Support available for recharge, download and account issues.</small></div>
-        <div class="support-links"><a class="support-link whatsapp" href="https://wa.me/919057838589?text=Hello%20InstantRCcard%20support" target="_blank" rel="noopener"><img class="whatsapp-icon" src="/whatsapp.png" alt="" /> WhatsApp</a><a class="support-link" href="mailto:Apstarun345@gmail.com"><span>✉</span> Email</a></div>
+        <div class="support-links"><a class="support-link whatsapp" data-whatsapp-support="1" href="#" target="_blank" rel="noopener"><img class="whatsapp-icon" src="/whatsapp.png" alt="" /> WhatsApp</a><a class="support-link" href="mailto:Apstarun345@gmail.com"><span>✉</span> Email</a></div>
       </footer>
     </main>
   </div>
@@ -957,7 +972,7 @@
       <p>Vehicle number ke liye aapka preferred download format select karein.</p>
       <div class="format-options">
         <button class="format-option coming-soon" data-download-format="mparivahan" type="button"><span class="format-icon">▤</span><span><b>MParivahan RC <i>Coming Soon!</i></b><small>A4 page layout · abhi service start nahi hui</small></span><span class="format-arrow">•</span></button>
-        <button class="format-option rc-card" data-download-format="rc-card" type="button"><span class="format-icon">▣</span><span><b>RC Card <i id="format-option-price">₹15</i></b><small>Clear PDF · front upar · back neeche</small></span><span class="format-arrow">→</span></button>
+        <button class="format-option rc-card" data-download-format="rc-card" type="button"><span class="format-icon">▣</span><span><b>RC Card <i id="format-option-price">₹15</i></b><small>A4 reference layout · front left · back right</small></span><span class="format-arrow">→</span></button>
       </div>
     </div>
   </div>
@@ -966,11 +981,12 @@
       <button class="format-close" id="close-wallet-topup" type="button" aria-label="Close wallet topup">×</button>
       <div class="section-label">WALLET TOPUP</div>
       <h2 id="wallet-topup-title">Wallet recharge karna hai?</h2>
-      <p>Wallet topup ke liye WhatsApp par redirect kiya ja raha hai. WhatsApp par aapko payment QR milega. Jitna wallet topup chahiye, woh amount enter karein.</p>
+      <p>Wallet topup ke liye configured WhatsApp support par message bheja jayega. Payment QR yahin bhi show hoga, agar Main Admin ne update kiya hai. Jitna wallet topup chahiye, woh amount enter karein.</p>
+      <div class="topup-payment-qr" id="topup-payment-qr-box" hidden><span>PAYMENT QR</span><img id="topup-payment-qr" alt="Payment QR" /></div>
       <div class="topup-balance"><span>Current wallet</span><b id="topup-current-balance">₹0</b></div>
       <div class="field"><label>Topup amount ₹</label><input id="topup-amount" type="number" min="1" step="1" inputmode="decimal" placeholder="100" /></div>
       <button class="blue-button" id="topup-whatsapp-button" type="button">WhatsApp par topup request bhejo <span>↗</span></button>
-      <small class="wallet-modal-note">Payment QR WhatsApp support se milega. Payment verify hone ke baad admin wallet recharge karega.</small>
+      <small class="wallet-modal-note">QR yahin show hoga ya WhatsApp message me link milega. Payment verify hone ke baad admin wallet recharge karega.</small>
     </div>
   </div>
   <div class="fetching-backdrop" id="fetching-overlay" hidden>
@@ -996,7 +1012,7 @@
     <div class="robo-help-panel" id="robo-help-panel" hidden>
       <div class="robo-help-title"><span>InstantRCcard help</span><button id="close-robo-help" type="button" aria-label="Close assistant help">×</button></div>
       <p>Recharge, RC download ya account help ke liye contact karo.</p>
-      <div class="robo-help-actions"><a class="robo-help-action whatsapp" id="robo-whatsapp-help" href="https://wa.me/919057838589?text=Hello%20InstantRCcard%20support" target="_blank" rel="noopener"><img class="whatsapp-icon" src="/whatsapp.png" alt="" /> WhatsApp</a><a class="robo-help-action" id="robo-email-help" href="mailto:Apstarun345@gmail.com?subject=InstantRCcard%20help"><span>✉</span> Email</a></div>
+      <div class="robo-help-actions"><a class="robo-help-action whatsapp" id="robo-whatsapp-help" data-whatsapp-support="1" href="#" target="_blank" rel="noopener"><img class="whatsapp-icon" src="/whatsapp.png" alt="" /> WhatsApp</a><a class="robo-help-action" id="robo-email-help" href="mailto:Apstarun345@gmail.com?subject=InstantRCcard%20help"><span>✉</span> Email</a></div>
     </div>
     <button class="robo-button" id="robo-button" type="button" aria-label="Open InstantRCcard assistant">
       <span class="robo-status" aria-hidden="true"></span>
