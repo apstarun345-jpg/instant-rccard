@@ -1,0 +1,285 @@
+{
+  "info": {
+    "name": "InstantRCcard API",
+    "_postman_id": "instant-rccard-2026-01",
+    "description": "Complete API collection for the InstantRCcard Node backend. Includes CSRF bootstrap, auth, account, RC purchase and admin endpoints. Use `baseUrl` variable to switch between local (`http://localhost:4173`) and production (`https://instant-rccard.onrender.com`).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "https://instant-rccard.onrender.com" },
+    { "key": "csrfToken", "value": "" },
+    { "key": "sessionCookie", "value": "" },
+    { "key": "adminMobile", "value": "9999999999" }
+  ],
+  "item": [
+    {
+      "name": "Health & public",
+      "item": [
+        {
+          "name": "GET /api/health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/health", "host": ["{{baseUrl}}"], "path": ["api", "health"] }
+          }
+        },
+        {
+          "name": "GET /api/public/stats",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/public/stats", "host": ["{{baseUrl}}"], "path": ["api", "public", "stats"] }
+          }
+        },
+        {
+          "name": "GET /api/ads",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/ads", "host": ["{{baseUrl}}"], "path": ["api", "ads"] }
+          }
+        },
+        {
+          "name": "GET /api/auth/csrf (bootstrap token)",
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.collectionVariables.set('csrfToken', pm.response.json().csrfToken);"] } }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/auth/csrf", "host": ["{{baseUrl}}"], "path": ["api", "auth", "csrf"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "POST /api/auth/signup",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-CSRF-Token", "value": "{{csrfToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Asha Test\",\n  \"email\": \"asha+{{$randomInt}}@example.com\",\n  \"mobile\": \"98765{{$randomInt}}\",\n  \"password\": \"testpass123\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/auth/signup", "host": ["{{baseUrl}}"], "path": ["api", "auth", "signup"] }
+          }
+        },
+        {
+          "name": "POST /api/auth/login",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-CSRF-Token", "value": "{{csrfToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"9876500001\",\n  \"password\": \"testpass123\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/auth/login", "host": ["{{baseUrl}}"], "path": ["api", "auth", "login"] }
+          }
+        },
+        {
+          "name": "POST /api/auth/forgot-password",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-CSRF-Token", "value": "{{csrfToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"asha@example.com\",\n  \"mobile\": \"9876500001\",\n  \"newPassword\": \"newpass123\",\n  \"confirmPassword\": \"newpass123\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/auth/forgot-password", "host": ["{{baseUrl}}"], "path": ["api", "auth", "forgot-password"] }
+          }
+        },
+        {
+          "name": "POST /api/auth/logout",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "X-CSRF-Token", "value": "{{csrfToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/auth/logout", "host": ["{{baseUrl}}"], "path": ["api", "auth", "logout"] }
+          }
+        },
+        {
+          "name": "GET /api/auth/session",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/auth/session", "host": ["{{baseUrl}}"], "path": ["api", "auth", "session"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Account",
+      "item": [
+        {
+          "name": "GET /api/account/transactions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/account/transactions", "host": ["{{baseUrl}}"], "path": ["api", "account", "transactions"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "RC purchase",
+      "item": [
+        {
+          "name": "POST /api/rc/purchase (rc-card)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-CSRF-Token", "value": "{{csrfToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"vrn\": \"RJ14AB1234\",\n  \"downloadType\": \"rc-card\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/rc/purchase", "host": ["{{baseUrl}}"], "path": ["api", "rc", "purchase"] }
+          }
+        },
+        {
+          "name": "POST /api/rc/purchase (mparivahan - Coming Soon)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-CSRF-Token", "value": "{{csrfToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"vrn\": \"RJ14AB1234\",\n  \"downloadType\": \"mparivahan\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/rc/purchase", "host": ["{{baseUrl}}"], "path": ["api", "rc", "purchase"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin (requires role=admin)",
+      "item": [
+        {
+          "name": "POST /api/admin/users/search",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-CSRF-Token", "value": "{{csrfToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"query\": \"9876500001\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/admin/users/search", "host": ["{{baseUrl}}"], "path": ["api", "admin", "users", "search"] }
+          }
+        },
+        {
+          "name": "POST /api/admin/users/set-rate",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-CSRF-Token", "value": "{{csrfToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"query\": \"9876500001\",\n  \"price\": 12\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/admin/users/set-rate", "host": ["{{baseUrl}}"], "path": ["api", "admin", "users", "set-rate"] }
+          }
+        },
+        {
+          "name": "POST /api/admin/recharge",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-CSRF-Token", "value": "{{csrfToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mobile\": \"9876500001\",\n  \"amount\": 100,\n  \"note\": \"Test topup\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/admin/recharge", "host": ["{{baseUrl}}"], "path": ["api", "admin", "recharge"] }
+          }
+        },
+        {
+          "name": "GET /api/admin/transactions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/admin/transactions", "host": ["{{baseUrl}}"], "path": ["api", "admin", "transactions"] }
+          }
+        },
+        {
+          "name": "GET /api/admin/stats",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/stats?from=2026-01-01&to=2026-12-31",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "admin", "stats"],
+              "query": [{ "key": "from", "value": "2026-01-01" }, { "key": "to", "value": "2026-12-31" }]
+            }
+          }
+        },
+        {
+          "name": "POST /api/admin/settings/rating",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-CSRF-Token", "value": "{{csrfToken}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"rating\": \"4.9\"\n}" },
+            "url": { "raw": "{{baseUrl}}/api/admin/settings/rating", "host": ["{{baseUrl}}"], "path": ["api", "admin", "settings", "rating"] }
+          }
+        },
+        {
+          "name": "POST /api/admin/settings/baseline",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-CSRF-Token", "value": "{{csrfToken}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"usersBaseline\": 200000,\n  \"downloadsBaseline\": 171000\n}" },
+            "url": { "raw": "{{baseUrl}}/api/admin/settings/baseline", "host": ["{{baseUrl}}"], "path": ["api", "admin", "settings", "baseline"] }
+          }
+        },
+        {
+          "name": "POST /api/admin/settings/rc-price",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-CSRF-Token", "value": "{{csrfToken}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"price\": 15\n}" },
+            "url": { "raw": "{{baseUrl}}/api/admin/settings/rc-price", "host": ["{{baseUrl}}"], "path": ["api", "admin", "settings", "rc-price"] }
+          }
+        },
+        {
+          "name": "GET /api/admin/ads",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/admin/ads", "host": ["{{baseUrl}}"], "path": ["api", "admin", "ads"] }
+          }
+        }
+      ]
+    }
+  ]
+}

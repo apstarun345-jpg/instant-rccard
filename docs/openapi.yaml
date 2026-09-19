@@ -1,0 +1,352 @@
+openapi: 3.0.3
+info:
+  title: InstantRCcard API
+  version: "1.0.0"
+  description: |
+    Node backend powering instant-rccard.onrender.com. Provides user accounts,
+    wallet/recharge, RC card downloads (proxied from a third-party RC provider),
+    admin controls, and advertisement management.
+
+    Security: session cookie (HttpOnly, SameSite=Lax), CSRF double-submit
+    cookie for unsafe methods, per-IP rate limits, login brute-force lockout,
+    strict CSP/HSTS/CORP headers, audit logging.
+servers:
+  - url: https://instant-rccard.onrender.com
+    description: Production
+  - url: http://localhost:4173
+    description: Local development
+
+security:
+  - sessionCookie: []
+  - csrfToken: []
+
+paths:
+  /api/health:
+    get:
+      summary: Liveness probe
+      security: []
+      responses:
+        "200":
+          description: Server is up
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  service: { type: string }
+                  providerConfigured: { type: boolean }
+                  adminConfigured: { type: boolean }
+                  sheetSyncConfigured: { type: boolean }
+                  storage: { type: string }
+
+  /api/public/stats:
+    get:
+      summary: Public counters (users, downloads, rating)
+      security: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  users: { type: integer }
+                  downloads: { type: integer }
+                  rating: { type: string }
+                  rcCardPrice: { type: integer }
+
+  /api/ads:
+    get:
+      summary: Active advertisement banners
+      security: []
+      responses:
+        "200":
+          description: OK
+
+  /api/auth/csrf:
+    get:
+      summary: Issue / refresh CSRF token (sets cookie)
+      security: []
+      responses:
+        "200":
+          description: OK
+          headers:
+            Set-Cookie:
+              schema: { type: string }
+              description: instant_rccard_csrf=<token>; Path=/; SameSite=Lax; Max-Age=43200
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  csrfToken: { type: string }
+
+  /api/auth/signup:
+    post:
+      summary: Create a new account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email, mobile, password]
+              properties:
+                name: { type: string, minLength: 2 }
+                email: { type: string, format: email }
+                mobile: { type: string, pattern: "^[6-9]\\d{9}$" }
+                password: { type: string, minLength: 6 }
+      responses:
+        "200": { description: Created, headers: { Set-Cookie: { schema: { type: string } } } }
+        "409": { description: Mobile or email already used }
+        "422": { description: Validation error }
+        "429": { description: Rate limited / locked }
+
+  /api/auth/login:
+    post:
+      summary: Log in (mobile or email + password)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password]
+              properties:
+                username: { type: string, description: "Mobile (10 digits) or email" }
+                password: { type: string }
+      responses:
+        "200": { description: OK, headers: { Set-Cookie: { schema: { type: string } } } }
+        "401": { description: Invalid credentials }
+        "429": { description: Too many failures, locked }
+
+  /api/auth/forgot-password:
+    post:
+      summary: Reset password using email + mobile verification
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, mobile, newPassword, confirmPassword]
+              properties:
+                email: { type: string, format: email }
+                mobile: { type: string }
+                newPassword: { type: string, minLength: 6 }
+                confirmPassword: { type: string, minLength: 6 }
+      responses:
+        "200": { description: Password reset }
+        "404": { description: Account not found }
+
+  /api/auth/logout:
+    post:
+      summary: Clear session cookie
+      responses:
+        "200": { description: OK }
+
+  /api/auth/session:
+    get:
+      summary: Current session (if any)
+      security: []
+      responses:
+        "200":
+          description: Either user payload or `{ success: false }`.
+
+  /api/account/transactions:
+    get:
+      summary: Last 30 transactions for the logged-in user
+      responses:
+        "200": { description: OK }
+        "401": { description: Not logged in }
+
+  /api/rc/purchase:
+    post:
+      summary: Buy RC card (charges wallet, returns front/back PNG data URLs)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [vrn]
+              properties:
+                vrn: { type: string, description: "Vehicle registration number, e.g. RJ14AB1234" }
+                downloadType:
+                  type: string
+                  enum: [rc-card, mparivahan]
+                  default: mparivahan
+      responses:
+        "200":
+          description: OK or business error (LOW_BALANCE / COMING_SOON)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  code: { type: string, enum: [COMING_SOON, LOW_BALANCE] }
+                  data:
+                    type: object
+                    properties:
+                      vrn: { type: string }
+                      front: { type: string, description: "data:image/...;base64,..." }
+                      back: { type: string }
+                      downloadType: { type: string }
+                  wallet: { type: number }
+                  charged: { type: number }
+                  requiredPrice: { type: number }
+        "401": { description: Not logged in }
+        "422": { description: Invalid VRN }
+
+  /api/admin/users/search:
+    post:
+      summary: (admin) Find a user by mobile or email
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [query]
+              properties: { query: { type: string } }
+      responses:
+        "200": { description: OK }
+        "403": { description: Admin only }
+        "404": { description: User not found }
+
+  /api/admin/users/set-rate:
+    post:
+      summary: (admin) Set or clear a per-user RC rate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [query]
+              properties:
+                query: { type: string }
+                price: { type: integer, minimum: 1, maximum: 1000 }
+                clear: { type: boolean }
+      responses:
+        "200": { description: OK }
+
+  /api/admin/recharge:
+    post:
+      summary: (admin) Credit a user's wallet
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mobile, amount]
+              properties:
+                mobile: { type: string }
+                amount: { type: number, minimum: 1, maximum: 100000 }
+                note: { type: string }
+      responses:
+        "200": { description: OK }
+
+  /api/admin/transactions:
+    get:
+      summary: (admin) Last 50 site-wide transactions
+      responses:
+        "200": { description: OK }
+
+  /api/admin/stats:
+    get:
+      summary: (admin) KPI dashboard
+      parameters:
+        - in: query
+          name: from
+          schema: { type: string, format: date }
+        - in: query
+          name: to
+          schema: { type: string, format: date }
+      responses:
+        "200": { description: OK }
+
+  /api/admin/settings/rating:
+    post:
+      summary: (admin) Set public rating
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: { rating: { type: string, pattern: "^[0-5](\\.\\d)?$" } }
+
+  /api/admin/settings/baseline:
+    post:
+      summary: (admin) Set public user/download baselines
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                usersBaseline: { type: integer, minimum: 0, maximum: 100000000 }
+                downloadsBaseline: { type: integer, minimum: 0, maximum: 100000000 }
+
+  /api/admin/settings/rc-price:
+    post:
+      summary: (admin) Set default RC Card rate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: { price: { type: integer, minimum: 1, maximum: 1000 } }
+
+  /api/admin/ads:
+    get:
+      summary: (admin) List all ads (active + hidden)
+      responses:
+        "200": { description: OK }
+    post:
+      summary: (admin) Add advertisement
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [imageData]
+              properties:
+                title: { type: string }
+                imageData: { type: string, description: "data:image/(png|jpeg|webp|gif);base64,..." }
+
+  /api/admin/ads/{id}:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema: { type: string }
+    post:
+      summary: (admin) Toggle ad active/inactive
+      responses:
+        "200": { description: OK }
+    delete:
+      summary: (admin) Delete ad
+      responses:
+        "200": { description: OK }
+
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: instant_rccard_session
+    csrfToken:
+      type: apiKey
+      in: header
+      name: X-CSRF-Token

@@ -3,6 +3,24 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import crypto from 'node:crypto';
+import {
+  clientIp as secClientIp,
+  rateLimit,
+  csrfMiddleware,
+  csrfCookieFromHeader,
+  setCsrfCookie,
+  issueCsrfToken,
+  pendingCookies,
+  sharedSecretMiddleware,
+  audit,
+  hardenedSecurityHeaders,
+  readJsonSafe as secReadJsonSafe,
+  isLoginLocked,
+  recordLoginFailure,
+  recordLoginSuccess,
+  lockoutSecondsRemaining,
+  timingSafeEqualStr
+} from './security.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(__dirname, 'public');
@@ -103,29 +121,32 @@ function publicUser(user) {
   };
 }
 
-function securityHeaders() {
-  return {
-    'X-Content-Type-Options': 'nosniff',
-    'X-Frame-Options': 'SAMEORIGIN',
-    'Referrer-Policy': 'strict-origin-when-cross-origin',
-    'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
-    'Content-Security-Policy': "default-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'"
-  };
+function securityHeaders(req) {
+  // Behind Render the request is HTTPS-terminated by the platform,
+  // so we can safely emit HSTS.
+  const isHttps = String(req?.headers?.['x-forwarded-proto'] || '').toLowerCase() === 'https'
+    || (req?.socket?.encrypted === true);
+  return hardenedSecurityHeaders(isHttps);
 }
 
-function sendJson(res, status, payload, extraHeaders = {}) {
+function sendJson(req, res, status, payload, extraHeaders = {}) {
   const body = JSON.stringify(payload);
+  // Merge any pending Set-Cookie values collected by middleware
+  // (e.g. CSRF bootstrap) so they survive the final writeHead.
+  const pending = pendingCookies(req);
+  const cookieHeaders = pending.length ? { 'Set-Cookie': pending } : {};
   res.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
     'Content-Length': Buffer.byteLength(body),
-    ...securityHeaders(),
+    ...securityHeaders(req),
+    ...cookieHeaders,
     ...extraHeaders
   });
   res.end(body);
 }
 
-function sendError(res, status, message, code) {
-  return sendJson(res, status, { success: false, message, ...(code ? { code } : {}) });
+function sendError(req, res, status, message, code) {
+  return sendJson(req, res, status, { success: false, message, ...(code ? { code } : {}) });
 }
 
 async function readJson(req) {
@@ -459,20 +480,21 @@ async function handleSignup(req, res) {
   const email = normalizeEmail(body.email);
   const mobile = normalizeMobile(body.mobile);
   const password = String(body.password || '');
-  if (name.length < 2) return sendError(res, 422, 'Apna naam enter karo.');
-  if (!validEmail(email)) return sendError(res, 422, 'Valid email address daalo.');
-  if (!validMobile(mobile)) return sendError(res, 422, 'Valid 10-digit mobile number daalo.');
-  if (password.length < 6) return sendError(res, 422, 'Password minimum 6 characters ka hona chahiye.');
+  if (name.length < 2) return sendError(req, res, 422, 'Apna naam enter karo.');
+  if (!validEmail(email)) return sendError(req, res, 422, 'Valid email address daalo.');
+  if (!validMobile(mobile)) return sendError(req, res, 422, 'Valid 10-digit mobile number daalo.');
+  if (password.length < 6) return sendError(req, res, 422, 'Password minimum 6 characters ka hona chahiye.');
 
   return withMutationLock(async () => {
-    if (findUser(mobile)) return sendError(res, 409, 'Is mobile number ka account pehle se bana hua hai.');
+    if (findUser(mobile)) return sendError(req, res, 409, 'Is mobile number ka account pehle se bana hua hai.');
     const salt = crypto.randomBytes(16).toString('hex');
-    if (findUserByEmail(email)) return sendError(res, 409, 'Is email ka account pehle se bana hua hai.');
+    if (findUserByEmail(email)) return sendError(req, res, 409, 'Is email ka account pehle se bana hua hai.');
     const user = { id: crypto.randomUUID(), name, email, mobile, salt, passwordHash: passwordHash(password, salt), wallet: 0, rcCardPrice: null, role: ADMIN_MOBILE && mobile === ADMIN_MOBILE ? 'admin' : 'user', createdAt: new Date().toISOString(), lastLogin: new Date().toISOString(), active: true };
     db.users.push(user);
     await persistDatabase();
     queueSheetSync('user', sheetUserPayload(user));
-    return sendJson(res, 200, { success: true, user: publicUser(user) }, { 'Set-Cookie': authCookie(user.id) });
+    audit('signup_success', { mobile, ip: secClientIp(req) });
+    return sendJson(req, res, 200, { success: true, user: publicUser(user) }, { 'Set-Cookie': authCookie(user.id) });
   });
 }
 
@@ -490,15 +512,30 @@ async function handleLogin(req, res) {
     if (validMobile(mobile)) user = findUser(mobile);
     else if (validEmail(email)) user = findUserByEmail(email);
   }
-  if (!password) return sendError(res, 422, 'Mobile/email aur password enter karo.');
+  if (!password) return sendError(req, res, 422, 'Mobile/email aur password enter karo.');
+
+  // Brute-force lockout (per mobile + per IP).
+  const targetMobile = user ? user.mobile : (normalizeMobile(username) || 'unknown');
+  const ip = secClientIp(req);
+  const lock = isLoginLocked(targetMobile, ip);
+  if (lock) {
+    const retry = Math.ceil(lockoutSecondsRemaining(targetMobile, ip) / 1000);
+    audit('login_locked', { mobile: targetMobile, ip, reason: lock.reason, retryAfter: retry });
+    return sendError(req, res, 429, `Bahut zyada failed attempts. ${Math.ceil(retry / 60)} min baad try karo.`);
+  }
+
   user = syncAdminRole(user);
   if (!user || !user.active || !passwordMatches(password, user)) {
-    return sendError(res, 401, 'Mobile number, email ya password galat hai.');
+    recordLoginFailure(targetMobile, ip);
+    audit('login_failed', { mobile: targetMobile, ip });
+    return sendError(req, res, 401, 'Mobile number, email ya password galat hai.');
   }
+  recordLoginSuccess(targetMobile, ip);
   user.lastLogin = new Date().toISOString();
   await persistDatabase();
   queueSheetSync('user', sheetUserPayload(user));
-  return sendJson(res, 200, { success: true, user: publicUser(user) }, { 'Set-Cookie': authCookie(user.id) });
+  audit('login_success', { mobile: targetMobile, ip });
+  return sendJson(req, res, 200, { success: true, user: publicUser(user) }, { 'Set-Cookie': authCookie(user.id) });
 }
 
 async function handleForgotPassword(req, res) {
@@ -507,14 +544,14 @@ async function handleForgotPassword(req, res) {
   const mobile = normalizeMobile(body.mobile);
   const newPassword = String(body.newPassword || '');
   const confirmPassword = String(body.confirmPassword || '');
-  if (!validEmail(email) || !validMobile(mobile)) return sendError(res, 422, 'Valid email aur 10-digit mobile number daalo.');
-  if (newPassword.length < 6) return sendError(res, 422, 'New password minimum 6 characters ka hona chahiye.');
-  if (newPassword !== confirmPassword) return sendError(res, 422, 'New password aur confirm password match nahi karte.');
+  if (!validEmail(email) || !validMobile(mobile)) return sendError(req, res, 422, 'Valid email aur 10-digit mobile number daalo.');
+  if (newPassword.length < 6) return sendError(req, res, 422, 'New password minimum 6 characters ka hona chahiye.');
+  if (newPassword !== confirmPassword) return sendError(req, res, 422, 'New password aur confirm password match nahi karte.');
 
   return withMutationLock(async () => {
     const user = findUser(mobile);
     if (!user || !user.active || (user.email && user.email !== email)) {
-      return sendError(res, 404, 'Email aur mobile se account verify nahi ho paaya.');
+      return sendError(req, res, 404, 'Email aur mobile se account verify nahi ho paaya.');
     }
     const salt = crypto.randomBytes(16).toString('hex');
     user.email = email;
@@ -523,27 +560,28 @@ async function handleForgotPassword(req, res) {
     user.lastLogin = new Date().toISOString();
     await persistDatabase();
     queueSheetSync('user', sheetUserPayload(user));
-    return sendJson(res, 200, { success: true, message: 'Password reset successful. Ab naye password se login karo.' });
+    audit('password_reset', { mobile, ip: secClientIp(req) });
+    return sendJson(req, res, 200, { success: true, message: 'Password reset successful. Ab naye password se login karo.' });
   });
 }
 
 async function handlePurchase(req, res) {
   const user = currentUser(req);
-  if (!user || !user.active) return sendError(res, 401, 'Session expire ho gaya. Dobara login karo.');
+  if (!user || !user.active) return sendError(req, res, 401, 'Session expire ho gaya. Dobara login karo.');
   const body = await readJson(req);
   const vrn = normalizeVrn(body.vrn);
   const downloadType = body.downloadType === 'rc-card' ? 'rc-card' : 'mparivahan';
-  if (!validVrn(vrn)) return sendError(res, 422, 'Valid vehicle number daalo, jaise RJ14AB1234.');
+  if (!validVrn(vrn)) return sendError(req, res, 422, 'Valid vehicle number daalo, jaise RJ14AB1234.');
 
   return withMutationLock(async () => {
     const fresh = syncAdminRole(findUser(user.mobile));
-    if (!fresh) return sendError(res, 401, 'User account nahi mila.');
+    if (!fresh) return sendError(req, res, 401, 'User account nahi mila.');
     const price = priceForDownload(downloadType, fresh);
     if (downloadType === 'mparivahan') {
-      return sendJson(res, 200, { success: false, code: 'COMING_SOON', message: 'MParivahan RC format Coming Soon!', downloadType, requiredPrice: price });
+      return sendJson(req, res, 200, { success: false, code: 'COMING_SOON', message: 'MParivahan RC format Coming Soon!', downloadType, requiredPrice: price });
     }
     if (Number(fresh.wallet) < price) {
-      return sendJson(res, 200, {
+      return sendJson(req, res, 200, {
         success: false,
         code: 'LOW_BALANCE',
         message: `Recharge your wallet. Minimum ₹${price} balance required for this format.`,
@@ -554,7 +592,7 @@ async function handlePurchase(req, res) {
     }
 
     const provider = await fetchProvider(vrn);
-    if (!provider.success) return sendJson(res, 200, { success: false, message: provider.message, wallet: Number(fresh.wallet), requiredPrice: price, downloadType });
+    if (!provider.success) return sendJson(req, res, 200, { success: false, message: provider.message, wallet: Number(fresh.wallet), requiredPrice: price, downloadType });
 
     fresh.wallet = Number(fresh.wallet) - price;
     const downloadLabel = downloadType === 'rc-card' ? 'RC Card PNG download' : 'MParivahan A4 PNG download';
@@ -562,14 +600,15 @@ async function handlePurchase(req, res) {
     await persistDatabase();
     queueSheetSync('user', sheetUserPayload(fresh));
     queueSheetSync('transaction', db.transactions[db.transactions.length - 1]);
-    return sendJson(res, 200, { success: true, data: { vrn, front: provider.images.front, back: provider.images.back, downloadType }, wallet: fresh.wallet, charged: price, requiredPrice: price });
+    audit('rc_purchase', { mobile: fresh.mobile, vrn, price, downloadType, ip: secClientIp(req) });
+    return sendJson(req, res, 200, { success: true, data: { vrn, front: provider.images.front, back: provider.images.back, downloadType }, wallet: fresh.wallet, charged: price, requiredPrice: price });
   });
 }
 
 function requireAdmin(req, res) {
   const user = currentUser(req);
-  if (!user || !user.active) { sendError(res, 401, 'Session expire ho gaya.'); return null; }
-  if (user.role !== 'admin') { sendError(res, 403, 'Admin access required.'); return null; }
+  if (!user || !user.active) { sendError(req, res, 401, 'Session expire ho gaya.'); return null; }
+  if (user.role !== 'admin') { sendError(req, res, 403, 'Admin access required.'); return null; }
   return user;
 }
 
@@ -578,10 +617,10 @@ async function handleAdminSearch(req, res) {
   if (!admin) return;
   const body = await readJson(req);
   const query = String(body.query || body.mobile || body.email || '').trim();
-  if (!query) return sendError(res, 422, 'User mobile number ya email daalo.');
+  if (!query) return sendError(req, res, 422, 'User mobile number ya email daalo.');
   const user = findUserByQuery(query);
-  if (!user) return sendError(res, 404, 'Is mobile/email ka account nahi mila.');
-  return sendJson(res, 200, {
+  if (!user) return sendError(req, res, 404, 'Is mobile/email ka account nahi mila.');
+  return sendJson(req, res, 200, {
     success: true,
     user: publicUser(user),
     defaultRcCardPrice: defaultRcCardPrice(),
@@ -596,25 +635,25 @@ async function handleAdminSetUserRate(req, res) {
   const query = String(body.query || body.mobile || body.email || '').trim();
   const priceRaw = body.price;
   const clearCustom = body.clear === true || body.price === null || body.price === '';
-  if (!query) return sendError(res, 422, 'User mobile number ya email daalo.');
+  if (!query) return sendError(req, res, 422, 'User mobile number ya email daalo.');
 
   return withMutationLock(async () => {
     const user = findUserByQuery(query);
-    if (!user) return sendError(res, 404, 'User account nahi mila.');
+    if (!user) return sendError(req, res, 404, 'User account nahi mila.');
 
     if (clearCustom) {
       user.rcCardPrice = null;
     } else {
       const price = Number(priceRaw);
       if (!Number.isFinite(price) || price < 1 || price > 1000) {
-        return sendError(res, 422, 'User RC rate ₹1 se ₹1000 ke beech hona chahiye.');
+        return sendError(req, res, 422, 'User RC rate ₹1 se ₹1000 ke beech hona chahiye.');
       }
       user.rcCardPrice = Math.round(price);
     }
 
     await persistDatabase();
     queueSheetSync('user', sheetUserPayload(user));
-    return sendJson(res, 200, {
+    return sendJson(req, res, 200, {
       success: true,
       message: clearCustom
         ? 'User ab default global RC rate use karega.'
@@ -631,18 +670,19 @@ async function handleAdminRecharge(req, res) {
   const body = await readJson(req);
   const mobile = normalizeMobile(body.mobile);
   const amount = Number(body.amount);
-  if (!validMobile(mobile)) return sendError(res, 422, 'Valid user mobile number daalo.');
-  if (!Number.isFinite(amount) || amount <= 0 || amount > 100000) return sendError(res, 422, 'Recharge amount ₹1 se ₹100000 ke beech hona chahiye.');
+  if (!validMobile(mobile)) return sendError(req, res, 422, 'Valid user mobile number daalo.');
+  if (!Number.isFinite(amount) || amount <= 0 || amount > 100000) return sendError(req, res, 422, 'Recharge amount ₹1 se ₹100000 ke beech hona chahiye.');
 
   return withMutationLock(async () => {
     const user = findUser(mobile);
-    if (!user) return sendError(res, 404, 'User account nahi mila.');
+    if (!user) return sendError(req, res, 404, 'User account nahi mila.');
     user.wallet = Number(user.wallet) + amount;
     appendTransaction(mobile, 'RECHARGE', amount, user.wallet, '', String(body.note || 'Manual admin recharge').slice(0, 120), admin.mobile);
     await persistDatabase();
     queueSheetSync('user', sheetUserPayload(user));
     queueSheetSync('transaction', db.transactions[db.transactions.length - 1]);
-    return sendJson(res, 200, { success: true, message: 'Wallet recharge successful.', user: publicUser(user) });
+    audit('admin_recharge', { adminMobile: admin.mobile, target: mobile, amount, ip: secClientIp(req) });
+    return sendJson(req, res, 200, { success: true, message: 'Wallet recharge successful.', user: publicUser(user) });
   });
 }
 
@@ -670,7 +710,7 @@ function validAdImage(imageData) {
 
 async function handleGetAds(req, res) {
   const ads = db.ads.filter((ad) => ad.active !== false).sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt))).map(publicAd);
-  return sendJson(res, 200, { success: true, ads });
+  return sendJson(req, res, 200, { success: true, ads });
 }
 
 const DEFAULT_SETTINGS = { usersBaseline: 200000, downloadsBaseline: 171000, rating: '4.9', rcCardPrice: 15 };
@@ -687,7 +727,7 @@ async function handlePublicStats(req, res) {
   const completedDownloads = db.transactions.filter((tx) => tx.type === 'RC_PURCHASE' && tx.status === 'SUCCESS').length;
   const configuredRating = String((db.settings && db.settings.rating) || '').trim();
   const rating = configuredRating || String(process.env.PUBLIC_RATING || '').trim() || DEFAULT_SETTINGS.rating;
-  return sendJson(res, 200, {
+  return sendJson(req, res, 200, {
     success: true,
     users: activeUsers + settingsNumber('usersBaseline'),
     downloads: completedDownloads + settingsNumber('downloadsBaseline'),
@@ -771,7 +811,7 @@ async function handleAdminStats(req, res, searchParams) {
   const from = validDay.test(fromRaw) ? fromRaw : '';
   const to = validDay.test(toRaw) ? toRaw : '';
   const stats = computeAdminStats(from, to);
-  return sendJson(res, 200, {
+  return sendJson(req, res, 200, {
     success: true,
     stats,
     settings: {
@@ -789,13 +829,13 @@ async function handleAdminUpdateRating(req, res) {
   const body = await readJson(req);
   const rating = String(body.rating ?? '').trim();
   if (rating && !/^[0-5](?:\.\d)?$/.test(rating)) {
-    return sendError(res, 422, 'Rating 0 se 5 ke beech ek decimal ke saath daalo, jaise 4.8.');
+    return sendError(req, res, 422, 'Rating 0 se 5 ke beech ek decimal ke saath daalo, jaise 4.8.');
   }
   db.settings = db.settings || {};
   db.settings.rating = rating;
   await persistDatabase();
   queueSheetSync('settings', { rating });
-  return sendJson(res, 200, { success: true, rating });
+  return sendJson(req, res, 200, { success: true, rating });
 }
 
 async function handleAdminUpdateBaseline(req, res) {
@@ -805,17 +845,17 @@ async function handleAdminUpdateBaseline(req, res) {
   const usersBaseline = Number(body.usersBaseline);
   const downloadsBaseline = Number(body.downloadsBaseline);
   if (!Number.isFinite(usersBaseline) || usersBaseline < 0 || usersBaseline > 100_000_000) {
-    return sendError(res, 422, 'Users baseline 0 se 10 crore ke beech ek valid number hona chahiye.');
+    return sendError(req, res, 422, 'Users baseline 0 se 10 crore ke beech ek valid number hona chahiye.');
   }
   if (!Number.isFinite(downloadsBaseline) || downloadsBaseline < 0 || downloadsBaseline > 100_000_000) {
-    return sendError(res, 422, 'RC downloads baseline 0 se 10 crore ke beech ek valid number hona chahiye.');
+    return sendError(req, res, 422, 'RC downloads baseline 0 se 10 crore ke beech ek valid number hona chahiye.');
   }
   db.settings = db.settings || {};
   db.settings.usersBaseline = usersBaseline;
   db.settings.downloadsBaseline = downloadsBaseline;
   await persistDatabase();
   queueSheetSync('settings', { usersBaseline, downloadsBaseline });
-  return sendJson(res, 200, { success: true, usersBaseline, downloadsBaseline });
+  return sendJson(req, res, 200, { success: true, usersBaseline, downloadsBaseline });
 }
 
 async function handleAdminUpdateRcPrice(req, res) {
@@ -824,13 +864,13 @@ async function handleAdminUpdateRcPrice(req, res) {
   const body = await readJson(req);
   const price = Number(body.price);
   if (!Number.isFinite(price) || price < 1 || price > 1000) {
-    return sendError(res, 422, 'RC Card rate ₹1 se ₹1000 ke beech hona chahiye.');
+    return sendError(req, res, 422, 'RC Card rate ₹1 se ₹1000 ke beech hona chahiye.');
   }
   db.settings = db.settings || {};
   db.settings.rcCardPrice = Math.round(price);
   await persistDatabase();
   queueSheetSync('settings', { rcCardPrice: db.settings.rcCardPrice });
-  return sendJson(res, 200, {
+  return sendJson(req, res, 200, {
     success: true,
     rcCardPrice: db.settings.rcCardPrice,
     message: 'Default RC Card rate update ho gaya. Jis user ka custom rate set nahi hai, woh ab ye rate use karega.'
@@ -840,7 +880,7 @@ async function handleAdminUpdateRcPrice(req, res) {
 async function handleAdminGetAds(req, res) {
   const admin = requireAdmin(req, res);
   if (!admin) return;
-  return sendJson(res, 200, { success: true, ads: db.ads.slice().reverse().map(publicAd) });
+  return sendJson(req, res, 200, { success: true, ads: db.ads.slice().reverse().map(publicAd) });
 }
 
 async function handleAdminAddAd(req, res) {
@@ -849,13 +889,13 @@ async function handleAdminAddAd(req, res) {
   const body = await readJson(req);
   const title = String(body.title || 'InstantRCcard offer').trim().slice(0, 120);
   const imageData = String(body.imageData || '');
-  if (!validAdImage(imageData)) return sendError(res, 422, 'PNG, JPG, WEBP ya GIF image upload karo. Image size 40 KB se kam rakho.');
+  if (!validAdImage(imageData)) return sendError(req, res, 422, 'PNG, JPG, WEBP ya GIF image upload karo. Image size 40 KB se kam rakho.');
   const now = new Date().toISOString();
   const ad = { id: crypto.randomUUID(), title, imageData, active: true, createdAt: now, updatedAt: now };
   db.ads.push(ad);
   await persistDatabase();
   queueSheetSync('ad', sheetAdPayload(ad));
-  return sendJson(res, 200, { success: true, ad: publicAd(ad) });
+  return sendJson(req, res, 200, { success: true, ad: publicAd(ad) });
 }
 
 async function handleAdminDeleteAd(req, res, adId) {
@@ -863,22 +903,22 @@ async function handleAdminDeleteAd(req, res, adId) {
   if (!admin) return;
   const before = db.ads.length;
   db.ads = db.ads.filter((ad) => String(ad.id) !== String(adId));
-  if (db.ads.length === before) return sendError(res, 404, 'Advertisement nahi mila.');
+  if (db.ads.length === before) return sendError(req, res, 404, 'Advertisement nahi mila.');
   await persistDatabase();
   queueSheetSync('adDelete', { id: String(adId) });
-  return sendJson(res, 200, { success: true, message: 'Advertisement remove ho gaya.' });
+  return sendJson(req, res, 200, { success: true, message: 'Advertisement remove ho gaya.' });
 }
 
 async function handleAdminToggleAd(req, res, adId) {
   const admin = requireAdmin(req, res);
   if (!admin) return;
   const ad = db.ads.find((item) => String(item.id) === String(adId));
-  if (!ad) return sendError(res, 404, 'Advertisement nahi mila.');
+  if (!ad) return sendError(req, res, 404, 'Advertisement nahi mila.');
   ad.active = ad.active === false;
   ad.updatedAt = new Date().toISOString();
   await persistDatabase();
   queueSheetSync('ad', sheetAdPayload(ad));
-  return sendJson(res, 200, { success: true, ad: publicAd(ad) });
+  return sendJson(req, res, 200, { success: true, ad: publicAd(ad) });
 }
 
 async function serveStatic(req, res, pathname) {
@@ -891,41 +931,117 @@ async function serveStatic(req, res, pathname) {
     staticRoot = __dirname;
   }
   const candidate = path.normalize(path.join(staticRoot, decodeURIComponent(requested)));
-  if (!candidate.startsWith(staticRoot)) return sendError(res, 403, 'Forbidden');
+  if (!candidate.startsWith(staticRoot)) return sendError(req, res, 403, 'Forbidden');
   try {
     const stat = await fs.stat(candidate);
     if (!stat.isFile()) throw new Error('not file');
     const content = await fs.readFile(candidate);
     const extension = path.extname(candidate).toLowerCase();
-    res.writeHead(200, { 'Content-Type': MIME_TYPES[extension] || 'application/octet-stream', 'Content-Length': content.length, 'Cache-Control': extension === '.html' ? 'no-cache' : 'public, max-age=3600', ...securityHeaders() });
+    const pending = pendingCookies(req);
+    const cookieHeaders = pending.length ? { 'Set-Cookie': pending } : {};
+    res.writeHead(200, { 'Content-Type': MIME_TYPES[extension] || 'application/octet-stream', 'Content-Length': content.length, 'Cache-Control': extension === '.html' ? 'no-cache' : 'public, max-age=3600', ...securityHeaders(req), ...cookieHeaders });
     return res.end(content);
   } catch {
-    return sendError(res, 404, 'Not found');
+    return sendError(req, res, 404, 'Not found');
   }
 }
 
+// ---------- Per-route rate limiters -------------------------
+
+const strict = process.env.ENABLE_STRICT_RATE_LIMITS === '1';
+const rl = {
+  global: rateLimit({ route: 'global', limit: strict ? 240 : 600, windowMs: 60_000 }), // per IP per minute
+  auth:  rateLimit({ route: 'auth',  limit: strict ?  10 : 30, windowMs: 60_000 }), // signup/login/forgot
+  rc:    rateLimit({ route: 'rc',    limit: strict ?   3 : 10, windowMs: 60_000 }), // /api/rc/purchase
+  admin: rateLimit({ route: 'admin', limit: strict ?  30 : 120, windowMs: 60_000 }), // admin actions
+  publicStats: rateLimit({ route: 'stats', limit: strict ? 60 : 240, windowMs: 60_000 }),
+  ads: rateLimit({ route: 'ads', limit: strict ? 60 : 240, windowMs: 60_000 })
+};
+
+// Lightweight request logger — only in production log noise matters.
+function shortLog(req, status, extra = '') {
+  const ip = secClientIp(req);
+  const path = String(req.url || '').slice(0, 80);
+  console.log(`[${new Date().toISOString()}] ${ip} ${req.method} ${path} -> ${status}${extra ? ' ' + extra : ''}`);
+}
+
+// ---------- Main server -------------------------------------
+
 const server = http.createServer(async (req, res) => {
+  // Block obvious malicious paths before any heavy work.
+  const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+  const pathname = url.pathname;
+  if (/(\.\.|%2e%2e)/i.test(pathname)) {
+    return sendError(req, res, 400, 'Bad path');
+  }
+
+  // For static files, skip CSRF + shared-secret gates (they are GET).
+  const isStatic = !pathname.startsWith('/api/');
+  const isUnsafeMethod = !['GET', 'HEAD', 'OPTIONS'].includes(req.method || 'GET');
+
+  // Apply shared-secret gate to all /api/ requests if configured.
+  if (pathname.startsWith('/api/')) {
+    await new Promise((resolve) => sharedSecretMiddleware(req, res, resolve));
+    if (res.writableEnded) return;
+  }
+
+  // Per-route rate limit (only /api/)
+  if (pathname.startsWith('/api/')) {
+    let limiter = rl.global;
+    if (pathname.startsWith('/api/auth/')) limiter = rl.auth;
+    else if (pathname.startsWith('/api/rc/')) limiter = rl.rc;
+    else if (pathname.startsWith('/api/admin/')) limiter = rl.admin;
+    else if (pathname === '/api/public/stats') limiter = rl.publicStats;
+    else if (pathname === '/api/ads') limiter = rl.ads;
+    await new Promise((resolve) => limiter(req, res, resolve));
+    if (res.writableEnded) return;
+  }
+
+  // CSRF — only enforced on unsafe API methods; static GETs are exempt.
+  if (!isStatic && isUnsafeMethod) {
+    await new Promise((resolve) => csrfMiddleware(req, res, resolve));
+    if (res.writableEnded) {
+      audit('csrf_block', { ip: secClientIp(req), path: pathname });
+      return;
+    }
+  }
+
   try {
-    const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
-    const pathname = url.pathname;
     if (req.method === 'GET' && pathname === '/api/health') {
       const sheetSyncConfigured = Boolean(SHEET_WEBHOOK_URL && SHEET_SYNC_SECRET);
-      return sendJson(res, 200, { success: true, service: 'InstantRCcard', providerConfigured: Boolean(RC_API_TOKEN), adminConfigured: Boolean(ADMIN_MOBILE), sheetSyncConfigured, storage: sheetSyncConfigured ? 'json+google-sheet' : 'json' });
+      shortLog(req, 200);
+      return sendJson(req, res, 200, { success: true, service: 'InstantRCcard', providerConfigured: Boolean(RC_API_TOKEN), adminConfigured: Boolean(ADMIN_MOBILE), sheetSyncConfigured, storage: sheetSyncConfigured ? 'json+google-sheet' : 'json' });
+    }
+
+    // CSRF bootstrap endpoint — issues a token cookie for the SPA.
+    if (req.method === 'GET' && pathname === '/api/auth/csrf') {
+      const cookieToken = csrfCookieFromHeader(req);
+      let token = cookieToken;
+      if (!token) {
+        const issued = issueCsrfToken(res);
+        token = issued.token;
+        // Queue the Set-Cookie via the deferred-cookie mechanism.
+        req._pendingCookies = req._pendingCookies || [];
+        req._pendingCookies.push(issued.cookie);
+        res.setHeader('X-CSRF-Token', token);
+      }
+      shortLog(req, 200);
+      return sendJson(req, res, 200, { success: true, csrfToken: token });
     }
     if (req.method === 'GET' && pathname === '/api/auth/session') {
       const user = currentUser(req);
-      return sendJson(res, 200, user ? { success: true, user: publicUser(user) } : { success: false, message: 'Not logged in' });
+      return sendJson(req, res, 200, user ? { success: true, user: publicUser(user) } : { success: false, message: 'Not logged in' });
     }
     if (req.method === 'POST' && pathname === '/api/auth/signup') return await handleSignup(req, res);
     if (req.method === 'POST' && pathname === '/api/auth/login') return await handleLogin(req, res);
     if (req.method === 'POST' && pathname === '/api/auth/forgot-password') return await handleForgotPassword(req, res);
-    if (req.method === 'POST' && pathname === '/api/auth/logout') return sendJson(res, 200, { success: true }, { 'Set-Cookie': clearAuthCookie() });
+    if (req.method === 'POST' && pathname === '/api/auth/logout') return sendJson(req, res, 200, { success: true }, { 'Set-Cookie': clearAuthCookie() });
     if (req.method === 'GET' && pathname === '/api/ads') return await handleGetAds(req, res);
     if (req.method === 'GET' && pathname === '/api/public/stats') return await handlePublicStats(req, res);
     if (req.method === 'GET' && pathname === '/api/account/transactions') {
       const user = currentUser(req);
-      if (!user) return sendError(res, 401, 'Session expire ho gaya.');
-      return sendJson(res, 200, { success: true, transactions: userTransactions(user.mobile, 30) });
+      if (!user) return sendError(req, res, 401, 'Session expire ho gaya.');
+      return sendJson(req, res, 200, { success: true, transactions: userTransactions(user.mobile, 30) });
     }
     if (req.method === 'POST' && pathname === '/api/rc/purchase') return await handlePurchase(req, res);
     if (req.method === 'POST' && pathname === '/api/admin/users/search') return await handleAdminSearch(req, res);
@@ -943,23 +1059,38 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && pathname === '/api/admin/transactions') {
       const admin = requireAdmin(req, res);
       if (!admin) return;
-      return sendJson(res, 200, { success: true, transactions: db.transactions.slice(-50).reverse() });
+      return sendJson(req, res, 200, { success: true, transactions: db.transactions.slice(-50).reverse() });
     }
     if (req.method === 'GET') return await serveStatic(req, res, pathname);
-    return sendError(res, 405, 'Method not allowed');
+    return sendError(req, res, 405, 'Method not allowed');
   } catch (error) {
     console.error(error.message);
-    return sendError(res, error.status || 500, error.message || 'Unexpected server error');
+    return sendError(req, res, error.status || 500, error.message || 'Unexpected server error');
   }
 });
 
 await loadDatabase();
 await restoreFromSheet();
+
+// Refuse to boot in production if critical secrets are missing/weak.
+if (process.env.NODE_ENV === 'production') {
+  const missing = [];
+  if (!RC_API_TOKEN) missing.push('RC_API_TOKEN');
+  if (!process.env.SESSION_SECRET) missing.push('SESSION_SECRET');
+  if (!ADMIN_MOBILE) missing.push('ADMIN_MOBILE');
+  if (missing.length) {
+    console.error(`FATAL: missing required env vars: ${missing.join(', ')}`);
+    process.exit(1);
+  }
+}
+
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`InstantRCcard running on http://0.0.0.0:${PORT}`);
   console.log(`RC provider: ${RC_API_URL}`);
   console.log(`Provider token: ${RC_API_TOKEN ? 'configured' : 'missing'}`);
   console.log(`Admin mobile: ${ADMIN_MOBILE ? 'configured' : 'missing'}`);
+  console.log(`Strict rate limits: ${process.env.ENABLE_STRICT_RATE_LIMITS === '1' ? 'ON' : 'OFF'}`);
+  console.log(`Client shared-secret gate: ${process.env.CLIENT_SHARED_SECRET ? 'ENABLED' : 'disabled'}`);
 });
 
 process.on('SIGTERM', () => server.close(() => process.exit(0)));

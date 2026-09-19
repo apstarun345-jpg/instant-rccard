@@ -51,6 +51,26 @@
     $('#auth-view').hidden = true;
     $('#session-loading').hidden = false;
 
+    var csrfTokenCache = '';
+    var csrfPromise = null;
+
+    async function ensureCsrfToken() {
+      // Single-flight: parallel callers share one bootstrap fetch.
+      if (csrfTokenCache) return csrfTokenCache;
+      if (csrfPromise) return csrfPromise;
+      csrfPromise = fetch('/api/auth/csrf', { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+        .then(function (response) {
+          return response.json().then(function (payload) {
+            if (payload && payload.csrfToken) csrfTokenCache = payload.csrfToken;
+            return csrfTokenCache;
+          });
+        })
+        .finally(function () { csrfPromise = null; });
+      return csrfPromise;
+    }
+
+    function resetCsrfToken() { csrfTokenCache = ''; }
+
     async function callServer(name, args) {
       var url = '';
       var options = { credentials: 'same-origin', headers: { 'Accept': 'application/json' } };
@@ -81,9 +101,30 @@
       else if (name === 'adminDeleteAd') { url = '/api/admin/ads/' + encodeURIComponent(args[0]); options.method = 'DELETE'; }
       else if (name === 'adminToggleAd') { url = '/api/admin/ads/' + encodeURIComponent(args[0]); options.method = 'POST'; }
       else throw new Error('Unknown request');
+      // Attach CSRF token for any unsafe HTTP method (POST/PUT/DELETE/PATCH).
+      var method = (options.method || 'GET').toUpperCase();
+      if (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS') {
+        var token = await ensureCsrfToken();
+        if (token) options.headers['X-CSRF-Token'] = token;
+      }
       var response = await fetch(url, options);
+      // Server may rotate tokens; honor new ones delivered via header.
+      var rotated = response.headers.get('X-CSRF-Token');
+      if (rotated) csrfTokenCache = rotated;
       var payload;
       try { payload = await response.json(); } catch (error) { throw new Error('Server se invalid response aaya.'); }
+      // If CSRF was rejected, refresh token once and retry.
+      if (response.status === 403 && payload && (payload.code === 'CSRF_MISSING' || payload.code === 'CSRF_MISMATCH')) {
+        resetCsrfToken();
+        var fresh = await ensureCsrfToken();
+        if (fresh && method !== 'GET') {
+          options.headers['X-CSRF-Token'] = fresh;
+          response = await fetch(url, options);
+          var rotated2 = response.headers.get('X-CSRF-Token');
+          if (rotated2) csrfTokenCache = rotated2;
+          try { payload = await response.json(); } catch (error) { throw new Error('Server se invalid response aaya.'); }
+        }
+      }
       return payload;
     }
 

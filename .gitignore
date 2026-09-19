@@ -1,0 +1,10 @@
+# Node / runtime
+node_modules/
+npm-debug.log*
+yarn-error.log*
+.env
+.env.*
+!.env.example
+data/
+.DS_Store
+*.log
