@@ -1,5 +1,5 @@
 
-    var state = { token: '', user: null, selectedAdminMobile: '', selectedAdminQuery: '', defaultRcCardPrice: 15, pendingVrn: '', busy: false, adminUsersQuery: '', bulkConfirm: false };
+    var state = { token: '', user: null, selectedAdminMobile: '', selectedAdminQuery: '', defaultRcCardPrice: 15, pendingVrn: '', busy: false, adminUsersQuery: '', adminAccessQuery: '', bulkConfirm: false };
     var DOWNLOAD_PRICES = { mparivahan: 10, 'rc-card': 15 };
     var $ = function (selector) { return document.querySelector(selector); };
     var $$ = function (selector) { return Array.prototype.slice.call(document.querySelectorAll(selector)); };
@@ -7,6 +7,7 @@
     var roboTimer = null;
     var roboMessages = [];
     var roboMessageIndex = 0;
+    var roboGreetingLocked = false;
 
     function appIsInstalled() {
       return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
@@ -69,6 +70,8 @@
       else if (name === 'adminFindUser') { url = '/api/admin/users/search'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ query: args[0] }); }
       else if (name === 'adminSetUserRate') { url = '/api/admin/users/set-rate'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ query: args[0], price: args[1], clear: args[2] === true }); }
       else if (name === 'adminListUsers') { url = '/api/admin/users' + (args[0] ? '?q=' + encodeURIComponent(args[0]) : ''); }
+      else if (name === 'adminListAccess') { url = '/api/admin/users/access' + (args[0] ? '?q=' + encodeURIComponent(args[0]) : ''); }
+      else if (name === 'adminUpdateAccess') { url = '/api/admin/users/access'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ query: args[0], makeAdmin: args[1] !== false, permissions: args[2] || {} }); }
       else if (name === 'adminBulkRate') { url = '/api/admin/users/bulk-rate'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ price: args[0], clear: args[1] === true, scope: args[2] || 'all', mobiles: args[3] || [], confirm: args[4] === true }); }
       else if (name === 'adminSetUserStatus') { url = '/api/admin/users/status'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ mobile: args[0], active: args[1] !== false }); }
       else if (name === 'adminRecharge') { url = '/api/admin/recharge'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ mobile: args[0], amount: args[1], note: args[2] }); }
@@ -108,6 +111,18 @@
       return DOWNLOAD_PRICES[downloadType] || DOWNLOAD_PRICES.mparivahan;
     }
 
+    function hasAdminPermission(permission) {
+      if (!state.user || state.user.role !== 'admin') return false;
+      var permissions = state.user.adminPermissions;
+      // Older sessions without the new field are treated as legacy full admins;
+      // the server remains the final authority for every protected request.
+      return !permissions || permissions[permission] === true;
+    }
+
+    function adminPermissionLabel(permission) {
+      return ({ kpi: 'KPI dashboard', recharge: 'Add payment / recharge', rates: 'Rate setting', ads: 'Advertisements', transactions: 'Transaction view', access: 'Admin access' })[permission] || permission;
+    }
+
     function toast(title, message, type) {
       var item = document.createElement('div');
       item.className = 'toast ' + (type || 'info');
@@ -127,6 +142,7 @@
     function closeWelcomePopup() {
       var modal = $('#welcome-back-modal');
       if (modal) modal.hidden = true;
+      releaseRoboGreeting();
     }
 
     function setRoboMessage(text) {
@@ -138,11 +154,32 @@
       bubble.classList.add('robo-message-show');
     }
 
+    function releaseRoboGreeting() {
+      if (!roboGreetingLocked) return;
+      roboGreetingLocked = false;
+      if (state.user) setRoboMessage('How can I help you?');
+    }
+
+    function closeRoboHelp(releaseGreeting) {
+      var panel = $('#robo-help-panel');
+      if (panel) panel.hidden = true;
+      if (releaseGreeting !== false) releaseRoboGreeting();
+    }
+
+    function openRoboHelp() {
+      var panel = $('#robo-help-panel');
+      if (!panel) return;
+      panel.hidden = false;
+      // Keep the frozen Hello, Name bubble visible while help choices are open.
+    }
+
     function stopRoboAssistant() {
       if (roboTimer) window.clearTimeout(roboTimer);
       roboTimer = null;
       roboMessages = [];
       roboMessageIndex = 0;
+      roboGreetingLocked = false;
+      closeRoboHelp(false);
       var helper = $('#robo-helper');
       if (helper) helper.hidden = true;
     }
@@ -151,18 +188,13 @@
       stopRoboAssistant();
       if (!user) return;
       var name = String(user.name || 'there').trim().split(' ')[0] || 'there';
-      roboMessages = ['Hello', name + ' 👋', 'How can I help you?', 'RC Card download ke liye ready hoon.'];
+      // The greeting is intentionally not cycled. Its text stays visibly frozen
+      // while the SVG robot, status light and rings animate independently.
+      roboGreetingLocked = true;
       var helper = $('#robo-helper');
       if (!helper) return;
       helper.hidden = false;
-      setRoboMessage(roboMessages[0]);
-      function nextMessage() {
-        if (!state.user || !roboMessages.length) return;
-        roboMessageIndex = (roboMessageIndex + 1) % roboMessages.length;
-        setRoboMessage(roboMessages[roboMessageIndex]);
-        roboTimer = window.setTimeout(nextMessage, 3300);
-      }
-      roboTimer = window.setTimeout(nextMessage, 2500);
+      setRoboMessage('Hello, ' + name);
     }
 
     function setDownloadStatus(title, text, type) {
@@ -276,6 +308,51 @@
       } catch (error) { /* pre-login pricing text is non-critical */ }
     }
 
+    function applyAdminAccessUi(user) {
+      var isAdmin = Boolean(user && user.role === 'admin');
+      var permissions = ['kpi', 'recharge', 'rates', 'ads', 'transactions', 'access'];
+      var allowed = permissions.filter(hasAdminPermission);
+      var navAdmin = $('#admin-nav');
+      var navRates = $('#admin-rates-nav');
+      var navAccess = $('#admin-access-nav');
+      if (navAdmin) navAdmin.hidden = !isAdmin || !allowed.length;
+      if (navRates) navRates.hidden = !isAdmin || !hasAdminPermission('rates');
+      if (navAccess) navAccess.hidden = !isAdmin || !hasAdminPermission('access');
+
+      var kpi = $('#admin-kpi-section');
+      if (kpi) kpi.hidden = !isAdmin || !hasAdminPermission('kpi');
+      var adminCard = $('#admin-card');
+      if (adminCard) adminCard.hidden = !isAdmin;
+
+      var sectionRules = {
+        wallet: hasAdminPermission('recharge') || hasAdminPermission('transactions'),
+        users: hasAdminPermission('rates'),
+        ads: hasAdminPermission('ads'),
+        access: hasAdminPermission('access')
+      };
+      var hasAdminPanelSection = Object.keys(sectionRules).some(function (key) { return sectionRules[key]; });
+      var noPermission = $('#admin-no-permission');
+      if (noPermission) noPermission.hidden = !isAdmin || hasAdminPanelSection;
+      var sidebar = document.querySelector('.admin-sidebar');
+      if (sidebar) sidebar.hidden = !isAdmin || !hasAdminPanelSection;
+      Object.keys(sectionRules).forEach(function (section) {
+        var button = $('[data-admin-section="' + section + '"]');
+        if (button) button.hidden = !isAdmin || !sectionRules[section];
+      });
+      var rechargeTools = $('#admin-recharge-tools');
+      if (rechargeTools) rechargeTools.hidden = !hasAdminPermission('recharge');
+      var rateHint = $('#admin-rate-inline-hint');
+      if (rateHint) rateHint.hidden = !hasAdminPermission('rates');
+      var transactionsBlock = $('#admin-transactions-block');
+      if (transactionsBlock) transactionsBlock.hidden = !hasAdminPermission('transactions');
+      if (isAdmin && hasAdminPanelSection) {
+        var firstSection = hasAdminPermission('recharge') || hasAdminPermission('transactions') ? 'wallet' : hasAdminPermission('rates') ? 'users' : hasAdminPermission('ads') ? 'ads' : 'access';
+        setAdminSection(firstSection);
+      } else if (isAdmin) {
+        setAdminSection('');
+      }
+    }
+
     function showApp(user) {
       state.user = user;
       $('#session-loading').hidden = true;
@@ -295,20 +372,17 @@
       $('#account-mobile').textContent = '+91 ' + user.mobile;
       if ($('#account-email')) $('#account-email').textContent = user.email || 'Email not set';
       startRoboAssistant(user);
-      $('#admin-nav').hidden = user.role !== 'admin';
-      if ($('#admin-rates-nav')) $('#admin-rates-nav').hidden = user.role !== 'admin';
-      $('#admin-card').hidden = user.role !== 'admin';
-      $('#admin-kpi-section').hidden = user.role !== 'admin';
+      applyAdminAccessUi(user);
       applyRcPrice(priceForDownload('rc-card'));
       updateWallet(user.wallet);
       loadAds();
       loadPublicStats();
       loadTransactions();
       if (user.role === 'admin') {
-        loadAdminTransactions();
-        loadAdminAds();
-        loadAdminStats();
-        loadAdminUsers('', { silent: true });
+        if (hasAdminPermission('transactions')) loadAdminTransactions();
+        if (hasAdminPermission('ads')) loadAdminAds();
+        if (hasAdminPermission('kpi')) loadAdminStats();
+        if (hasAdminPermission('rates')) loadAdminUsers('', { silent: true });
       }
     }
 
@@ -335,6 +409,9 @@
       $('#dashboard').hidden = true;
       $('#admin-card').hidden = true;
       $('#admin-kpi-section').hidden = true;
+      if ($('#admin-no-permission')) $('#admin-no-permission').hidden = true;
+      if ($('#admin-access-section')) $('#admin-access-section').hidden = true;
+      closeRoboHelp(false);
       setAuthMode('login');
     }
 
@@ -414,7 +491,7 @@
     }
 
     async function loadAdminAds() {
-      if (!state.user || state.user.role !== 'admin') return;
+      if (!state.user || state.user.role !== 'admin' || !hasAdminPermission('ads')) return;
       try {
         var result = await callServer('adminGetAds', []);
         if (result.success) renderAdminAds(result.ads || []);
@@ -478,6 +555,7 @@
     }
 
     async function uploadAdvertisement() {
+      if (!hasAdminPermission('ads')) { toast('Access restricted', 'Is admin account ko advertisement access nahi diya gaya.', 'error'); return; }
       var fileInput = $('#admin-ad-file');
       var titleInput = $('#admin-ad-title');
       var button = $('#admin-ad-upload');
@@ -497,6 +575,7 @@
     }
 
     async function deleteAdvertisement(id) {
+      if (!hasAdminPermission('ads')) { toast('Access restricted', 'Is admin account ko advertisement access nahi diya gaya.', 'error'); return; }
       if (!window.confirm('Is advertisement ko remove karna hai?')) return;
       try {
         var result = await callServer('adminDeleteAd', [id]);
@@ -508,6 +587,7 @@
     }
 
     async function toggleAdvertisement(id) {
+      if (!hasAdminPermission('ads')) { toast('Access restricted', 'Is admin account ko advertisement access nahi diya gaya.', 'error'); return; }
       try {
         var result = await callServer('adminToggleAd', [id]);
         if (!result.success) { toast('Update failed', result.message, 'error'); return; }
@@ -517,11 +597,25 @@
     }
 
     function setAdminSection(section) {
+      var allowed = {
+        wallet: hasAdminPermission('recharge') || hasAdminPermission('transactions'),
+        users: hasAdminPermission('rates'),
+        ads: hasAdminPermission('ads'),
+        access: hasAdminPermission('access')
+      };
+      if (!allowed[section]) {
+        section = Object.keys(allowed).find(function (key) { return allowed[key]; }) || '';
+      }
       $$('[data-admin-section]').forEach(function (button) { button.classList.toggle('active', button.dataset.adminSection === section); });
-      $('#admin-wallet-section').hidden = section !== 'wallet';
+      if ($('#admin-wallet-section')) $('#admin-wallet-section').hidden = section !== 'wallet';
       if ($('#admin-users-section')) $('#admin-users-section').hidden = section !== 'users';
-      $('#admin-ads-section').hidden = section !== 'ads';
+      if ($('#admin-ads-section')) $('#admin-ads-section').hidden = section !== 'ads';
+      if ($('#admin-access-section')) $('#admin-access-section').hidden = section !== 'access';
+      if ($('#admin-no-permission')) $('#admin-no-permission').hidden = Boolean(section);
       if (section === 'users') loadAdminUsers(state.adminUsersQuery || '', { silent: true });
+      if (section === 'access' && !state.adminAccessQuery) {
+        $('#admin-access-list').innerHTML = '<div class="empty-list">Search karke existing user select karo.</div>';
+      }
     }
 
     function safeImage(value) {
@@ -831,6 +925,11 @@
       body.innerHTML = adminUsersCache.map(function (user) {
         var isCustom = user.customRcCardPrice != null;
         var mobile = escapeHtml(user.mobile);
+        var statusCell = hasAdminPermission('access')
+          ? (user.active === false
+            ? '<button class="ghost-button small-blue" type="button" data-user-toggle="' + mobile + '" data-active="1">Unblock</button> <span class="rate-state blocked">BLOCKED</span>'
+            : '<button class="ghost-button small-blue" type="button" data-user-toggle="' + mobile + '" data-active="0">Block</button>')
+          : '<span class="admin-user-sub">View only</span>';
         return '<tr data-mobile="' + mobile + '">' +
           '<td><b class="admin-user-cell">' + escapeHtml(user.name || 'User') + (user.role === 'admin' ? ' (admin)' : '') + '</b><small class="admin-user-sub">' + escapeHtml(user.email || 'Email not set') + '</small></td>' +
           '<td>+91 ' + mobile + '</td>' +
@@ -839,9 +938,7 @@
           '<td><span class="admin-rate-actions"><button class="blue-button small-blue" type="button" data-rate-save="' + mobile + '">Set rate</button>' +
           (isCustom ? '<button class="ghost-button small-blue" type="button" data-rate-reset="' + mobile + '">Default</button>' : '') +
           '</span></td>' +
-          '<td>' + (user.active === false
-            ? '<button class="ghost-button small-blue" type="button" data-user-toggle="' + mobile + '" data-active="1">Unblock</button> <span class="rate-state blocked">BLOCKED</span>'
-            : '<button class="ghost-button small-blue" type="button" data-user-toggle="' + mobile + '" data-active="0">Block</button>') + '</td>' +
+          '<td>' + statusCell + '</td>' +
           '</tr>';
       }).join('');
     }
@@ -876,8 +973,104 @@
       renderAdminRateLog(response.rateLog);
     }
 
+    // ---------- Admin: delegated access tab ----------
+    var adminAccessCache = [];
+    var ADMIN_ACCESS_KEYS = ['kpi', 'recharge', 'rates', 'ads', 'transactions', 'access'];
+
+    function renderAdminAccessUsers(response) {
+      var list = $('#admin-access-list');
+      if (!list) return;
+      adminAccessCache = Array.isArray(response.users) ? response.users : [];
+      state.adminAccessQuery = response.query || '';
+      var labels = {
+        kpi: 'KPI dashboard',
+        recharge: 'Add payment / recharge',
+        rates: 'Rate setting',
+        ads: 'Advertisements',
+        transactions: 'Transaction view',
+        access: 'Admin access'
+      };
+      if (!adminAccessCache.length) {
+        list.innerHTML = '<div class="empty-list">Is search ka koi existing account nahi mila.</div>';
+        return;
+      }
+      var currentMobile = state.user && state.user.mobile;
+      list.innerHTML = adminAccessCache.map(function (user) {
+        var locked = user.mobile === currentMobile;
+        var permissions = user.adminPermissions || {};
+        var isAdmin = user.role === 'admin';
+        var permissionInputs = ADMIN_ACCESS_KEYS.map(function (key) {
+          return '<label><input type="checkbox" data-access-permission="' + key + '" ' + (permissions[key] === true ? 'checked' : '') + ' />' + labels[key] + '</label>';
+        }).join('');
+        var actionText = isAdmin ? 'Save selected access' : 'Make admin with selected access';
+        var disabled = locked ? ' disabled' : '';
+        return '<article class="admin-access-card ' + (locked ? 'locked' : '') + '" data-access-mobile="' + escapeHtml(user.mobile) + '">' +
+          '<div class="admin-access-head"><div><b>' + escapeHtml(user.name || 'User') + '</b><small>+91 ' + escapeHtml(user.mobile || '') + ' · ' + escapeHtml(user.email || 'Email not set') + '</small></div><span class="admin-access-state ' + (isAdmin ? 'admin' : '') + '">' + (isAdmin ? 'ADMIN' : 'NORMAL USER') + '</span></div>' +
+          '<div class="admin-access-permissions">' + permissionInputs + '</div>' +
+          '<div class="admin-access-actions"><button class="blue-button small-blue" type="button" data-access-save' + disabled + '>' + actionText + '</button>' +
+          (isAdmin ? '<button class="ghost-button small-blue" type="button" data-access-remove' + disabled + '>Remove admin access</button>' : '') +
+          (locked ? '<small class="admin-help">Apne current admin access ko change nahi kar sakte.</small>' : '') +
+          '</div></article>';
+      }).join('');
+      $$('#admin-access-list [data-access-save]').forEach(function (button) {
+        button.addEventListener('click', function () { updateAdminAccess(button, true); });
+      });
+      $$('#admin-access-list [data-access-remove]').forEach(function (button) {
+        button.addEventListener('click', function () { updateAdminAccess(button, false); });
+      });
+    }
+
+    async function loadAdminAccessUsers(query, options) {
+      if (!state.user || state.user.role !== 'admin' || !hasAdminPermission('access')) return;
+      var value = String(query == null ? '' : query).trim();
+      var button = options && options.silent ? null : $('#admin-access-search-button');
+      if (button) setButtonLoading(button, true, 'Find users');
+      try {
+        var response = await callServer('adminListAccess', [value]);
+        if (!response.success) { toast('Access search failed', response.message || 'User list load nahi hui.', 'error'); return; }
+        renderAdminAccessUsers(response);
+      } catch (error) {
+        toast('Access search failed', error.message, 'error');
+      } finally {
+        if (button) setButtonLoading(button, false, 'Find users');
+      }
+    }
+
+    function accessPermissionsFromCard(card) {
+      var permissions = {};
+      ADMIN_ACCESS_KEYS.forEach(function (key) {
+        var input = card.querySelector('[data-access-permission="' + key + '"]');
+        permissions[key] = Boolean(input && input.checked);
+      });
+      return permissions;
+    }
+
+    async function updateAdminAccess(button, makeAdmin) {
+      if (!hasAdminPermission('access')) { toast('Access restricted', 'Is admin account ko access management nahi diya gaya.', 'error'); return; }
+      var card = button && button.closest ? button.closest('[data-access-mobile]') : null;
+      if (!card) return;
+      var mobile = card.dataset.accessMobile;
+      if (!mobile || (state.user && mobile === state.user.mobile)) {
+        toast('Access protected', 'Apne current admin access ko change nahi kar sakte.', 'error');
+        return;
+      }
+      var original = String(button.textContent || (makeAdmin ? 'Save selected access' : 'Remove admin access')).trim();
+      setButtonLoading(button, true, original);
+      try {
+        var response = await callServer('adminUpdateAccess', [mobile, makeAdmin, makeAdmin ? accessPermissionsFromCard(card) : {}]);
+        if (!response.success) { toast('Access update failed', response.message, 'error'); return; }
+        toast(makeAdmin ? 'Admin access saved' : 'Admin access removed', response.message, 'success');
+        await loadAdminAccessUsers(state.adminAccessQuery, { silent: true });
+        if (hasAdminPermission('kpi')) loadAdminStats();
+      } catch (error) {
+        toast('Access update failed', error.message, 'error');
+      } finally {
+        setButtonLoading(button, false, original);
+      }
+    }
+
     async function loadAdminUsers(query, options) {
-      if (!state.user || state.user.role !== 'admin') return;
+      if (!state.user || state.user.role !== 'admin' || !hasAdminPermission('rates')) return;
       var settings = options || {};
       var button = settings.silent ? null : (query ? $('#admin-users-search-button') : $('#admin-users-all-button'));
       if (button) setButtonLoading(button, true, query ? 'Search users' : 'Show all');
@@ -955,6 +1148,7 @@
     }
 
     async function toggleAdminUserStatus(mobile, nextActive, button) {
+      if (!hasAdminPermission('access')) { toast('Access restricted', 'Is admin account ko user status access nahi diya gaya.', 'error'); return; }
       var label = nextActive ? 'Unblock' : 'Block';
       if (!nextActive && !state.bulkConfirm) {
         state.bulkConfirm = true;
@@ -1010,6 +1204,7 @@
     }
 
     async function rechargeAdminUser() {
+      if (!hasAdminPermission('recharge')) { toast('Access restricted', 'Is admin account ko recharge access nahi diya gaya.', 'error'); return; }
       var amount = Number($('#admin-amount').value);
       if (!state.selectedAdminMobile) { toast('Pehle user search karo', 'Mobile number se user find karo.', 'error'); return; }
       if (!amount || amount <= 0) { toast('Amount enter karo', 'Recharge amount ₹1 se zyada hona chahiye.', 'error'); return; }
@@ -1028,7 +1223,7 @@
     }
 
     async function loadAdminTransactions() {
-      if (!state.user || state.user.role !== 'admin') return;
+      if (!state.user || state.user.role !== 'admin' || !hasAdminPermission('transactions')) return;
       try {
         var response = await callServer('adminGetTransactions', []);
         if (!response.success) return;
@@ -1039,6 +1234,25 @@
           return '<tr><td>' + escapeHtml(formatDate(tx.time)) + '</td><td>' + escapeHtml(tx.mobile) + '</td><td>' + escapeHtml(tx.type) + '</td><td class="' + (credit ? 'credit' : 'debit') + '">' + (credit ? '+' : '') + escapeHtml(formatMoney(tx.amount)) + '</td><td>' + escapeHtml(tx.vrn || '—') + '</td></tr>';
         }).join('');
       } catch (error) { /* admin table is non-critical */ }
+    }
+
+    function renderAdminActivity(activity) {
+      var list = $('#admin-activity-list');
+      if (!list) return;
+      if (!Array.isArray(activity) || !activity.length) {
+        list.innerHTML = '<div class="empty-list">Abhi kisi admin ne recharge nahi diya.</div>';
+        return;
+      }
+      function metric(label, value) {
+        var item = value || {};
+        return '<div class="admin-activity-period"><small>' + escapeHtml(label) + '</small><b>' + escapeHtml(formatMoney(item.amount)) + '</b><span>' + Number(item.users || 0).toLocaleString('en-IN') + ' users · ' + Number(item.entries || 0).toLocaleString('en-IN') + ' payments</span></div>';
+      }
+      list.innerHTML = activity.map(function (admin) {
+        var permissions = admin.permissions || {};
+        var activePermissions = Object.keys(permissions).filter(function (key) { return permissions[key]; }).map(adminPermissionLabel).join(' · ') || 'No capabilities';
+        var range = admin.range ? metric(admin.range.from + ' → ' + admin.range.to, admin.range).replace('admin-activity-period', 'admin-activity-period admin-activity-range') : '';
+        return '<div class="admin-activity-card"><div class="admin-activity-head"><div><b>' + escapeHtml(admin.name || 'Admin') + '</b><small>+91 ' + escapeHtml(admin.mobile || '—') + '</small></div><span class="admin-activity-badge">' + escapeHtml(activePermissions) + '</span></div><div class="admin-activity-periods">' + metric('Today', admin.today) + metric('Current month', admin.month) + metric('Last month', admin.lastMonth) + metric('All time', admin.allTime) + range + '</div></div>';
+      }).join('');
     }
 
     function renderAdminStats(stats) {
@@ -1060,10 +1274,11 @@
       } else {
         rangeCard.hidden = true;
       }
+      renderAdminActivity(stats.adminActivity);
     }
 
     async function loadAdminStats(range) {
-      if (!state.user || state.user.role !== 'admin') return;
+      if (!state.user || state.user.role !== 'admin' || !hasAdminPermission('kpi')) return;
       try {
         var response = await callServer('adminGetStats', [range || null]);
         if (response.success) {
@@ -1296,7 +1511,14 @@
       if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
     $('#welcome-back-modal').addEventListener('click', function (event) { if (event.target === $('#welcome-back-modal')) closeWelcomePopup(); });
-    $('#robo-button').addEventListener('click', function () { if (state.user) showWelcomePopup(state.user); });
+    $('#robo-button').addEventListener('click', function () {
+      if (!state.user) return;
+      var panel = $('#robo-help-panel');
+      if (panel && !panel.hidden) closeRoboHelp(true); else openRoboHelp();
+    });
+    $('#close-robo-help').addEventListener('click', function () { closeRoboHelp(true); });
+    $('#robo-whatsapp-help').addEventListener('click', function () { releaseRoboGreeting(); });
+    $('#robo-email-help').addEventListener('click', function () { releaseRoboGreeting(); });
     $('#refresh-transactions').addEventListener('click', loadTransactions);
     $('#admin-search-button').addEventListener('click', findAdminUser);
     $('#admin-search-mobile').addEventListener('keydown', function (event) {
@@ -1311,6 +1533,14 @@
     });
     if ($('#admin-users-all-button')) $('#admin-users-all-button').addEventListener('click', showAllAdminUsers);
     if ($('#admin-users-csv-button')) $('#admin-users-csv-button').addEventListener('click', exportAdminUsersCsv);
+    if ($('#admin-access-search-button')) $('#admin-access-search-button').addEventListener('click', function () {
+      var query = String($('#admin-access-search').value || '').trim();
+      if (!query) { toast('Search check karo', 'Existing user ka mobile, email ya naam daalo.', 'error'); return; }
+      loadAdminAccessUsers(query);
+    });
+    if ($('#admin-access-search')) $('#admin-access-search').addEventListener('keydown', function (event) {
+      if (event.key === 'Enter') { event.preventDefault(); $('#admin-access-search-button').click(); }
+    });
     if ($('#admin-bulk-rate-apply')) $('#admin-bulk-rate-apply').addEventListener('click', function () { bulkAdminRate(false, $('#admin-bulk-rate-apply')); });
     if ($('#admin-bulk-rate-clear')) $('#admin-bulk-rate-clear').addEventListener('click', function () { bulkAdminRate(true, $('#admin-bulk-rate-clear')); });
     if ($('#admin-users-body')) {
@@ -1332,6 +1562,7 @@
       button.addEventListener('click', function () { setAdminSection(button.dataset.gotoAdminSection); });
     });
     if ($('#admin-rates-nav')) $('#admin-rates-nav').addEventListener('click', function () { setAdminSection('users'); });
+    if ($('#admin-access-nav')) $('#admin-access-nav').addEventListener('click', function () { setAdminSection('access'); });
     $('#admin-stats-apply').addEventListener('click', applyAdminStatsFilter);
     $('#admin-stats-reset').addEventListener('click', resetAdminStatsFilter);
     $('#admin-rating-save').addEventListener('click', saveAdminRating);

@@ -19,7 +19,10 @@ const RC_PRICES = Object.freeze({
   mparivahan: 10,
   'rc-card': 15
 });
+const ADMIN_PERMISSION_KEYS = Object.freeze(['kpi', 'recharge', 'rates', 'ads', 'transactions', 'access']);
+const FULL_ADMIN_PERMISSIONS = Object.freeze({ kpi: true, recharge: true, rates: true, ads: true, transactions: true, access: true });
 const SESSION_SECONDS = 60 * 60 * 24 * 7;
+const STATS_TIME_ZONE = process.env.APP_TIME_ZONE || 'Asia/Kolkata';
 const MAX_BODY_BYTES = 5_000_000;
 const MAX_AD_BYTES = 40_000;
 const UPSTREAM_TIMEOUT_MS = 30_000;
@@ -91,6 +94,28 @@ function priceForDownload(downloadType, user) {
   return RC_PRICES.mparivahan;
 }
 
+function normalizedAdminPermissions(value, fallbackFull = false) {
+  if (fallbackFull || value == null || value === '') return { ...FULL_ADMIN_PERMISSIONS };
+  let source = value;
+  if (typeof source === 'string') {
+    try { source = JSON.parse(source); } catch { source = {}; }
+  }
+  if (!source || typeof source !== 'object') source = {};
+  return Object.fromEntries(ADMIN_PERMISSION_KEYS.map((key) => [key, source[key] === true]));
+}
+
+function adminPermissionsFor(user) {
+  if (!user || user.role !== 'admin') return {};
+  const owner = Boolean(ADMIN_MOBILE && user.mobile === ADMIN_MOBILE);
+  return normalizedAdminPermissions(user.adminPermissions, owner || user.adminPermissions == null);
+}
+
+function hasAdminPermission(user, permission) {
+  if (!user || user.role !== 'admin') return false;
+  if (!permission) return true;
+  return adminPermissionsFor(user)[permission] === true;
+}
+
 function publicUser(user) {
   const rcCard = userRcCardPrice(user);
   const custom = customRcCardPrice(user);
@@ -100,6 +125,7 @@ function publicUser(user) {
     mobile: user.mobile,
     wallet: Number(user.wallet || 0),
     role: user.role,
+    ...(user.role === 'admin' ? { adminPermissions: adminPermissionsFor(user) } : {}),
     pricePerRc: RC_PRICES.mparivahan,
     customRcCardPrice: custom,
     prices: {
@@ -121,7 +147,8 @@ function publicAdminUser(user) {
     rateUpdatedBy: user.rcRateUpdatedBy || '',
     rate: userRcCardPrice(user),
     customRate: custom,
-    hasCustomRate: custom != null
+    hasCustomRate: custom != null,
+    adminPermissions: user.role === 'admin' ? adminPermissionsFor(user) : {}
   };
 }
 
@@ -293,9 +320,11 @@ function findUserByQuery(query) {
 }
 
 function syncAdminRole(user) {
-  if (user && ADMIN_MOBILE && user.mobile === ADMIN_MOBILE && user.role !== 'admin') {
+  if (user && ADMIN_MOBILE && user.mobile === ADMIN_MOBILE) {
+    const changed = user.role !== 'admin' || JSON.stringify(user.adminPermissions || {}) !== JSON.stringify(FULL_ADMIN_PERMISSIONS);
     user.role = 'admin';
-    void persistDatabase();
+    user.adminPermissions = { ...FULL_ADMIN_PERMISSIONS };
+    if (changed) void persistDatabase();
   }
   return user;
 }
@@ -377,6 +406,7 @@ function sheetUserPayload(user) {
     passwordHash: user.passwordHash || '',
     salt: user.salt || '',
     role: user.role,
+    adminPermissions: user.role === 'admin' ? adminPermissionsFor(user) : {},
     wallet: Number(user.wallet || 0),
     rcCardPrice: user.rcCardPrice != null && user.rcCardPrice !== '' ? Number(user.rcCardPrice) : '',
     rcRateUpdatedAt: user.rcRateUpdatedAt || '',
@@ -528,6 +558,7 @@ async function restoreFromSheet() {
         rcRateUpdatedAt: account.rcRateUpdatedAt || '',
         rcRateUpdatedBy: account.rcRateUpdatedBy || '',
         role: account.role === 'admin' ? 'admin' : 'user',
+        adminPermissions: account.role === 'admin' ? normalizedAdminPermissions(account.adminPermissions, account.adminPermissions == null) : {}, 
         createdAt: account.createdAt || new Date().toISOString(),
         lastLogin: account.lastLogin || account.createdAt || new Date().toISOString(),
         active: account.active !== false && String(account.active).toLowerCase() !== 'false'
@@ -566,7 +597,8 @@ async function handleSignup(req, res) {
     if (findUser(mobile)) return sendError(res, 409, 'Is mobile number ka account pehle se bana hua hai.');
     const salt = crypto.randomBytes(16).toString('hex');
     if (findUserByEmail(email)) return sendError(res, 409, 'Is email ka account pehle se bana hua hai.');
-    const user = { id: crypto.randomUUID(), name, email, mobile, salt, passwordHash: passwordHash(password, salt), wallet: 0, rcCardPrice: null, role: ADMIN_MOBILE && mobile === ADMIN_MOBILE ? 'admin' : 'user', createdAt: new Date().toISOString(), lastLogin: new Date().toISOString(), active: true };
+    const isOwner = Boolean(ADMIN_MOBILE && mobile === ADMIN_MOBILE);
+    const user = { id: crypto.randomUUID(), name, email, mobile, salt, passwordHash: passwordHash(password, salt), wallet: 0, rcCardPrice: null, role: isOwner ? 'admin' : 'user', adminPermissions: isOwner ? { ...FULL_ADMIN_PERMISSIONS } : {}, createdAt: new Date().toISOString(), lastLogin: new Date().toISOString(), active: true };
     db.users.push(user);
     await persistDatabase();
     queueSheetSync('user', sheetUserPayload(user));
@@ -675,15 +707,19 @@ async function handlePurchase(req, res) {
   });
 }
 
-function requireAdmin(req, res) {
+function requireAdmin(req, res, permission = '') {
   const user = currentUser(req);
   if (!user || !user.active) { sendError(res, 401, 'Session expire ho gaya.'); return null; }
   if (user.role !== 'admin') { sendError(res, 403, 'Admin access required.'); return null; }
+  if (permission && !hasAdminPermission(user, permission)) {
+    sendError(res, 403, 'Is admin account ko is section ka access nahi diya gaya.');
+    return null;
+  }
   return user;
 }
 
 async function handleAdminSearch(req, res) {
-  const admin = requireAdmin(req, res);
+  const admin = requireAdmin(req, res, 'recharge');
   if (!admin) return;
   const body = await readJson(req);
   const query = String(body.query || body.mobile || body.email || '').trim();
@@ -701,7 +737,7 @@ async function handleAdminSearch(req, res) {
 }
 
 async function handleAdminSetUserRate(req, res) {
-  const admin = requireAdmin(req, res);
+  const admin = requireAdmin(req, res, 'rates');
   if (!admin) return;
   const body = await readJson(req);
   const query = String(body.query || body.mobile || body.email || '').trim();
@@ -730,7 +766,7 @@ async function handleAdminSetUserRate(req, res) {
 
 // Admin panel ka "Users & rates" tab: naam/mobile/email search + rate summary + rate audit log.
 async function handleAdminListUsers(req, res, searchParams) {
-  const admin = requireAdmin(req, res);
+  const admin = requireAdmin(req, res, 'rates');
   if (!admin) return;
   const query = String(searchParams.get('q') || '').trim();
   const limitRaw = Number(searchParams.get('limit'));
@@ -754,7 +790,7 @@ async function handleAdminListUsers(req, res, searchParams) {
 
 // Bulk rate: "all" (har normal user) ya "selected" (diye gaye mobile numbers).
 async function handleAdminBulkSetRate(req, res) {
-  const admin = requireAdmin(req, res);
+  const admin = requireAdmin(req, res, 'rates');
   if (!admin) return;
   const body = await readJson(req);
   const clearCustom = body.clear === true || body.price === null || body.price === '';
@@ -796,8 +832,56 @@ async function handleAdminBulkSetRate(req, res) {
   });
 }
 
+async function handleAdminAccessUsers(req, res, searchParams) {
+  const admin = requireAdmin(req, res, 'access');
+  if (!admin) return;
+  const query = String(searchParams.get('q') || '').trim();
+  const limitRaw = Number(searchParams.get('limit'));
+  const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 300) : 100;
+  const matches = sortAdminUsers(searchAdminUsers(query));
+  return sendJson(res, 200, {
+    success: true,
+    users: matches.slice(0, limit).map(publicAdminUser),
+    query,
+    matched: matches.length,
+    permissionKeys: ADMIN_PERMISSION_KEYS
+  });
+}
+
+async function handleAdminUpdateAccess(req, res) {
+  const admin = requireAdmin(req, res, 'access');
+  if (!admin) return;
+  const body = await readJson(req);
+  const query = String(body.query || body.mobile || body.email || '').trim();
+  if (!query) return sendError(res, 422, 'User mobile, email ya naam daalo.');
+  return withMutationLock(async () => {
+    const resolved = resolveAdminUserQuery(query);
+    if (!resolved.user) return sendError(res, resolved.status, resolved.message);
+    const user = resolved.user;
+    if (ADMIN_MOBILE && user.mobile === ADMIN_MOBILE) {
+      return sendError(res, 422, 'Owner admin ke access ko yahan se change nahi kar sakte.');
+    }
+    if (user.mobile === admin.mobile) {
+      return sendError(res, 422, 'Apne current admin access ko change nahi kar sakte.');
+    }
+    const makeAdmin = body.makeAdmin !== false;
+    user.role = makeAdmin ? 'admin' : 'user';
+    user.adminPermissions = makeAdmin ? normalizedAdminPermissions(body.permissions, false) : {};
+    user.adminAccessUpdatedAt = new Date().toISOString();
+    user.adminAccessUpdatedBy = admin.mobile;
+    await persistDatabase();
+    queueSheetSync('user', sheetUserPayload(user));
+    return sendJson(res, 200, {
+      success: true,
+      message: makeAdmin ? `${user.name} ko selected admin access de diya gaya.` : `${user.name} ka admin access hata diya gaya.`,
+      user: publicAdminUser(user),
+      permissions: makeAdmin ? adminPermissionsFor(user) : {}
+    });
+  });
+}
+
 async function handleAdminSetUserStatus(req, res) {
-  const admin = requireAdmin(req, res);
+  const admin = requireAdmin(req, res, 'access');
   if (!admin) return;
   const body = await readJson(req);
   const mobile = normalizeMobile(body.mobile);
@@ -820,7 +904,7 @@ async function handleAdminSetUserStatus(req, res) {
 }
 
 async function handleAdminRecharge(req, res) {
-  const admin = requireAdmin(req, res);
+  const admin = requireAdmin(req, res, 'recharge');
   if (!admin) return;
   const body = await readJson(req);
   const mobile = normalizeMobile(body.mobile);
@@ -891,22 +975,70 @@ async function handlePublicStats(req, res) {
 }
 
 function dayKey(iso) {
-  return String(iso || '').slice(0, 10);
+  const raw = String(iso || '');
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return raw.slice(0, 10);
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: STATS_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).formatToParts(date).reduce((result, part) => {
+    if (part.type !== 'literal') result[part.type] = part.value;
+    return result;
+  }, {});
+  return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
 function monthKey(iso) {
-  return String(iso || '').slice(0, 7);
+  return dayKey(iso).slice(0, 7);
 }
 
 function sumAmount(list) {
   return list.reduce((total, tx) => total + Number(tx.amount || 0), 0);
 }
 
+function summarizeAdminTopups(list) {
+  return {
+    amount: sumAmount(list),
+    entries: list.length,
+    users: new Set(list.map((tx) => String(tx.mobile || '')).filter(Boolean)).size
+  };
+}
+
+function buildAdminActivity(topups, todayKey, monthNowKey, lastMonthKey, range) {
+  return db.users.filter((user) => user.role === 'admin').map((admin) => {
+    const own = topups.filter((tx) => tx.adminMobile === admin.mobile);
+    const today = summarizeAdminTopups(own.filter((tx) => dayKey(tx.time) === todayKey));
+    const month = summarizeAdminTopups(own.filter((tx) => monthKey(tx.time) === monthNowKey));
+    const lastMonth = summarizeAdminTopups(own.filter((tx) => monthKey(tx.time) === lastMonthKey));
+    const allTime = summarizeAdminTopups(own);
+    const rangeStats = range
+      ? summarizeAdminTopups(own.filter((tx) => {
+        const key = dayKey(tx.time);
+        return key >= range.from && key <= range.to;
+      }))
+      : null;
+    return {
+      mobile: admin.mobile,
+      name: admin.name || 'Admin',
+      permissions: adminPermissionsFor(admin),
+      today,
+      month,
+      lastMonth,
+      allTime,
+      range: rangeStats
+    };
+  });
+}
+
 function computeAdminStats(fromDay, toDay) {
   const now = new Date();
-  const todayKey = now.toISOString().slice(0, 10);
-  const monthNowKey = now.toISOString().slice(0, 7);
-  const lastMonthDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
+  const todayKey = dayKey(now);
+  const monthNowKey = todayKey.slice(0, 7);
+  const [year, month] = monthNowKey.split('-').map(Number);
+  const lastMonthDate = new Date(Date.UTC(year, month - 2, 1));
   const lastMonthKey = lastMonthDate.toISOString().slice(0, 7);
 
   const totalUsers = db.users.filter((user) => user.role !== 'admin').length;
@@ -952,12 +1084,13 @@ function computeAdminStats(fromDay, toDay) {
     todayRcDownloads,
     monthRcDownloads,
     lastMonthRcDownloads,
-    range
+    range,
+    adminActivity: buildAdminActivity(topups, todayKey, monthNowKey, lastMonthKey, range)
   };
 }
 
 async function handleAdminStats(req, res, searchParams) {
-  const admin = requireAdmin(req, res);
+  const admin = requireAdmin(req, res, 'kpi');
   if (!admin) return;
   const fromRaw = String(searchParams.get('from') || '');
   const toRaw = String(searchParams.get('to') || '');
@@ -978,7 +1111,7 @@ async function handleAdminStats(req, res, searchParams) {
 }
 
 async function handleAdminUpdateRating(req, res) {
-  const admin = requireAdmin(req, res);
+  const admin = requireAdmin(req, res, 'kpi');
   if (!admin) return;
   const body = await readJson(req);
   const rating = String(body.rating ?? '').trim();
@@ -993,7 +1126,7 @@ async function handleAdminUpdateRating(req, res) {
 }
 
 async function handleAdminUpdateBaseline(req, res) {
-  const admin = requireAdmin(req, res);
+  const admin = requireAdmin(req, res, 'kpi');
   if (!admin) return;
   const body = await readJson(req);
   const usersBaseline = Number(body.usersBaseline);
@@ -1013,7 +1146,7 @@ async function handleAdminUpdateBaseline(req, res) {
 }
 
 async function handleAdminUpdateRcPrice(req, res) {
-  const admin = requireAdmin(req, res);
+  const admin = requireAdmin(req, res, 'kpi');
   if (!admin) return;
   const body = await readJson(req);
   const price = Number(body.price);
@@ -1032,13 +1165,13 @@ async function handleAdminUpdateRcPrice(req, res) {
 }
 
 async function handleAdminGetAds(req, res) {
-  const admin = requireAdmin(req, res);
+  const admin = requireAdmin(req, res, 'ads');
   if (!admin) return;
   return sendJson(res, 200, { success: true, ads: db.ads.slice().reverse().map(publicAd) });
 }
 
 async function handleAdminAddAd(req, res) {
-  const admin = requireAdmin(req, res);
+  const admin = requireAdmin(req, res, 'ads');
   if (!admin) return;
   const body = await readJson(req);
   const title = String(body.title || 'InstantRCcard offer').trim().slice(0, 120);
@@ -1053,7 +1186,7 @@ async function handleAdminAddAd(req, res) {
 }
 
 async function handleAdminDeleteAd(req, res, adId) {
-  const admin = requireAdmin(req, res);
+  const admin = requireAdmin(req, res, 'ads');
   if (!admin) return;
   const before = db.ads.length;
   db.ads = db.ads.filter((ad) => String(ad.id) !== String(adId));
@@ -1064,7 +1197,7 @@ async function handleAdminDeleteAd(req, res, adId) {
 }
 
 async function handleAdminToggleAd(req, res, adId) {
-  const admin = requireAdmin(req, res);
+  const admin = requireAdmin(req, res, 'ads');
   if (!admin) return;
   const ad = db.ads.find((item) => String(item.id) === String(adId));
   if (!ad) return sendError(res, 404, 'Advertisement nahi mila.');
@@ -1124,6 +1257,8 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && pathname === '/api/rc/purchase') return await handlePurchase(req, res);
     if (req.method === 'POST' && pathname === '/api/admin/users/search') return await handleAdminSearch(req, res);
     if (req.method === 'GET' && pathname === '/api/admin/users') return await handleAdminListUsers(req, res, url.searchParams);
+    if (req.method === 'GET' && pathname === '/api/admin/users/access') return await handleAdminAccessUsers(req, res, url.searchParams);
+    if (req.method === 'POST' && pathname === '/api/admin/users/access') return await handleAdminUpdateAccess(req, res);
     if (req.method === 'POST' && pathname === '/api/admin/users/set-rate') return await handleAdminSetUserRate(req, res);
     if (req.method === 'POST' && pathname === '/api/admin/users/bulk-rate') return await handleAdminBulkSetRate(req, res);
     if (req.method === 'POST' && pathname === '/api/admin/users/status') return await handleAdminSetUserStatus(req, res);
@@ -1138,7 +1273,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && pathname === '/api/admin/settings/baseline') return await handleAdminUpdateBaseline(req, res);
     if (req.method === 'POST' && pathname === '/api/admin/settings/rc-price') return await handleAdminUpdateRcPrice(req, res);
     if (req.method === 'GET' && pathname === '/api/admin/transactions') {
-      const admin = requireAdmin(req, res);
+      const admin = requireAdmin(req, res, 'transactions');
       if (!admin) return;
       return sendJson(res, 200, { success: true, transactions: db.transactions.slice(-50).reverse() });
     }

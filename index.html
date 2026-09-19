@@ -159,11 +159,24 @@
 
     .robo-helper { position: fixed; right: 18px; bottom: 18px; z-index: 70; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; pointer-events: none; }
     .robo-helper[hidden] { display: none; }
-    .robo-message { max-width: 220px; padding: 9px 12px; border: 1px solid #dce8f8; border-radius: 13px 13px 4px 13px; color: #31517f; background: rgba(255,255,255,.96); box-shadow: 0 12px 28px rgba(28,65,130,.15); font-size: 11px; font-weight: 800; opacity: 1; transform: translateY(0); }
+    .robo-message { max-width: 220px; padding: 9px 12px; border: 1px solid #dce8f8; border-radius: 13px 13px 4px 13px; color: #31517f; background: rgba(255,255,255,.96); box-shadow: 0 12px 28px rgba(28,65,130,.15); font-size: 11px; font-weight: 800; opacity: 1; transform: translateY(0); white-space: normal; }
     .robo-message.robo-message-show { animation: robo-message-in .42s ease both; }
+    .robo-help-panel { width: min(270px, calc(100vw - 34px)); padding: 13px; pointer-events: auto; border: 1px solid #dce8f8; border-radius: 16px 16px 5px 16px; background: rgba(255,255,255,.98); box-shadow: 0 18px 38px rgba(28,65,130,.19); animation: robo-help-in .22s ease both; }
+    .robo-help-panel[hidden] { display: none; }
+    .robo-help-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--blue-950); font-size: 12px; font-weight: 850; }
+    .robo-help-title button { display: grid; place-items: center; width: 24px; height: 24px; border: 0; border-radius: 7px; color: #8e9cb0; background: #f1f6fd; font-size: 17px; line-height: 1; }
+    .robo-help-title button:hover { color: var(--blue); background: var(--blue-50); }
+    .robo-help-panel p { margin: 6px 0 11px; color: #7a8ba6; font-size: 10px; line-height: 1.45; }
+    .robo-help-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+    .robo-help-action { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-height: 35px; padding: 0 8px; border: 1px solid #dce8f8; border-radius: 9px; color: var(--blue); background: #f7faff; font-size: 10px; font-weight: 850; }
+    .robo-help-action:hover { border-color: #99baf3; background: var(--blue-50); transform: translateY(-1px); }
+    .robo-help-action.whatsapp { color: #128b5b; border-color: #c9eddd; background: #effcf6; }
+    .robo-help-action .whatsapp-icon { width: 18px; height: 18px; }
     .robo-button { position: relative; display: grid; place-items: center; width: 66px; height: 66px; padding: 0; border: 0; border-radius: 22px; pointer-events: auto; background: linear-gradient(145deg, #f7fbff, #dceaff); box-shadow: 0 16px 30px rgba(29,78,159,.20), inset 0 0 0 1px rgba(255,255,255,.9); animation: robo-float 3.2s ease-in-out infinite; }
+    .robo-button::before, .robo-button::after { content: ""; position: absolute; inset: -5px; border: 1px solid rgba(79,140,255,.22); border-radius: 25px; pointer-events: none; animation: robo-ring 2.8s ease-out infinite; }
+    .robo-button::after { animation-delay: 1.4s; }
     .robo-button:hover { transform: translateY(-3px) scale(1.02); }
-    .robo-button svg { width: 48px; height: 48px; overflow: visible; }
+    .robo-button svg { width: 48px; height: 48px; overflow: visible; animation: robo-scan 2.5s ease-in-out infinite; }
     .robo-shell { fill: #fff; stroke: #2868db; stroke-width: 2; }
     .robo-panel { fill: #eaf3ff; stroke: #7da8f5; stroke-width: 1.4; }
     .robo-eye { fill: #1f5bd6; animation: robo-blink 4.6s ease-in-out infinite; transform-origin: center; }
@@ -171,7 +184,10 @@
     .robo-antenna { fill: none; stroke: #3975d7; stroke-width: 2; stroke-linecap: round; }
     .robo-dot { fill: #4f8cff; animation: robo-pulse 1.5s ease-in-out infinite; }
     .robo-status { position: absolute; right: 8px; top: 8px; width: 10px; height: 10px; border: 2px solid #fff; border-radius: 50%; background: #20b77a; box-shadow: 0 0 0 3px rgba(32,183,122,.13); }
-    @keyframes robo-float { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
+    @keyframes robo-float { 0%,100% { transform: translateY(0) rotate(0deg); } 50% { transform: translateY(-5px) rotate(-1deg); } }
+    @keyframes robo-ring { 0% { opacity: .65; transform: scale(.88); } 70%,100% { opacity: 0; transform: scale(1.25); } }
+    @keyframes robo-scan { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-1px) scale(1.035); } }
+    @keyframes robo-help-in { from { opacity: 0; transform: translateY(7px) scale(.96); } to { opacity: 1; transform: translateY(0) scale(1); } }
     @keyframes robo-message-in { from { opacity: 0; transform: translateY(7px) scale(.96); } to { opacity: 1; transform: translateY(0) scale(1); } }
     @keyframes robo-blink { 0%,44%,48%,100% { transform: scaleY(1); } 46% { transform: scaleY(.12); } }
     @keyframes robo-pulse { 0%,100% { opacity: .45; } 50% { opacity: 1; } }
@@ -469,6 +485,43 @@
     .kpi-c8 { background: linear-gradient(135deg, #f7b733, #c0810a); }
     .kpi-range { grid-column: span 2; background: linear-gradient(135deg, #a855f7, #5b21b6); }
     .kpi-range .kpi-sub { position: relative; display: block; margin-top: 4px; color: rgba(255,255,255,.9); font-size: 10px; font-weight: 700; }
+    .admin-activity-panel { margin-top: 17px; padding: 16px; border: 1px solid #dfe6f8; border-radius: 16px; background: rgba(255,255,255,.72); }
+    .admin-activity-heading { margin-bottom: 12px; }
+    .admin-activity-heading h3 { margin: 5px 0 3px; color: var(--blue-950); font-size: 16px; letter-spacing: -.035em; }
+    .admin-activity-heading p { margin: 0; color: var(--muted); font-size: 10px; }
+    .admin-activity-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(235px, 1fr)); gap: 10px; }
+    .admin-activity-card { padding: 13px; border: 1px solid #e1e9f7; border-radius: 13px; background: #fff; box-shadow: 0 7px 18px rgba(34,70,135,.06); }
+    .admin-activity-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-bottom: 9px; border-bottom: 1px solid #edf2fa; }
+    .admin-activity-head b { display: block; color: var(--blue-950); font-size: 12px; }
+    .admin-activity-head small { display: block; margin-top: 3px; color: #91a0b7; font-size: 9px; }
+    .admin-activity-badge { padding: 4px 7px; border-radius: 999px; color: #3768c8; background: #eef4ff; font-size: 8px; font-weight: 850; white-space: nowrap; }
+    .admin-activity-periods { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-top: 10px; }
+    .admin-activity-period { padding: 8px; border-radius: 9px; background: #f7faff; }
+    .admin-activity-period small, .admin-activity-period b, .admin-activity-period span { display: block; }
+    .admin-activity-period small { color: #91a0b7; font-size: 8px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; }
+    .admin-activity-period b { margin-top: 3px; color: var(--blue); font-size: 13px; }
+    .admin-activity-period span { margin-top: 2px; color: #6f809b; font-size: 9px; }
+    .admin-activity-range { grid-column: 1 / -1; color: #6844a2; background: #f7f0ff; }
+    .admin-empty-state { padding: 32px 18px; border: 1px dashed #cbdaf2; border-radius: 15px; color: #7689a7; background: #f8fbff; text-align: center; }
+    .admin-empty-state span { display: grid; place-items: center; width: 42px; height: 42px; margin: 0 auto 9px; border-radius: 13px; color: var(--blue); background: #eaf2ff; font-size: 19px; }
+    .admin-empty-state h4 { margin: 0 0 5px; color: var(--blue-950); font-size: 14px; }
+    .admin-empty-state p { max-width: 350px; margin: 0 auto; font-size: 10px; line-height: 1.5; }
+    .admin-access-list { display: grid; gap: 11px; margin-top: 15px; }
+    .admin-access-card { padding: 15px; border: 1px solid #e0e8f6; border-radius: 15px; background: #fff; box-shadow: 0 8px 20px rgba(31,65,130,.06); }
+    .admin-access-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .admin-access-head b, .admin-access-head small { display: block; }
+    .admin-access-head b { color: var(--blue-950); font-size: 13px; }
+    .admin-access-head small { margin-top: 3px; color: #91a0b7; font-size: 10px; }
+    .admin-access-state { padding: 5px 8px; border-radius: 999px; color: #6b7b95; background: #eef3fb; font-size: 8px; font-weight: 850; white-space: nowrap; }
+    .admin-access-state.admin { color: #fff; background: var(--blue); }
+    .admin-access-permissions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; margin: 13px 0; }
+    .admin-access-permissions label { display: flex; align-items: center; gap: 7px; min-height: 37px; padding: 8px; border: 1px solid #e4ebf7; border-radius: 9px; color: #5c6e8a; background: #f9fbff; font-size: 10px; font-weight: 750; }
+    .admin-access-permissions label:has(input:checked) { border-color: #aac6f7; color: var(--blue); background: #eef5ff; }
+    .admin-access-permissions input { accent-color: var(--blue); }
+    .admin-access-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+    .admin-access-actions .small-blue { width: auto; min-width: 145px; }
+    .admin-access-card.locked { border-color: #c9dafa; background: #f7faff; }
+    .admin-access-card.locked .admin-access-permissions { opacity: .65; pointer-events: none; }
     .admin-rating-row { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; margin-top: 16px; padding-top: 15px; border-top: 1px solid #dfe6f8; }
     .admin-rating-row label { display: block; margin-bottom: 6px; color: #70819c; font-size: 10px; font-weight: 800; }
     .admin-rating-row input { width: 100px; height: 38px; padding: 0 10px; border: 1px solid #dfe8f5; border-radius: 9px; color: var(--ink); background: white; font-size: 11px; }
@@ -566,6 +619,8 @@
       .admin-users-tools > div:first-child { grid-column: 1 / -1; }
       .admin-users-tools .small-blue { width: 100%; }
       .admin-rate-cell { flex-wrap: wrap; }
+      .admin-access-permissions { grid-template-columns: 1fr 1fr; }
+      .admin-access-actions .small-blue { width: 100%; }
       .auth-shell { width: calc(100% - 30px); }
       .trust-stats { grid-template-columns: 1fr 1fr; gap: 7px; }
       .trust-stat { border-right: 0; padding: 8px 6px; }
@@ -639,7 +694,7 @@
 
     <header class="topbar" id="topbar" hidden>
       <a class="brand" href="#app"><span class="brand-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M6 6h12M6 10h8M6 14h6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M16.5 14.5v4M14.5 16.5h4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span><span class="brand-name"><strong>Instant<span>RC</span>card</strong><small>RC DOWNLOAD PLATFORM</small></span></a>
-      <nav class="topbar-nav"><button class="active" data-scroll="app" type="button">RC Download</button><button data-scroll="transactions" type="button">My history</button><button data-scroll="admin-card" id="admin-nav" type="button" hidden>Admin panel</button><button data-scroll="admin-card" id="admin-rates-nav" type="button" hidden>User rates</button></nav>
+      <nav class="topbar-nav"><button class="active" data-scroll="app" type="button">RC Download</button><button data-scroll="transactions" type="button">My history</button><button data-scroll="admin-card" id="admin-nav" type="button" hidden>Admin panel</button><button data-scroll="admin-card" id="admin-rates-nav" type="button" hidden>User rates</button><button data-scroll="admin-card" id="admin-access-nav" type="button" hidden>Admin access</button></nav>
       <div class="top-actions"><button class="install-button compact" id="install-dashboard-button" type="button" hidden>＋ Install app</button><button class="wallet-pill wallet-trigger" id="wallet-top-trigger" type="button" aria-label="Open wallet topup"><span class="wallet-icon">₹</span><span><b id="wallet-amount">₹0</b><small> wallet</small></span></button>
         <div class="user-menu-wrap" id="user-menu-wrap">
           <button class="user-menu" id="user-menu-button" type="button" aria-haspopup="true" aria-expanded="false"><span class="avatar" id="avatar">U</span><small id="user-name">User</small><span class="user-menu-caret" aria-hidden="true">▾</span></button>
@@ -673,6 +728,10 @@
           <div class="admin-kpi-card kpi-c7"><span class="kpi-icon">▤</span><small>This month RC downloaded</small><b id="kpi-month-rc">0</b></div>
           <div class="admin-kpi-card kpi-c8"><span class="kpi-icon">↺</span><small>Last month RC downloaded</small><b id="kpi-last-month-rc">0</b></div>
           <div class="admin-kpi-card kpi-range" id="admin-kpi-range" hidden><span class="kpi-icon">★</span><small id="kpi-range-label">Selected range</small><b id="kpi-range-topup">₹0</b><span class="kpi-sub" id="kpi-range-rc">0 RC downloads</span></div>
+        </div>
+        <div class="admin-activity-panel" id="admin-activity-panel">
+          <div class="admin-activity-heading"><div><div class="section-label">ADMIN-WISE RECHARGE</div><h3>Payment activity by admin</h3><p>Har admin ne kitne users ko wallet payment diya aur kitna amount add kiya.</p></div></div>
+          <div class="admin-activity-list" id="admin-activity-list"><div class="empty-list">Admin activity load ho rahi hai…</div></div>
         </div>
         <div class="admin-rating-row">
           <div><label>Homepage rating (0–5)</label><input id="admin-rating-input" type="number" min="0" max="5" step="0.1" placeholder="4.8" /></div>
@@ -711,10 +770,12 @@
               <button class="admin-side-button active" data-admin-section="wallet" type="button">₹ Wallet control</button>
               <button class="admin-side-button" data-admin-section="users" type="button">◉ Users &amp; rates</button>
               <button class="admin-side-button" data-admin-section="ads" type="button">▣ Advertisement</button>
+              <button class="admin-side-button" data-admin-section="access" type="button">♙ Admin access</button>
             </aside>
             <div class="admin-content">
+              <div class="admin-empty-state" id="admin-no-permission" hidden><span>♙</span><h4>Admin access pending</h4><p>Is account ko abhi koi admin capability assign nahi hui. Owner se required access select karne ko bolo.</p></div>
               <div id="admin-wallet-section">
-                <div class="admin-tools"><div><label>User mobile, email ya naam</label><input id="admin-search-mobile" type="text" placeholder="9876543210, user@email.com ya Rahul" autocomplete="off" /></div><button class="blue-button small-blue" id="admin-search-button" type="button">Find user</button><div><label>Recharge amount ₹</label><input id="admin-amount" type="number" min="1" step="1" placeholder="100" /></div><button class="blue-button small-blue" id="admin-recharge-button" type="button" disabled>Recharge</button></div>
+                <div class="admin-tools" id="admin-recharge-tools"><div><label>User mobile, email ya naam</label><input id="admin-search-mobile" type="text" placeholder="9876543210, user@email.com ya Rahul" autocomplete="off" /></div><button class="blue-button small-blue" id="admin-search-button" type="button">Find user</button><div><label>Recharge amount ₹</label><input id="admin-amount" type="number" min="1" step="1" placeholder="100" /></div><button class="blue-button small-blue" id="admin-recharge-button" type="button" disabled>Recharge</button></div>
                 <div class="admin-user-result" id="admin-user-result" hidden>
                   <div>
                     <h4 id="admin-user-name">User</h4>
@@ -730,8 +791,8 @@
                   <button class="ghost-button small-blue" id="admin-user-rate-clear" type="button">Use default</button>
                   <small id="admin-user-rate-help">Is user ke liye alag rate set karo. Download par yahi rate dikhega aur wallet se yahi deduct hoga.</small>
                 </div>
-                <div class="admin-inline-hint">Sabhi users ki list ke saath rate set karne ke liye <button class="admin-link-button" type="button" data-goto-admin-section="users">Users &amp; rates</button> tab kholo.</div>
-                <div class="admin-tx"><h4>Latest platform transactions</h4><div class="table-wrap"><table class="admin-table"><thead><tr><th>TIME</th><th>MOBILE</th><th>TYPE</th><th>AMOUNT</th><th>VRN</th></tr></thead><tbody id="admin-tx-body"><tr><td colspan="5">No transactions yet.</td></tr></tbody></table></div></div>
+                <div class="admin-inline-hint" id="admin-rate-inline-hint">Sabhi users ki list ke saath rate set karne ke liye <button class="admin-link-button" type="button" data-goto-admin-section="users">Users &amp; rates</button> tab kholo.</div>
+                <div class="admin-tx" id="admin-transactions-block"><h4>Latest platform transactions</h4><div class="table-wrap"><table class="admin-table"><thead><tr><th>TIME</th><th>MOBILE</th><th>TYPE</th><th>AMOUNT</th><th>VRN</th></tr></thead><tbody id="admin-tx-body"><tr><td colspan="5">No transactions yet.</td></tr></tbody></table></div></div>
               </div>
               <div id="admin-users-section" hidden>
                 <div class="ads-manager-heading"><div><div class="section-label">USER WISE RC RATE</div><h4>Users aur unka RC Card rate</h4><p>Kisi bhi user ke liye alag RC Card rate set karo. Us user ke download par wahi rate dikhega aur wallet se wahi amount deduct hoga.</p></div></div>
@@ -777,6 +838,15 @@
                 <div class="admin-ad-form"><div><label>Title / short message</label><input id="admin-ad-title" type="text" maxlength="120" placeholder="Diwali offer — RC Card ₹15" /></div><div><label>Banner image</label><input id="admin-ad-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif" /></div><button class="blue-button small-blue" id="admin-ad-upload" type="button">Upload</button></div>
                 <div class="admin-help">JPG, PNG, WEBP ya GIF. Mobile banner ko horizontal rakho; image automatically compress hogi.</div>
                 <div class="admin-ads-list" id="admin-ads-list"><div class="empty-list">Abhi koi advertisement nahi hai.</div></div>
+              </div>
+              <div id="admin-access-section" hidden>
+                <div class="ads-manager-heading"><div><div class="section-label">DELEGATED ADMIN ACCESS</div><h4>Existing user ko admin banao</h4><p>User mobile, email ya naam search karke selected capabilities save karo. Owner aur current admin ka access protected rahega.</p></div></div>
+                <div class="admin-tools admin-access-tools">
+                  <div><label>User search — naam, mobile ya email</label><input id="admin-access-search" type="text" placeholder="9876543210, user@email.com ya Rahul" autocomplete="off" /></div>
+                  <button class="blue-button small-blue" id="admin-access-search-button" type="button">Find users</button>
+                </div>
+                <div class="admin-help">KPI, recharge, rates, ads, transactions aur access capabilities alag-alag select karke delegated admin ko sirf required access do.</div>
+                <div class="admin-access-list" id="admin-access-list"><div class="empty-list">Search karke existing user select karo.</div></div>
               </div>
             </div>
           </div>
@@ -837,6 +907,11 @@
   </div>
   <div class="robo-helper" id="robo-helper" hidden aria-live="polite">
     <div class="robo-message" id="robo-message">Hello</div>
+    <div class="robo-help-panel" id="robo-help-panel" hidden>
+      <div class="robo-help-title"><span>InstantRCcard help</span><button id="close-robo-help" type="button" aria-label="Close assistant help">×</button></div>
+      <p>Recharge, RC download ya account help ke liye contact karo.</p>
+      <div class="robo-help-actions"><a class="robo-help-action whatsapp" id="robo-whatsapp-help" href="https://wa.me/919057838589?text=Hello%20InstantRCcard%20support" target="_blank" rel="noopener"><img class="whatsapp-icon" src="/whatsapp.png" alt="" /> WhatsApp</a><a class="robo-help-action" id="robo-email-help" href="mailto:Apstarun345@gmail.com?subject=InstantRCcard%20help"><span>✉</span> Email</a></div>
+    </div>
     <button class="robo-button" id="robo-button" type="button" aria-label="Open InstantRCcard assistant">
       <span class="robo-status" aria-hidden="true"></span>
       <svg viewBox="0 0 64 64" aria-hidden="true">

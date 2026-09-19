@@ -19,6 +19,10 @@ A blue-and-white Node website for secure RC front-and-back downloads.
 - `Fetching RC Card` loading popup while the provider image is being fetched
 - Horizontal public offer/festival advertisement ticker
 - Admin-only user search, wallet recharge and advertisement upload/remove/hide controls
+- Separate delegated **Admin access** management: existing users can be made admin or removed with granular KPI, recharge, rates, ads, transactions and access permissions
+- Permission-aware admin tabs and server-side permission gates so delegated admins only see and use assigned capabilities
+- KPI admin activity cards for today, current month, last month, all-time and selected date ranges, showing users paid and total amount per admin
+- Frozen `Hello, <name>` robot greeting with independent animation plus WhatsApp/email help choices
 - Admin **Users & rates** tab: naam/mobile/email search, per-user RC Card rate, bulk rate apply, block/unblock and CSV export
 - Per-user RC rate audit log (purana rate → naya rate, kaun admin ne badla)
 - Service worker update notice so a new deploy is never stuck behind an old cached page
@@ -65,6 +69,8 @@ Open the HTTPS website in Chrome. Use the install icon in the address bar or cho
 - `POST /api/admin/users/set-rate` (per-user RC Card rate set/clear)
 - `POST /api/admin/users/bulk-rate` (sabhi users par ek rate, `confirm: true` zaroori)
 - `POST /api/admin/users/status` (account block/unblock)
+- `GET /api/admin/users/access?q=name|mobile|email` (delegated admin access search)
+- `POST /api/admin/users/access` (make/remove admin and save selected permissions)
 - `POST /api/admin/recharge`
 - `GET /api/admin/transactions`
 - `GET /api/admin/ads`
@@ -89,4 +95,4 @@ Rate change hone par us user ke download popup, wallet alert aur account panel m
 
 The direct version stores users, transactions and local ad data in `data/instant-rccard.json`. On a host without a persistent disk, configure the private Apps Script mirror and deploy the updated `apps-script/Code.gs`; the Node service restores accounts, wallets, transactions and ads from the private Sheet snapshot on startup. Keep `SESSION_SECRET` fixed in Render so an existing session cookie remains valid across restarts.
 
-Set `ADMIN_MOBILE` before creating the admin account. The account created with that mobile number receives the admin role. Set `SHEET_WEBHOOK_URL` to the Apps Script `/exec` URL and use the same `SHEET_SYNC_SECRET` in Node and Apps Script. If the provider token has been shared publicly, rotate it before production use.
+Set `ADMIN_MOBILE` before creating the admin account. The account created with that mobile number receives the owner admin role and cannot be changed through delegated access management. Set `APP_TIME_ZONE=Asia/Kolkata` (or another IANA zone) for Today/current month/last month KPI boundaries. Set `SHEET_WEBHOOK_URL` to the Apps Script `/exec` URL and use the same `SHEET_SYNC_SECRET` in Node and Apps Script. If the provider token has been shared publicly, rotate it before production use.
