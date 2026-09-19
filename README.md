@@ -21,6 +21,8 @@ A blue-and-white Node website for secure RC front-and-back downloads.
 - Admin-only user search, wallet recharge and advertisement upload/remove/hide controls
 - Separate delegated **Admin access** management: existing users can be made admin or removed with granular KPI, recharge, rates, ads, transactions and access permissions
 - Permission-aware admin tabs and server-side permission gates so delegated admins only see and use assigned capabilities
+- Clear `Main Admin` versus `Admin Assistant` labels; Main Admin sees all-platform data, while assistant KPI/transactions are scoped to that assistant's own attributed activity
+- Sticky `Hello, <name>` dashboard greeting that stays visible during scrolling
 - KPI admin activity cards for today, current month, last month, all-time and selected date ranges, showing users paid and total amount per admin
 - Frozen `Hello, <name>` robot greeting with independent animation plus WhatsApp/email help choices
 - Admin **Users & rates** tab: naam/mobile/email search, per-user RC Card rate, bulk rate apply, block/unblock and CSV export

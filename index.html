@@ -133,7 +133,10 @@
     .user-menu:hover, .user-menu.open { background: var(--blue-50); }
     .avatar { display: grid; place-items: center; width: 39px; height: 39px; border-radius: 50%; color: #fff; background: linear-gradient(135deg, #76a7ff, #1d4ed8); font-size: 14px; font-weight: 800; }
     .avatar.avatar-lg { width: 46px; height: 46px; font-size: 16px; }
+    .user-menu-copy { display: grid; gap: 3px; min-width: 0; text-align: left; }
     .user-menu small { display: block; max-width: 140px; overflow: hidden; color: #536887; font-size: 14px; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
+    .role-pill { display: inline-flex; width: fit-content; max-width: 140px; overflow: hidden; padding: 2px 6px; border-radius: 999px; color: #3569c9; background: #eaf2ff; font-size: 8px; font-weight: 850; letter-spacing: .03em; text-overflow: ellipsis; white-space: nowrap; }
+    .role-pill[hidden] { display: none; }
     .user-menu-caret { color: #9aa7b9; font-size: 11px; transition: transform .12s ease; }
     .user-menu.open .user-menu-caret { transform: rotate(180deg); }
     .user-dropdown { position: absolute; right: 0; top: calc(100% + 10px); z-index: 40; width: 260px; padding: 15px; border: 1px solid #e2ebf8; border-radius: 16px; background: #fff; box-shadow: 0 18px 40px rgba(24,45,92,.16); transform-origin: top right; transform: translateY(-6px) scale(.97); opacity: 0; pointer-events: none; transition: opacity .12s ease, transform .12s ease; }
@@ -193,7 +196,7 @@
     @keyframes robo-pulse { 0%,100% { opacity: .45; } 50% { opacity: 1; } }
 
     .dashboard { width: min(1160px, calc(100% - 48px)); margin: 0 auto; padding: 38px 0 70px; }
-    .welcome-line { display: flex; align-items: end; justify-content: space-between; gap: 18px; margin-bottom: 22px; }
+    .welcome-line { position: sticky; top: 0; z-index: 35; display: flex; align-items: end; justify-content: space-between; gap: 18px; margin: -12px 0 22px; padding: 12px 0 13px; border-bottom: 1px solid rgba(222,232,247,.9); background: rgba(247,250,255,.94); box-shadow: 0 8px 18px rgba(28,65,130,.04); backdrop-filter: blur(12px); }
     .welcome-line h1 { margin: 8px 0 4px; color: var(--blue-950); font-size: 31px; letter-spacing: -.06em; }
     .welcome-line p { margin: 0; color: var(--muted); font-size: 12px; }
     .price-note { display: inline-flex; align-items: center; gap: 8px; padding: 8px 11px; border: 1px solid #dce8f8; border-radius: 11px; color: #6980a4; background: rgba(255,255,255,.78); font-size: 11px; }
@@ -580,7 +583,8 @@
 
       .wallet-pill small { display: none; }
       .dashboard { padding-top: 27px; }
-      .welcome-line { align-items: flex-start; flex-direction: column; }
+      .welcome-line { top: 0; align-items: flex-start; flex-direction: column; gap: 8px; margin-top: -7px; padding: 10px 0 11px; }
+      .welcome-line .price-note { align-self: stretch; justify-content: space-between; }
       .welcome-line h1 { font-size: 27px; }
       .download-hero { grid-template-columns: 1fr; min-height: 330px; padding: 23px 18px; }
       .hero-content h2 { font-size: 23px; }
@@ -697,11 +701,12 @@
       <nav class="topbar-nav"><button class="active" data-scroll="app" type="button">RC Download</button><button data-scroll="transactions" type="button">My history</button><button data-scroll="admin-card" id="admin-nav" type="button" hidden>Admin panel</button><button data-scroll="admin-card" id="admin-rates-nav" type="button" hidden>User rates</button><button data-scroll="admin-card" id="admin-access-nav" type="button" hidden>Admin access</button></nav>
       <div class="top-actions"><button class="install-button compact" id="install-dashboard-button" type="button" hidden>＋ Install app</button><button class="wallet-pill wallet-trigger" id="wallet-top-trigger" type="button" aria-label="Open wallet topup"><span class="wallet-icon">₹</span><span><b id="wallet-amount">₹0</b><small> wallet</small></span></button>
         <div class="user-menu-wrap" id="user-menu-wrap">
-          <button class="user-menu" id="user-menu-button" type="button" aria-haspopup="true" aria-expanded="false"><span class="avatar" id="avatar">U</span><small id="user-name">User</small><span class="user-menu-caret" aria-hidden="true">▾</span></button>
+          <button class="user-menu" id="user-menu-button" type="button" aria-haspopup="true" aria-expanded="false"><span class="avatar" id="avatar">U</span><span class="user-menu-copy"><small id="user-name">User</small><span class="role-pill" id="user-role-pill" hidden></span></span><span class="user-menu-caret" aria-hidden="true">▾</span></button>
           <div class="user-dropdown" id="user-dropdown" hidden>
             <div class="user-dropdown-head"><span class="avatar avatar-lg" id="dropdown-avatar">U</span><div><b id="dropdown-name">User</b><small id="dropdown-mobile">+91 —</small></div></div>
             <div class="user-dropdown-row"><span class="user-dropdown-icon">@</span><span id="dropdown-email">Email not set</span></div>
             <div class="user-dropdown-row"><span class="user-dropdown-icon">₹</span><span id="dropdown-wallet">₹0 wallet balance</span></div>
+            <div class="user-dropdown-row"><span class="user-dropdown-icon">♙</span><span id="dropdown-role">User account</span></div>
             <button class="user-dropdown-logout" id="logout-button" type="button">↪ Logout</button>
           </div>
         </div>
@@ -711,7 +716,7 @@
     <main class="dashboard" id="dashboard" hidden>
       <div class="welcome-line"><div><div class="section-label">INSTANT RCCARD DESK</div><h1 id="welcome-title">RC download karo.</h1><p id="welcome-subtitle">Vehicle number dalo aur compact RC Card PNG seedha download karo.</p></div><div class="price-note"><b id="price-note-amount">₹15</b><span>RC Card download<br />MParivahan Coming Soon</span></div></div>
       <section class="admin-kpi-section" id="admin-kpi-section" hidden>
-        <div class="admin-kpi-heading"><div><div class="section-label">OWNER ACCESS · LIVE OVERVIEW</div><h2>Admin KPI dashboard</h2><p>Users, topup aur RC download ka real-time overview.</p></div><span class="admin-tag">ADMIN ONLY</span></div>
+        <div class="admin-kpi-heading"><div><div class="section-label" id="admin-kpi-role-label">MAIN ADMIN · LIVE OVERVIEW</div><h2 id="admin-kpi-title">Admin KPI dashboard</h2><p id="admin-kpi-description">Users, topup aur RC download ka real-time overview.</p></div><span class="admin-tag" id="admin-kpi-scope-tag">ALL PLATFORM</span></div>
         <div class="admin-kpi-filters">
           <div><label>From date</label><input id="admin-stats-from" type="date" /></div>
           <div><label>To date</label><input id="admin-stats-to" type="date" /></div>
@@ -719,32 +724,33 @@
           <button class="ghost-button small-blue" id="admin-stats-reset" type="button">Reset</button>
         </div>
         <div class="admin-kpi-grid" id="admin-kpi-grid">
-          <div class="admin-kpi-card kpi-c1"><span class="kpi-icon">◉</span><small>Total users</small><b id="kpi-total-users">0</b></div>
-          <div class="admin-kpi-card kpi-c2"><span class="kpi-icon">⚡</span><small>Active users</small><b id="kpi-active-users">0</b></div>
-          <div class="admin-kpi-card kpi-c3"><span class="kpi-icon">₹</span><small>Today topup</small><b id="kpi-today-topup">₹0</b></div>
-          <div class="admin-kpi-card kpi-c4"><span class="kpi-icon">▦</span><small>This month topup</small><b id="kpi-month-topup">₹0</b></div>
-          <div class="admin-kpi-card kpi-c5"><span class="kpi-icon">↺</span><small>Last month topup</small><b id="kpi-last-month-topup">₹0</b></div>
-          <div class="admin-kpi-card kpi-c6"><span class="kpi-icon">⬇</span><small>Today RC downloaded</small><b id="kpi-today-rc">0</b></div>
-          <div class="admin-kpi-card kpi-c7"><span class="kpi-icon">▤</span><small>This month RC downloaded</small><b id="kpi-month-rc">0</b></div>
-          <div class="admin-kpi-card kpi-c8"><span class="kpi-icon">↺</span><small>Last month RC downloaded</small><b id="kpi-last-month-rc">0</b></div>
+          <div class="admin-kpi-card kpi-c1" id="kpi-card-total-users"><span class="kpi-icon">◉</span><small id="kpi-total-users-label">Total users</small><b id="kpi-total-users">0</b></div>
+          <div class="admin-kpi-card kpi-c2" id="kpi-card-active-users"><span class="kpi-icon">⚡</span><small id="kpi-active-users-label">Active users</small><b id="kpi-active-users">0</b></div>
+          <div class="admin-kpi-card kpi-c3"><span class="kpi-icon">₹</span><small id="kpi-today-topup-label">Today topup</small><b id="kpi-today-topup">₹0</b></div>
+          <div class="admin-kpi-card kpi-c4"><span class="kpi-icon">▦</span><small id="kpi-month-topup-label">This month topup</small><b id="kpi-month-topup">₹0</b></div>
+          <div class="admin-kpi-card kpi-c5"><span class="kpi-icon">↺</span><small id="kpi-last-month-topup-label">Last month topup</small><b id="kpi-last-month-topup">₹0</b></div>
+          <div class="admin-kpi-card kpi-c6" id="kpi-card-today-rc"><span class="kpi-icon">⬇</span><small>Today RC downloaded</small><b id="kpi-today-rc">0</b></div>
+          <div class="admin-kpi-card kpi-c7" id="kpi-card-month-rc"><span class="kpi-icon">▤</span><small>This month RC downloaded</small><b id="kpi-month-rc">0</b></div>
+          <div class="admin-kpi-card kpi-c8" id="kpi-card-last-rc"><span class="kpi-icon">↺</span><small>Last month RC downloaded</small><b id="kpi-last-month-rc">0</b></div>
+          <div class="admin-kpi-card kpi-c4" id="kpi-card-all-time-topup"><span class="kpi-icon">★</span><small id="kpi-all-time-topup-label">All-time topup</small><b id="kpi-all-time-topup">₹0</b></div>
           <div class="admin-kpi-card kpi-range" id="admin-kpi-range" hidden><span class="kpi-icon">★</span><small id="kpi-range-label">Selected range</small><b id="kpi-range-topup">₹0</b><span class="kpi-sub" id="kpi-range-rc">0 RC downloads</span></div>
         </div>
         <div class="admin-activity-panel" id="admin-activity-panel">
           <div class="admin-activity-heading"><div><div class="section-label">ADMIN-WISE RECHARGE</div><h3>Payment activity by admin</h3><p>Har admin ne kitne users ko wallet payment diya aur kitna amount add kiya.</p></div></div>
           <div class="admin-activity-list" id="admin-activity-list"><div class="empty-list">Admin activity load ho rahi hai…</div></div>
         </div>
-        <div class="admin-rating-row">
+        <div class="admin-rating-row" id="admin-settings-rating">
           <div><label>Homepage rating (0–5)</label><input id="admin-rating-input" type="number" min="0" max="5" step="0.1" placeholder="4.8" /></div>
           <button class="blue-button small-blue" id="admin-rating-save" type="button">Save rating</button>
           <small>Yahi number site ke "verified rating" section me niche show hoga.</small>
         </div>
-        <div class="admin-rating-row">
+        <div class="admin-rating-row" id="admin-settings-baseline">
           <div><label>Users connected (baseline)</label><input id="admin-users-baseline-input" type="number" min="0" step="1" placeholder="200000" /></div>
           <div><label>RC downloads completed (baseline)</label><input id="admin-downloads-baseline-input" type="number" min="0" step="1" placeholder="171000" /></div>
           <button class="blue-button small-blue" id="admin-baseline-save" type="button">Save baseline</button>
           <small>Homepage par yahi baseline + live count "Lakh+" format me dikhega (jaise 2 Lakh+, 1.71 Lakh+).</small>
         </div>
-        <div class="admin-rating-row">
+        <div class="admin-rating-row" id="admin-settings-price">
           <div><label>Default RC Card rate (₹)</label><input id="admin-rc-price-input" type="number" min="1" max="1000" step="1" placeholder="15" /></div>
           <button class="blue-button small-blue" id="admin-rc-price-save" type="button">Save default</button>
           <small>Ye global default rate hai. Jis user ka custom rate set nahi hai, unke liye yahi charge hoga. User-wise rate neeche Wallet control se set karo.</small>
@@ -761,10 +767,10 @@
       <div class="wallet-alert" id="wallet-alert" role="alert" hidden><span class="wallet-alert-icon">!</span><span><b>Recharge your wallet</b><small id="wallet-alert-text">RC Card download ke liye ₹15 wallet balance chahiye.</small></span><button id="close-wallet-alert" type="button" aria-label="Close alert">×</button></div>
 
       <div class="content-grid">
-        <div class="side-stack"><section class="panel balance-card wallet-card wallet-trigger" id="wallet-card-trigger" role="button" tabindex="0" aria-label="Open wallet topup"><div class="section-label">CURRENT WALLET</div><div class="balance-amount" id="balance-large">₹0</div><p>Tap karke wallet topup request bhejo.</p></section><section class="panel account-card"><div class="card-heading"><h3>Account details</h3></div><div class="account-row"><span class="account-icon">◉</span><span><b id="account-name">User</b><span>Registered name</span></span></div><div class="account-row"><span class="account-icon">⌕</span><span><b id="account-mobile">+91 —</b><span>Mobile account</span></span></div><div class="account-row"><span class="account-icon">@</span><span><b id="account-email">Email not set</b><span>Recovery email</span></span></div><div class="account-row"><span class="account-icon">₹</span><span><b id="account-rc-price">RC Card ₹15</b><span id="account-rc-note">MParivahan format Coming Soon</span></span></div></section></div>
+        <div class="side-stack"><section class="panel balance-card wallet-card wallet-trigger" id="wallet-card-trigger" role="button" tabindex="0" aria-label="Open wallet topup"><div class="section-label">CURRENT WALLET</div><div class="balance-amount" id="balance-large">₹0</div><p>Tap karke wallet topup request bhejo.</p></section><section class="panel account-card"><div class="card-heading"><h3>Account details</h3></div><div class="account-row"><span class="account-icon">◉</span><span><b id="account-name">User</b><span>Registered name</span></span></div><div class="account-row"><span class="account-icon">⌕</span><span><b id="account-mobile">+91 —</b><span>Mobile account</span></span></div><div class="account-row"><span class="account-icon">@</span><span><b id="account-email">Email not set</b><span>Recovery email</span></span></div><div class="account-row"><span class="account-icon">₹</span><span><b id="account-rc-price">RC Card ₹15</b><span id="account-rc-note">MParivahan format Coming Soon</span></span></div><div class="account-row" id="account-role-row" hidden><span class="account-icon">♙</span><span><b id="account-role">Main Admin</b><span>Access level</span></span></div></section></div>
         <section class="panel transactions-card" id="transactions"><div class="card-heading"><h3>Recent wallet history</h3><button id="refresh-transactions" type="button">Refresh ↻</button></div><div class="transaction-list" id="transaction-list"><div class="empty-list">Abhi koi transaction nahi hai.</div></div></section>
         <section class="panel admin-card" id="admin-card" hidden>
-          <div class="admin-header"><div><div class="section-label">OWNER ACCESS</div><h3>Admin control center</h3></div><span class="admin-tag">ADMIN ONLY</span></div>
+          <div class="admin-header"><div><div class="section-label" id="admin-role-label">MAIN ADMIN ACCESS</div><h3>Admin control center</h3></div><span class="admin-tag" id="admin-scope-tag">ALL PLATFORM</span></div>
           <div class="admin-layout">
             <aside class="admin-sidebar" aria-label="Admin sections">
               <button class="admin-side-button active" data-admin-section="wallet" type="button">₹ Wallet control</button>
@@ -792,7 +798,7 @@
                   <small id="admin-user-rate-help">Is user ke liye alag rate set karo. Download par yahi rate dikhega aur wallet se yahi deduct hoga.</small>
                 </div>
                 <div class="admin-inline-hint" id="admin-rate-inline-hint">Sabhi users ki list ke saath rate set karne ke liye <button class="admin-link-button" type="button" data-goto-admin-section="users">Users &amp; rates</button> tab kholo.</div>
-                <div class="admin-tx" id="admin-transactions-block"><h4>Latest platform transactions</h4><div class="table-wrap"><table class="admin-table"><thead><tr><th>TIME</th><th>MOBILE</th><th>TYPE</th><th>AMOUNT</th><th>VRN</th></tr></thead><tbody id="admin-tx-body"><tr><td colspan="5">No transactions yet.</td></tr></tbody></table></div></div>
+                <div class="admin-tx" id="admin-transactions-block"><h4 id="admin-transactions-title">Latest platform transactions</h4><div class="table-wrap"><table class="admin-table"><thead><tr><th>TIME</th><th>MOBILE</th><th>TYPE</th><th>AMOUNT</th><th>VRN</th></tr></thead><tbody id="admin-tx-body"><tr><td colspan="5">No transactions yet.</td></tr></tbody></table></div></div>
               </div>
               <div id="admin-users-section" hidden>
                 <div class="ads-manager-heading"><div><div class="section-label">USER WISE RC RATE</div><h4>Users aur unka RC Card rate</h4><p>Kisi bhi user ke liye alag RC Card rate set karo. Us user ke download par wahi rate dikhega aur wallet se wahi amount deduct hoga.</p></div></div>

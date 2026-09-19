@@ -94,6 +94,14 @@ function priceForDownload(downloadType, user) {
   return RC_PRICES.mparivahan;
 }
 
+function isMainAdmin(user) {
+  return Boolean(user && ADMIN_MOBILE && normalizeMobile(user.mobile) === ADMIN_MOBILE);
+}
+
+function adminRoleLabel(user) {
+  return isMainAdmin(user) ? 'Main Admin' : 'Admin Assistant';
+}
+
 function normalizedAdminPermissions(value, fallbackFull = false) {
   if (fallbackFull || value == null || value === '') return { ...FULL_ADMIN_PERMISSIONS };
   let source = value;
@@ -106,7 +114,7 @@ function normalizedAdminPermissions(value, fallbackFull = false) {
 
 function adminPermissionsFor(user) {
   if (!user || user.role !== 'admin') return {};
-  const owner = Boolean(ADMIN_MOBILE && user.mobile === ADMIN_MOBILE);
+  const owner = isMainAdmin(user);
   return normalizedAdminPermissions(user.adminPermissions, owner || user.adminPermissions == null);
 }
 
@@ -125,7 +133,11 @@ function publicUser(user) {
     mobile: user.mobile,
     wallet: Number(user.wallet || 0),
     role: user.role,
-    ...(user.role === 'admin' ? { adminPermissions: adminPermissionsFor(user) } : {}),
+    ...(user.role === 'admin' ? {
+      adminPermissions: adminPermissionsFor(user),
+      adminLabel: adminRoleLabel(user),
+      isMainAdmin: isMainAdmin(user)
+    } : {}),
     pricePerRc: RC_PRICES.mparivahan,
     customRcCardPrice: custom,
     prices: {
@@ -148,7 +160,8 @@ function publicAdminUser(user) {
     rate: userRcCardPrice(user),
     customRate: custom,
     hasCustomRate: custom != null,
-    adminPermissions: user.role === 'admin' ? adminPermissionsFor(user) : {}
+    adminPermissions: user.role === 'admin' ? adminPermissionsFor(user) : {},
+    ...(user.role === 'admin' ? { adminLabel: adminRoleLabel(user), isMainAdmin: isMainAdmin(user) } : {})
   };
 }
 
@@ -718,6 +731,16 @@ function requireAdmin(req, res, permission = '') {
   return user;
 }
 
+function requireMainAdmin(req, res) {
+  const user = requireAdmin(req, res);
+  if (!user) return null;
+  if (!isMainAdmin(user)) {
+    sendError(res, 403, 'Ye setting sirf Main Admin ke liye available hai.');
+    return null;
+  }
+  return user;
+}
+
 async function handleAdminSearch(req, res) {
   const admin = requireAdmin(req, res, 'recharge');
   if (!admin) return;
@@ -1007,8 +1030,11 @@ function summarizeAdminTopups(list) {
   };
 }
 
-function buildAdminActivity(topups, todayKey, monthNowKey, lastMonthKey, range) {
-  return db.users.filter((user) => user.role === 'admin').map((admin) => {
+function buildAdminActivity(topups, todayKey, monthNowKey, lastMonthKey, range, viewer) {
+  const admins = viewer && !isMainAdmin(viewer)
+    ? db.users.filter((user) => user.role === 'admin' && user.mobile === viewer.mobile)
+    : db.users.filter((user) => user.role === 'admin');
+  return admins.map((admin) => {
     const own = topups.filter((tx) => tx.adminMobile === admin.mobile);
     const today = summarizeAdminTopups(own.filter((tx) => dayKey(tx.time) === todayKey));
     const month = summarizeAdminTopups(own.filter((tx) => monthKey(tx.time) === monthNowKey));
@@ -1023,6 +1049,7 @@ function buildAdminActivity(topups, todayKey, monthNowKey, lastMonthKey, range) 
     return {
       mobile: admin.mobile,
       name: admin.name || 'Admin',
+      label: adminRoleLabel(admin),
       permissions: adminPermissionsFor(admin),
       today,
       month,
@@ -1033,20 +1060,28 @@ function buildAdminActivity(topups, todayKey, monthNowKey, lastMonthKey, range) 
   });
 }
 
-function computeAdminStats(fromDay, toDay) {
+function computeAdminStats(fromDay, toDay, viewer) {
   const now = new Date();
   const todayKey = dayKey(now);
   const monthNowKey = todayKey.slice(0, 7);
   const [year, month] = monthNowKey.split('-').map(Number);
   const lastMonthDate = new Date(Date.UTC(year, month - 2, 1));
   const lastMonthKey = lastMonthDate.toISOString().slice(0, 7);
+  const ownerView = isMainAdmin(viewer);
 
-  const totalUsers = db.users.filter((user) => user.role !== 'admin').length;
-  const activeUsers = db.users.filter((user) => user.role !== 'admin' && user.active !== false).length;
+  // Main Admin sees the complete platform. An Admin Assistant only sees
+  // transactions and users attributed to that assistant's own mobile.
+  const allTopups = db.transactions.filter((tx) => tx.type === 'RECHARGE');
+  const topups = ownerView ? allTopups : allTopups.filter((tx) => tx.adminMobile === viewer.mobile);
+  const allRcDownloads = db.transactions.filter((tx) => tx.type === 'RC_PURCHASE' && tx.status === 'SUCCESS');
+  const rcDownloads = ownerView ? allRcDownloads : allRcDownloads.filter((tx) => tx.adminMobile === viewer.mobile);
+  const scopedUserMobiles = new Set(topups.map((tx) => String(tx.mobile || '')).filter(Boolean));
+  const scopedUsers = ownerView
+    ? db.users.filter((user) => user.role !== 'admin')
+    : db.users.filter((user) => user.role !== 'admin' && scopedUserMobiles.has(user.mobile));
 
-  // "Topup" = wallet credits the admin has given users (manual admin recharge).
-  const topups = db.transactions.filter((tx) => tx.type === 'RECHARGE');
-  const rcDownloads = db.transactions.filter((tx) => tx.type === 'RC_PURCHASE' && tx.status === 'SUCCESS');
+  const totalUsers = scopedUsers.length;
+  const activeUsers = scopedUsers.filter((user) => user.active !== false).length;
 
   const todayTopup = sumAmount(topups.filter((tx) => dayKey(tx.time) === todayKey));
   const monthTopup = sumAmount(topups.filter((tx) => monthKey(tx.time) === monthNowKey));
@@ -1062,30 +1097,44 @@ function computeAdminStats(fromDay, toDay) {
       const key = dayKey(tx.time);
       return key >= fromDay && key <= toDay;
     };
+    const rangeTopups = topups.filter(inRange);
+    const rangeRcDownloads = rcDownloads.filter(inRange);
     range = {
       from: fromDay,
       to: toDay,
-      topup: sumAmount(topups.filter(inRange)),
-      rcDownloads: rcDownloads.filter(inRange).length,
-      newUsers: db.users.filter((user) => {
-        if (user.role === 'admin') return false;
-        const key = dayKey(user.createdAt);
-        return key >= fromDay && key <= toDay;
-      }).length
+      topup: sumAmount(rangeTopups),
+      entries: rangeTopups.length,
+      users: new Set(rangeTopups.map((tx) => String(tx.mobile || '')).filter(Boolean)).size,
+      rcDownloads: rangeRcDownloads.length,
+      newUsers: ownerView
+        ? db.users.filter((user) => {
+          if (user.role === 'admin') return false;
+          const key = dayKey(user.createdAt);
+          return key >= fromDay && key <= toDay;
+        }).length
+        : 0
     };
   }
 
   return {
+    scope: ownerView ? 'all' : 'self',
+    scopeLabel: ownerView ? 'Main Admin · All platform activity' : 'Admin Assistant · Your activity only',
+    viewer: {
+      name: viewer.name || 'Admin',
+      mobile: viewer.mobile,
+      label: adminRoleLabel(viewer)
+    },
     totalUsers,
     activeUsers,
     todayTopup,
     monthTopup,
     lastMonthTopup,
+    allTimeTopup: sumAmount(topups),
     todayRcDownloads,
     monthRcDownloads,
     lastMonthRcDownloads,
     range,
-    adminActivity: buildAdminActivity(topups, todayKey, monthNowKey, lastMonthKey, range)
+    adminActivity: buildAdminActivity(topups, todayKey, monthNowKey, lastMonthKey, range, viewer)
   };
 }
 
@@ -1097,21 +1146,21 @@ async function handleAdminStats(req, res, searchParams) {
   const validDay = /^\d{4}-\d{2}-\d{2}$/;
   const from = validDay.test(fromRaw) ? fromRaw : '';
   const to = validDay.test(toRaw) ? toRaw : '';
-  const stats = computeAdminStats(from, to);
+  const stats = computeAdminStats(from, to, admin);
   return sendJson(res, 200, {
     success: true,
     stats,
-    settings: {
+    settings: isMainAdmin(admin) ? {
       rating: String((db.settings && db.settings.rating) || DEFAULT_SETTINGS.rating),
       usersBaseline: settingsNumber('usersBaseline'),
       downloadsBaseline: settingsNumber('downloadsBaseline'),
       rcCardPrice: settingsNumber('rcCardPrice')
-    }
+    } : null
   });
 }
 
 async function handleAdminUpdateRating(req, res) {
-  const admin = requireAdmin(req, res, 'kpi');
+  const admin = requireMainAdmin(req, res);
   if (!admin) return;
   const body = await readJson(req);
   const rating = String(body.rating ?? '').trim();
@@ -1126,7 +1175,7 @@ async function handleAdminUpdateRating(req, res) {
 }
 
 async function handleAdminUpdateBaseline(req, res) {
-  const admin = requireAdmin(req, res, 'kpi');
+  const admin = requireMainAdmin(req, res);
   if (!admin) return;
   const body = await readJson(req);
   const usersBaseline = Number(body.usersBaseline);
@@ -1146,7 +1195,7 @@ async function handleAdminUpdateBaseline(req, res) {
 }
 
 async function handleAdminUpdateRcPrice(req, res) {
-  const admin = requireAdmin(req, res, 'kpi');
+  const admin = requireMainAdmin(req, res);
   if (!admin) return;
   const body = await readJson(req);
   const price = Number(body.price);
@@ -1275,7 +1324,10 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && pathname === '/api/admin/transactions') {
       const admin = requireAdmin(req, res, 'transactions');
       if (!admin) return;
-      return sendJson(res, 200, { success: true, transactions: db.transactions.slice(-50).reverse() });
+      const transactions = isMainAdmin(admin)
+        ? db.transactions.slice(-50).reverse()
+        : db.transactions.filter((tx) => tx.adminMobile === admin.mobile).slice(-50).reverse();
+      return sendJson(res, 200, { success: true, transactions });
     }
     if (req.method === 'GET') return await serveStatic(req, res, pathname);
     return sendError(res, 405, 'Method not allowed');

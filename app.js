@@ -156,8 +156,9 @@
 
     function releaseRoboGreeting() {
       if (!roboGreetingLocked) return;
+      // Keep the personal greeting visible even after help/welcome interaction;
+      // only the help panel changes while the robot animation runs independently.
       roboGreetingLocked = false;
-      if (state.user) setRoboMessage('How can I help you?');
     }
 
     function closeRoboHelp(releaseGreeting) {
@@ -308,6 +309,35 @@
       } catch (error) { /* pre-login pricing text is non-critical */ }
     }
 
+    function isMainAdminUser(user) {
+      return Boolean(user && user.role === 'admin' && (user.isMainAdmin === true || user.adminLabel === 'Main Admin'));
+    }
+
+    function adminRoleForUser(user) {
+      if (!user || user.role !== 'admin') return 'User';
+      return user.adminLabel || (isMainAdminUser(user) ? 'Main Admin' : 'Admin Assistant');
+    }
+
+    function applyAdminIdentityUi(user) {
+      var isAdmin = Boolean(user && user.role === 'admin');
+      var role = adminRoleForUser(user);
+      var owner = isMainAdminUser(user);
+      var rolePill = $('#user-role-pill');
+      if (rolePill) {
+        rolePill.textContent = role;
+        rolePill.hidden = !isAdmin;
+      }
+      if ($('#dropdown-role')) $('#dropdown-role').textContent = isAdmin ? role + (owner ? ' · Full platform access' : ' · Assigned access only') : 'User account';
+      if ($('#account-role-row')) $('#account-role-row').hidden = !isAdmin;
+      if ($('#account-role')) $('#account-role').textContent = role;
+      if ($('#admin-role-label')) $('#admin-role-label').textContent = role.toUpperCase() + ' ACCESS';
+      if ($('#admin-scope-tag')) $('#admin-scope-tag').textContent = owner ? 'ALL PLATFORM' : 'ASSIGNED ONLY';
+      if ($('#admin-kpi-role-label')) $('#admin-kpi-role-label').textContent = owner ? 'MAIN ADMIN · LIVE OVERVIEW' : 'ADMIN ASSISTANT · YOUR OVERVIEW';
+      if ($('#admin-kpi-title')) $('#admin-kpi-title').textContent = owner ? 'Admin KPI dashboard' : 'My admin KPI dashboard';
+      if ($('#admin-kpi-description')) $('#admin-kpi-description').textContent = owner ? 'All users, topup, RC download aur every admin ka complete overview.' : 'Sirf aapke assigned admin access aur aapke recharge/payment activity ka overview.';
+      if ($('#admin-kpi-scope-tag')) $('#admin-kpi-scope-tag').textContent = owner ? 'ALL PLATFORM' : 'YOUR ACTIVITY';
+    }
+
     function applyAdminAccessUi(user) {
       var isAdmin = Boolean(user && user.role === 'admin');
       var permissions = ['kpi', 'recharge', 'rates', 'ads', 'transactions', 'access'];
@@ -345,6 +375,10 @@
       if (rateHint) rateHint.hidden = !hasAdminPermission('rates');
       var transactionsBlock = $('#admin-transactions-block');
       if (transactionsBlock) transactionsBlock.hidden = !hasAdminPermission('transactions');
+      ['#admin-settings-rating', '#admin-settings-baseline', '#admin-settings-price'].forEach(function (selector) {
+        var settingsRow = $(selector);
+        if (settingsRow) settingsRow.hidden = !isMainAdminUser(user);
+      });
       if (isAdmin && hasAdminPanelSection) {
         var firstSection = hasAdminPermission('recharge') || hasAdminPermission('transactions') ? 'wallet' : hasAdminPermission('rates') ? 'users' : hasAdminPermission('ads') ? 'ads' : 'access';
         setAdminSection(firstSection);
@@ -355,6 +389,7 @@
 
     function showApp(user) {
       state.user = user;
+      applyAdminIdentityUi(user);
       $('#session-loading').hidden = true;
       $('#auth-view').hidden = true;
       $('#topbar').hidden = false;
@@ -372,6 +407,7 @@
       $('#account-mobile').textContent = '+91 ' + user.mobile;
       if ($('#account-email')) $('#account-email').textContent = user.email || 'Email not set';
       startRoboAssistant(user);
+      if ($('#admin-transactions-title')) $('#admin-transactions-title').textContent = isMainAdminUser(user) ? 'Latest platform transactions' : 'Your recharge transactions';
       applyAdminAccessUi(user);
       applyRcPrice(priceForDownload('rc-card'));
       updateWallet(user.wallet);
@@ -931,7 +967,7 @@
             : '<button class="ghost-button small-blue" type="button" data-user-toggle="' + mobile + '" data-active="0">Block</button>')
           : '<span class="admin-user-sub">View only</span>';
         return '<tr data-mobile="' + mobile + '">' +
-          '<td><b class="admin-user-cell">' + escapeHtml(user.name || 'User') + (user.role === 'admin' ? ' (admin)' : '') + '</b><small class="admin-user-sub">' + escapeHtml(user.email || 'Email not set') + '</small></td>' +
+          '<td><b class="admin-user-cell">' + escapeHtml(user.name || 'User') + (user.role === 'admin' ? ' (' + escapeHtml(user.adminLabel || (user.isMainAdmin ? 'Main Admin' : 'Admin Assistant')) + ')' : '') + '</b><small class="admin-user-sub">' + escapeHtml(user.email || 'Email not set') + '</small></td>' +
           '<td>+91 ' + mobile + '</td>' +
           '<td>' + escapeHtml(formatMoney(user.wallet)) + '</td>' +
           '<td><span class="admin-rate-cell"><input class="admin-row-rate" type="number" min="1" max="1000" step="1" value="' + escapeHtml(String(user.prices && user.prices.rcCard != null ? user.prices.rcCard : user.rate)) + '" data-mobile="' + mobile + '" aria-label="RC rate" /><span class="rate-state ' + (isCustom ? 'custom' : 'default') + '">' + (isCustom ? 'CUSTOM' : 'DEFAULT') + '</span></span></td>' +
@@ -1005,7 +1041,7 @@
         var actionText = isAdmin ? 'Save selected access' : 'Make admin with selected access';
         var disabled = locked ? ' disabled' : '';
         return '<article class="admin-access-card ' + (locked ? 'locked' : '') + '" data-access-mobile="' + escapeHtml(user.mobile) + '">' +
-          '<div class="admin-access-head"><div><b>' + escapeHtml(user.name || 'User') + '</b><small>+91 ' + escapeHtml(user.mobile || '') + ' · ' + escapeHtml(user.email || 'Email not set') + '</small></div><span class="admin-access-state ' + (isAdmin ? 'admin' : '') + '">' + (isAdmin ? 'ADMIN' : 'NORMAL USER') + '</span></div>' +
+          '<div class="admin-access-head"><div><b>' + escapeHtml(user.name || 'User') + '</b><small>+91 ' + escapeHtml(user.mobile || '') + ' · ' + escapeHtml(user.email || 'Email not set') + '</small></div><span class="admin-access-state ' + (isAdmin ? 'admin' : '') + '">' + (isAdmin ? escapeHtml(user.adminLabel || (user.isMainAdmin ? 'Main Admin' : 'Admin Assistant')) : 'NORMAL USER') + '</span></div>' +
           '<div class="admin-access-permissions">' + permissionInputs + '</div>' +
           '<div class="admin-access-actions"><button class="blue-button small-blue" type="button" data-access-save' + disabled + '>' + actionText + '</button>' +
           (isAdmin ? '<button class="ghost-button small-blue" type="button" data-access-remove' + disabled + '>Remove admin access</button>' : '') +
@@ -1236,11 +1272,11 @@
       } catch (error) { /* admin table is non-critical */ }
     }
 
-    function renderAdminActivity(activity) {
+    function renderAdminActivity(activity, scope) {
       var list = $('#admin-activity-list');
       if (!list) return;
       if (!Array.isArray(activity) || !activity.length) {
-        list.innerHTML = '<div class="empty-list">Abhi kisi admin ne recharge nahi diya.</div>';
+        list.innerHTML = '<div class="empty-list">Abhi aapne kisi user ko recharge nahi diya.</div>';
         return;
       }
       function metric(label, value) {
@@ -1251,30 +1287,55 @@
         var permissions = admin.permissions || {};
         var activePermissions = Object.keys(permissions).filter(function (key) { return permissions[key]; }).map(adminPermissionLabel).join(' · ') || 'No capabilities';
         var range = admin.range ? metric(admin.range.from + ' → ' + admin.range.to, admin.range).replace('admin-activity-period', 'admin-activity-period admin-activity-range') : '';
-        return '<div class="admin-activity-card"><div class="admin-activity-head"><div><b>' + escapeHtml(admin.name || 'Admin') + '</b><small>+91 ' + escapeHtml(admin.mobile || '—') + '</small></div><span class="admin-activity-badge">' + escapeHtml(activePermissions) + '</span></div><div class="admin-activity-periods">' + metric('Today', admin.today) + metric('Current month', admin.month) + metric('Last month', admin.lastMonth) + metric('All time', admin.allTime) + range + '</div></div>';
+        var label = admin.label || (scope === 'self' ? 'Admin Assistant' : 'Admin');
+        return '<div class="admin-activity-card"><div class="admin-activity-head"><div><b>' + escapeHtml(label) + '</b><small>' + escapeHtml(admin.name || 'Admin') + ' · +91 ' + escapeHtml(admin.mobile || '—') + '</small></div><span class="admin-activity-badge">' + escapeHtml(activePermissions) + '</span></div><div class="admin-activity-periods">' + metric('Today', admin.today) + metric('Current month', admin.month) + metric('Last month', admin.lastMonth) + metric('All time', admin.allTime) + range + '</div></div>';
       }).join('');
+    }
+
+    function setScopedKpiCard(selector, hidden) {
+      var card = $(selector);
+      if (card) card.hidden = Boolean(hidden);
     }
 
     function renderAdminStats(stats) {
       if (!stats) return;
-      $('#kpi-total-users').textContent = Number(stats.totalUsers || 0).toLocaleString('en-IN');
-      $('#kpi-active-users').textContent = Number(stats.activeUsers || 0).toLocaleString('en-IN');
-      $('#kpi-today-topup').textContent = formatMoney(stats.todayTopup);
-      $('#kpi-month-topup').textContent = formatMoney(stats.monthTopup);
-      $('#kpi-last-month-topup').textContent = formatMoney(stats.lastMonthTopup);
-      $('#kpi-today-rc').textContent = Number(stats.todayRcDownloads || 0).toLocaleString('en-IN');
-      $('#kpi-month-rc').textContent = Number(stats.monthRcDownloads || 0).toLocaleString('en-IN');
-      $('#kpi-last-month-rc').textContent = Number(stats.lastMonthRcDownloads || 0).toLocaleString('en-IN');
+      var selfScope = stats.scope === 'self';
+      var owner = !selfScope;
+      var setText = function (selector, value) { var el = $(selector); if (el) el.textContent = value; };
+      setText('#kpi-total-users', Number(stats.totalUsers || 0).toLocaleString('en-IN'));
+      setText('#kpi-active-users', Number(stats.activeUsers || 0).toLocaleString('en-IN'));
+      setText('#kpi-today-topup', formatMoney(stats.todayTopup));
+      setText('#kpi-month-topup', formatMoney(stats.monthTopup));
+      setText('#kpi-last-month-topup', formatMoney(stats.lastMonthTopup));
+      setText('#kpi-all-time-topup', formatMoney(stats.allTimeTopup));
+      setText('#kpi-today-rc', Number(stats.todayRcDownloads || 0).toLocaleString('en-IN'));
+      setText('#kpi-month-rc', Number(stats.monthRcDownloads || 0).toLocaleString('en-IN'));
+      setText('#kpi-last-month-rc', Number(stats.lastMonthRcDownloads || 0).toLocaleString('en-IN'));
+
+      setText('#kpi-total-users-label', owner ? 'Total platform users' : 'Users you paid');
+      setText('#kpi-active-users-label', owner ? 'Active users' : 'Paid users active');
+      setText('#kpi-today-topup-label', owner ? 'Today topup' : 'Your payment today');
+      setText('#kpi-month-topup-label', owner ? 'This month topup' : 'Your payment this month');
+      setText('#kpi-last-month-topup-label', owner ? 'Last month topup' : 'Your payment last month');
+      setText('#kpi-all-time-topup-label', owner ? 'All-time topup' : 'Your all-time payment');
+      setScopedKpiCard('#kpi-card-today-rc', selfScope);
+      setScopedKpiCard('#kpi-card-month-rc', selfScope);
+      setScopedKpiCard('#kpi-card-last-rc', selfScope);
+      if ($('#admin-kpi-scope-tag')) $('#admin-kpi-scope-tag').textContent = owner ? 'ALL PLATFORM' : 'YOUR ACTIVITY';
+      if ($('#admin-kpi-role-label')) $('#admin-kpi-role-label').textContent = owner ? 'MAIN ADMIN · LIVE OVERVIEW' : 'ADMIN ASSISTANT · YOUR OVERVIEW';
+      if ($('#admin-kpi-description')) $('#admin-kpi-description').textContent = owner ? 'All users, topup, RC download aur every admin ka complete overview.' : 'Sirf aapke assigned admin access aur aapke recharge/payment activity ka overview.';
       var rangeCard = $('#admin-kpi-range');
       if (stats.range) {
         rangeCard.hidden = false;
-        $('#kpi-range-label').textContent = stats.range.from + ' se ' + stats.range.to;
-        $('#kpi-range-topup').textContent = formatMoney(stats.range.topup);
-        $('#kpi-range-rc').textContent = Number(stats.range.rcDownloads || 0).toLocaleString('en-IN') + ' RC downloads • ' + Number(stats.range.newUsers || 0).toLocaleString('en-IN') + ' new users';
+        setText('#kpi-range-label', owner ? stats.range.from + ' se ' + stats.range.to : 'Your range payment');
+        setText('#kpi-range-topup', formatMoney(stats.range.topup));
+        setText('#kpi-range-rc', owner
+          ? Number(stats.range.rcDownloads || 0).toLocaleString('en-IN') + ' RC downloads • ' + Number(stats.range.newUsers || 0).toLocaleString('en-IN') + ' new users'
+          : Number(stats.range.users || 0).toLocaleString('en-IN') + ' users paid • ' + Number(stats.range.entries || 0).toLocaleString('en-IN') + ' payments');
       } else {
         rangeCard.hidden = true;
       }
-      renderAdminActivity(stats.adminActivity);
+      renderAdminActivity(stats.adminActivity, stats.scope);
     }
 
     async function loadAdminStats(range) {
@@ -1308,6 +1369,7 @@
     }
 
     async function saveAdminRating() {
+      if (!isMainAdminUser(state.user)) { toast('Main Admin only', 'Homepage settings sirf Main Admin update kar sakta hai.', 'error'); return; }
       var button = $('#admin-rating-save');
       var value = $('#admin-rating-input').value.trim();
       setButtonLoading(button, true, 'Save rating');
@@ -1321,6 +1383,7 @@
     }
 
     async function saveAdminBaseline() {
+      if (!isMainAdminUser(state.user)) { toast('Main Admin only', 'Homepage settings sirf Main Admin update kar sakta hai.', 'error'); return; }
       var button = $('#admin-baseline-save');
       var users = Number($('#admin-users-baseline-input').value);
       var downloads = Number($('#admin-downloads-baseline-input').value);
@@ -1339,6 +1402,7 @@
     }
 
     async function saveAdminRcPrice() {
+      if (!isMainAdminUser(state.user)) { toast('Main Admin only', 'Default rate sirf Main Admin update kar sakta hai.', 'error'); return; }
       var button = $('#admin-rc-price-save');
       var price = Number($('#admin-rc-price-input').value);
       if (!Number.isFinite(price) || price < 1 || price > 1000) {
