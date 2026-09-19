@@ -25,6 +25,7 @@ const SESSION_SECONDS = 60 * 60 * 24 * 7;
 const STATS_TIME_ZONE = process.env.APP_TIME_ZONE || 'Asia/Kolkata';
 const MAX_BODY_BYTES = 5_000_000;
 const MAX_AD_BYTES = 40_000;
+const MAX_PAYMENT_QR_BYTES = 1_500_000;
 const UPSTREAM_TIMEOUT_MS = 20_000;
 const RC_CACHE_TTL_MS = 10 * 60 * 1000;
 const RC_CACHE_MAX_ENTRIES = 24;
@@ -76,6 +77,37 @@ function validVrn(vrn) {
 
 function defaultRcCardPrice() {
   return settingsNumber('rcCardPrice');
+}
+
+function validPaymentQr(value) {
+  if (typeof value !== 'string' || !value.trim()) return false;
+  if (!/^data:image\/(?:png|jpe?g|webp|gif);base64,[A-Za-z0-9+/=\s]+$/i.test(value)) return false;
+  try {
+    const bytes = Buffer.from(value.slice(value.indexOf(',') + 1).replace(/\s/g, ''), 'base64');
+    return bytes.byteLength > 0 && bytes.byteLength <= MAX_PAYMENT_QR_BYTES;
+  } catch {
+    return false;
+  }
+}
+
+function supportWhatsappNumber() {
+  const configured = normalizeMobile(db.settings?.supportWhatsapp || process.env.SUPPORT_WHATSAPP || '');
+  return validMobile(configured) ? configured : '';
+}
+
+function supportSettingsPayload(req) {
+  const whatsapp = supportWhatsappNumber();
+  const paymentQr = validPaymentQr(db.settings?.paymentQr) ? db.settings.paymentQr : '';
+  const forwardedProto = String(req?.headers?.['x-forwarded-proto'] || '').split(',')[0].trim();
+  const protocol = forwardedProto || (req?.socket?.encrypted ? 'https' : 'http');
+  const host = String(req?.headers?.host || '').trim();
+  const paymentQrUrl = paymentQr && host ? `${protocol}://${host}/api/payment-qr` : '';
+  return {
+    whatsapp,
+    whatsappUrl: whatsapp ? `https://wa.me/91${whatsapp}` : '',
+    paymentQr,
+    paymentQrUrl
+  };
 }
 
 function customRcCardPrice(user) {
@@ -1034,6 +1066,25 @@ async function handleGetAds(req, res) {
   return sendJson(res, 200, { success: true, ads });
 }
 
+async function handlePublicSupportSettings(req, res) {
+  return sendJson(res, 200, { success: true, support: supportSettingsPayload(req) });
+}
+
+async function handlePaymentQr(req, res) {
+  const paymentQr = validPaymentQr(db.settings?.paymentQr) ? db.settings.paymentQr : '';
+  if (!paymentQr) return sendError(res, 404, 'Payment QR abhi configured nahi hai.');
+  const comma = paymentQr.indexOf(',');
+  const mime = paymentQr.slice(5, comma).split(';')[0] || 'image/png';
+  const bytes = Buffer.from(paymentQr.slice(comma + 1).replace(/\s/g, ''), 'base64');
+  res.writeHead(200, {
+    'Content-Type': mime,
+    'Content-Length': bytes.length,
+    'Cache-Control': 'no-store',
+    ...securityHeaders()
+  });
+  return res.end(bytes);
+}
+
 const DEFAULT_SETTINGS = { usersBaseline: 200000, downloadsBaseline: 171000, rating: '4.9', rcCardPrice: 15 };
 
 function settingsNumber(key) {
@@ -1214,7 +1265,9 @@ async function handleAdminStats(req, res, searchParams) {
       rating: String((db.settings && db.settings.rating) || DEFAULT_SETTINGS.rating),
       usersBaseline: settingsNumber('usersBaseline'),
       downloadsBaseline: settingsNumber('downloadsBaseline'),
-      rcCardPrice: settingsNumber('rcCardPrice')
+      rcCardPrice: settingsNumber('rcCardPrice'),
+      supportWhatsapp: supportWhatsappNumber(),
+      paymentQr: validPaymentQr(db.settings?.paymentQr) ? db.settings.paymentQr : ''
     } : null
   });
 }
@@ -1271,6 +1324,27 @@ async function handleAdminUpdateRcPrice(req, res) {
     rcCardPrice: db.settings.rcCardPrice,
     message: 'Default RC Card rate update ho gaya. Jis user ka custom rate set nahi hai, woh ab ye rate use karega.'
   });
+}
+
+async function handleAdminUpdateSupport(req, res) {
+  const admin = requireMainAdmin(req, res);
+  if (!admin) return;
+  const body = await readJson(req);
+  const whatsapp = normalizeMobile(body.whatsapp || body.supportWhatsapp);
+  if (!validMobile(whatsapp)) return sendError(res, 422, 'Valid 10-digit WhatsApp support number daalo.');
+
+  const hasQr = Object.prototype.hasOwnProperty.call(body, 'paymentQr');
+  const nextQr = body.clearQr === true ? '' : (hasQr ? String(body.paymentQr || '') : (db.settings?.paymentQr || ''));
+  if (nextQr && !validPaymentQr(nextQr)) {
+    return sendError(res, 422, 'Valid PNG, JPG, WEBP ya GIF payment QR image upload karo.');
+  }
+
+  db.settings = db.settings || {};
+  db.settings.supportWhatsapp = whatsapp;
+  db.settings.paymentQr = nextQr;
+  await persistDatabase();
+  queueSheetSync('settings', { supportWhatsapp: whatsapp, paymentQr: nextQr });
+  return sendJson(res, 200, { success: true, support: supportSettingsPayload(req) });
 }
 
 async function handleAdminGetAds(req, res) {
@@ -1357,6 +1431,8 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && pathname === '/api/auth/forgot-password') return await handleForgotPassword(req, res);
     if (req.method === 'POST' && pathname === '/api/auth/logout') return sendJson(res, 200, { success: true }, { 'Set-Cookie': clearAuthCookie() });
     if (req.method === 'GET' && pathname === '/api/ads') return await handleGetAds(req, res);
+    if (req.method === 'GET' && pathname === '/api/support-settings') return await handlePublicSupportSettings(req, res);
+    if (req.method === 'GET' && pathname === '/api/payment-qr') return await handlePaymentQr(req, res);
     if (req.method === 'GET' && pathname === '/api/public/stats') return await handlePublicStats(req, res);
     if (req.method === 'GET' && pathname === '/api/account/transactions') {
       const user = currentUser(req);
@@ -1381,6 +1457,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && pathname === '/api/admin/settings/rating') return await handleAdminUpdateRating(req, res);
     if (req.method === 'POST' && pathname === '/api/admin/settings/baseline') return await handleAdminUpdateBaseline(req, res);
     if (req.method === 'POST' && pathname === '/api/admin/settings/rc-price') return await handleAdminUpdateRcPrice(req, res);
+    if (req.method === 'POST' && pathname === '/api/admin/settings/support') return await handleAdminUpdateSupport(req, res);
     if (req.method === 'GET' && pathname === '/api/admin/transactions') {
       const admin = requireAdmin(req, res, 'transactions');
       if (!admin) return;

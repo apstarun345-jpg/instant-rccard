@@ -13,7 +13,7 @@ A blue-and-white Node website for secure RC front-and-back downloads.
 - Durable Google Sheet account restore after Render restarts/redeploys when the Sheet mirror is configured
 - Separate wallet per mobile number
 - `MParivahan RC`: marked **Coming Soon!** in the customer flow; the future price is ₹10
-- `RC Card`: ₹15, compact output with two standard card-size faces stacked front above back, without an A4 canvas
+- `RC Card`: ₹15, direct clear PDF output in the attached A4/reference layout with front and back faces side by side
 - Charge is deducted only after both front and back RC images are available
 - Provider image normalization for base64, data-URL, URL, PNG, JPG and WEBP responses
 - `Fetching RC Card` loading popup while the provider image is being fetched
@@ -28,6 +28,7 @@ A blue-and-white Node website for secure RC front-and-back downloads.
 - Admin **Users & rates** tab: naam/mobile/email search, per-user RC Card rate, bulk rate apply, block/unblock and CSV export
 - Per-user RC rate audit log (purana rate → naya rate, kaun admin ne badla)
 - Custom user rates remain preserved through admin-access changes, default-rate changes, wallet/status updates and Google Sheet restore
+- Main Admin can configure the WhatsApp support number and payment QR from the settings panel; wallet/help links use the configured number
 - Service worker update notice so a new deploy is never stuck behind an old cached page
 - Server-side RC provider token
 - JSON storage as a local fallback/cache
