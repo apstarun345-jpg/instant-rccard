@@ -74,6 +74,7 @@
       }
       else if (name === 'adminSetRating') { url = '/api/admin/settings/rating'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ rating: args[0] }); }
       else if (name === 'adminSetBaseline') { url = '/api/admin/settings/baseline'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ usersBaseline: args[0], downloadsBaseline: args[1] }); }
+      else if (name === 'adminSetRcPrice') { url = '/api/admin/settings/rc-price'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ price: args[0] }); }
       else if (name === 'adminGetAds') { url = '/api/admin/ads'; }
       else if (name === 'adminAddAd') { url = '/api/admin/ads'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ title: args[0], imageData: args[1] }); }
       else if (name === 'adminDeleteAd') { url = '/api/admin/ads/' + encodeURIComponent(args[0]); options.method = 'DELETE'; }
@@ -125,7 +126,7 @@
     }
 
     function showWalletAlert(text) {
-      $('#wallet-alert-text').textContent = text || 'RC Card download ke liye ₹15 wallet balance chahiye. Admin se recharge karwao.';
+      $('#wallet-alert-text').textContent = text || 'RC Card download ke liye ' + formatMoney(priceForDownload('rc-card')) + ' wallet balance chahiye. Admin se recharge karwao.';
       $('#wallet-alert').hidden = false;
     }
 
@@ -175,6 +176,22 @@
       button.innerHTML = loading ? '<span class="loader"></span> Please wait…' : label;
     }
 
+    function applyRcPrice(price) {
+      var amount = formatMoney(price);
+      ['#price-note-amount', '#form-footnote-price', '#auth-benefit-price', '#auth-float-price', '#format-option-price'].forEach(function (selector) {
+        var el = $(selector);
+        if (el) el.textContent = amount;
+      });
+      if ($('#account-rc-price')) $('#account-rc-price').textContent = 'RC Card ' + amount;
+    }
+
+    async function loadPublicPricing() {
+      try {
+        var result = await callServer('getStats', []);
+        if (result.success && result.rcCardPrice) applyRcPrice(result.rcCardPrice);
+      } catch (error) { /* pre-login pricing text is non-critical */ }
+    }
+
     function showApp(user) {
       state.user = user;
       $('#session-loading').hidden = true;
@@ -184,6 +201,10 @@
       var initials = String(user.name || 'U').trim().charAt(0).toUpperCase();
       $('#avatar').textContent = initials;
       $('#user-name').textContent = user.name;
+      $('#dropdown-avatar').textContent = initials;
+      $('#dropdown-name').textContent = user.name;
+      $('#dropdown-mobile').textContent = '+91 ' + user.mobile;
+      $('#dropdown-email').textContent = user.email || 'Email not set';
       $('#welcome-title').textContent = 'Hello, ' + user.name.split(' ')[0] + '.';
       $('#account-name').textContent = user.name;
       $('#account-mobile').textContent = '+91 ' + user.mobile;
@@ -191,6 +212,7 @@
       $('#admin-nav').hidden = user.role !== 'admin';
       $('#admin-card').hidden = user.role !== 'admin';
       $('#admin-kpi-section').hidden = user.role !== 'admin';
+      applyRcPrice(priceForDownload('rc-card'));
       updateWallet(user.wallet);
       loadAds();
       loadPublicStats();
@@ -206,6 +228,7 @@
       var value = Number(amount || 0);
       $('#wallet-amount').textContent = formatMoney(value);
       $('#balance-large').textContent = formatMoney(value);
+      if ($('#dropdown-wallet')) $('#dropdown-wallet').textContent = formatMoney(value) + ' wallet balance';
       if (state.user) state.user.wallet = value;
     }
 
@@ -556,7 +579,7 @@
         closeDownloadOptions();
         showWalletAlert('Wallet balance ' + formatMoney(state.user.wallet || 0) + ' hai. Is format ke liye ' + formatMoney(price) + ' chahiye.');
         setDownloadStatus('Recharge your wallet', 'Is format ke liye minimum ' + formatMoney(price) + ' wallet balance chahiye.', 'error');
-        toast('Recharge your wallet', 'RC Card download ke liye ₹15 chahiye.', 'error');
+        toast('Recharge your wallet', 'RC Card download ke liye ' + formatMoney(price) + ' chahiye.', 'error');
         return;
       }
 
@@ -577,7 +600,7 @@
             var requiredPrice = Number(response.requiredPrice || price);
             showWalletAlert('Wallet balance ' + formatMoney(response.wallet || 0) + ' hai. Is format ke liye ' + formatMoney(requiredPrice) + ' chahiye.');
             setDownloadStatus('Recharge your wallet', 'Is format ke liye minimum ' + formatMoney(requiredPrice) + ' wallet balance chahiye.', 'error');
-            toast('Recharge your wallet', 'RC Card download ke liye ₹15 chahiye.', 'error');
+            toast('Recharge your wallet', 'RC Card download ke liye ' + formatMoney(requiredPrice) + ' chahiye.', 'error');
           } else {
             setDownloadStatus('RC download failed', response.message, 'error');
             toast('RC fetch failed', response.message, 'error');
@@ -689,6 +712,7 @@
             if (response.settings.rating) $('#admin-rating-input').value = response.settings.rating;
             $('#admin-users-baseline-input').value = response.settings.usersBaseline;
             $('#admin-downloads-baseline-input').value = response.settings.downloadsBaseline;
+            if (response.settings.rcCardPrice) $('#admin-rc-price-input').value = response.settings.rcCardPrice;
           }
         }
       } catch (error) { /* KPI dashboard is non-critical */ }
@@ -737,6 +761,24 @@
         loadPublicStats();
       } catch (error) { toast('Baseline error', error.message, 'error'); }
       finally { setButtonLoading(button, false, 'Save baseline'); }
+    }
+
+    async function saveAdminRcPrice() {
+      var button = $('#admin-rc-price-save');
+      var price = Number($('#admin-rc-price-input').value);
+      if (!Number.isFinite(price) || price < 1 || price > 1000) {
+        toast('Rate error', 'RC Card rate ₹1 se ₹1000 ke beech ek valid number daalo.', 'error');
+        return;
+      }
+      setButtonLoading(button, true, 'Save rate');
+      try {
+        var response = await callServer('adminSetRcPrice', [price]);
+        if (!response.success) throw new Error(response.message || 'Rate save nahi ho paayi.');
+        toast('RC Card rate updated', 'Naya rate ₹' + response.rcCardPrice + ' ab site par har jagah show hoga.', 'success');
+        applyRcPrice(response.rcCardPrice);
+        if (state.user) { state.user.prices = state.user.prices || {}; state.user.prices.rcCard = response.rcCardPrice; }
+      } catch (error) { toast('Rate error', error.message, 'error'); }
+      finally { setButtonLoading(button, false, 'Save rate'); }
     }
 
     $$('.auth-tab').forEach(function (button) { button.addEventListener('click', function () { setAuthMode(button.dataset.authTab); }); });
@@ -823,7 +865,29 @@
     $('#install-auth-button').addEventListener('click', installApp);
     $('#install-dashboard-button').addEventListener('click', installApp);
     updateInstallButtons();
-    $('#logout-button').addEventListener('click', async function () { try { await callServer('logout', []); } catch (error) {} clearSession(); toast('Logged out', 'Aapka session close ho gaya.', 'success'); });
+    function closeUserDropdown() {
+      $('#user-menu-button').setAttribute('aria-expanded', 'false');
+      $('#user-menu-button').classList.remove('open');
+      $('#user-dropdown').classList.remove('open');
+      setTimeout(function () { if (!$('#user-dropdown').classList.contains('open')) $('#user-dropdown').hidden = true; }, 120);
+    }
+
+    function toggleUserDropdown() {
+      var dropdown = $('#user-dropdown');
+      var isOpen = dropdown.classList.contains('open');
+      if (isOpen) { closeUserDropdown(); return; }
+      dropdown.hidden = false;
+      requestAnimationFrame(function () {
+        dropdown.classList.add('open');
+        $('#user-menu-button').classList.add('open');
+        $('#user-menu-button').setAttribute('aria-expanded', 'true');
+      });
+    }
+
+    $('#user-menu-button').addEventListener('click', function (event) { event.stopPropagation(); toggleUserDropdown(); });
+    document.addEventListener('click', function (event) { if (!$('#user-menu-wrap').contains(event.target)) closeUserDropdown(); });
+    document.addEventListener('keydown', function (event) { if (event.key === 'Escape') closeUserDropdown(); });
+    $('#logout-button').addEventListener('click', async function () { closeUserDropdown(); try { await callServer('logout', []); } catch (error) {} clearSession(); toast('Logged out', 'Aapka session close ho gaya.', 'success'); });
     $('#refresh-transactions').addEventListener('click', loadTransactions);
     $('#admin-search-button').addEventListener('click', findAdminUser);
     $('#admin-recharge-button').addEventListener('click', rechargeAdminUser);
@@ -831,11 +895,13 @@
     $('#admin-stats-reset').addEventListener('click', resetAdminStatsFilter);
     $('#admin-rating-save').addEventListener('click', saveAdminRating);
     $('#admin-baseline-save').addEventListener('click', saveAdminBaseline);
+    $('#admin-rc-price-save').addEventListener('click', saveAdminRcPrice);
     $('#admin-ad-upload').addEventListener('click', uploadAdvertisement);
     $$('[data-admin-section]').forEach(function (button) { button.addEventListener('click', function () { setAdminSection(button.dataset.adminSection); }); });
     $$('.topbar-nav button').forEach(function (button) { button.addEventListener('click', function () { var target = $('#' + button.dataset.scroll); if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' }); $$('.topbar-nav button').forEach(function (item) { item.classList.remove('active'); }); button.classList.add('active'); }); });
 
     async function boot() {
+      loadPublicPricing();
       try {
         var response = await callServer('getMe', []);
         if (response.success) showApp(response.user); else clearSession();

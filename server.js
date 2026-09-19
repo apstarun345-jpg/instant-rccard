@@ -68,7 +68,8 @@ function validVrn(vrn) {
 }
 
 function priceForDownload(downloadType) {
-  return RC_PRICES[downloadType] || RC_PRICES.mparivahan;
+  if (downloadType === 'rc-card') return settingsNumber('rcCardPrice');
+  return RC_PRICES.mparivahan;
 }
 
 function publicUser(user) {
@@ -81,7 +82,7 @@ function publicUser(user) {
     pricePerRc: RC_PRICES.mparivahan,
     prices: {
       mparivahan: RC_PRICES.mparivahan,
-      rcCard: RC_PRICES['rc-card']
+      rcCard: priceForDownload('rc-card')
     }
   };
 }
@@ -581,7 +582,7 @@ async function handleGetAds(req, res) {
   return sendJson(res, 200, { success: true, ads });
 }
 
-const DEFAULT_SETTINGS = { usersBaseline: 200000, downloadsBaseline: 171000, rating: '4.9' };
+const DEFAULT_SETTINGS = { usersBaseline: 200000, downloadsBaseline: 171000, rating: '4.9', rcCardPrice: 15 };
 
 function settingsNumber(key) {
   const raw = db.settings ? db.settings[key] : undefined;
@@ -599,7 +600,8 @@ async function handlePublicStats(req, res) {
     success: true,
     users: activeUsers + settingsNumber('usersBaseline'),
     downloads: completedDownloads + settingsNumber('downloadsBaseline'),
-    rating: /^\d(?:\.\d)?$/.test(rating) ? rating : ''
+    rating: /^\d(?:\.\d)?$/.test(rating) ? rating : '',
+    rcCardPrice: settingsNumber('rcCardPrice')
   });
 }
 
@@ -684,7 +686,8 @@ async function handleAdminStats(req, res, searchParams) {
     settings: {
       rating: String((db.settings && db.settings.rating) || DEFAULT_SETTINGS.rating),
       usersBaseline: settingsNumber('usersBaseline'),
-      downloadsBaseline: settingsNumber('downloadsBaseline')
+      downloadsBaseline: settingsNumber('downloadsBaseline'),
+      rcCardPrice: settingsNumber('rcCardPrice')
     }
   });
 }
@@ -722,6 +725,21 @@ async function handleAdminUpdateBaseline(req, res) {
   await persistDatabase();
   queueSheetSync('settings', { usersBaseline, downloadsBaseline });
   return sendJson(res, 200, { success: true, usersBaseline, downloadsBaseline });
+}
+
+async function handleAdminUpdateRcPrice(req, res) {
+  const admin = requireAdmin(req, res);
+  if (!admin) return;
+  const body = await readJson(req);
+  const price = Number(body.price);
+  if (!Number.isFinite(price) || price < 1 || price > 1000) {
+    return sendError(res, 422, 'RC Card rate ₹1 se ₹1000 ke beech hona chahiye.');
+  }
+  db.settings = db.settings || {};
+  db.settings.rcCardPrice = Math.round(price);
+  await persistDatabase();
+  queueSheetSync('settings', { rcCardPrice: db.settings.rcCardPrice });
+  return sendJson(res, 200, { success: true, rcCardPrice: db.settings.rcCardPrice });
 }
 
 async function handleAdminGetAds(req, res) {
@@ -825,6 +843,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && pathname === '/api/admin/stats') return await handleAdminStats(req, res, url.searchParams);
     if (req.method === 'POST' && pathname === '/api/admin/settings/rating') return await handleAdminUpdateRating(req, res);
     if (req.method === 'POST' && pathname === '/api/admin/settings/baseline') return await handleAdminUpdateBaseline(req, res);
+    if (req.method === 'POST' && pathname === '/api/admin/settings/rc-price') return await handleAdminUpdateRcPrice(req, res);
     if (req.method === 'GET' && pathname === '/api/admin/transactions') {
       const admin = requireAdmin(req, res);
       if (!admin) return;

@@ -128,11 +128,24 @@
     .wallet-pill b { color: var(--blue); font-size: 13px; }
     .wallet-pill small { color: #98a8bd; font-size: 9px; }
     .wallet-icon { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 8px; color: var(--blue); background: var(--blue-50); font-size: 14px; }
-    .user-menu { display: flex; align-items: center; gap: 8px; border: 0; padding: 0; color: #53647e; background: transparent; }
-    .avatar { display: grid; place-items: center; width: 35px; height: 35px; border-radius: 50%; color: #fff; background: linear-gradient(135deg, #76a7ff, #1d4ed8); font-size: 12px; font-weight: 800; }
-    .user-menu small { display: block; max-width: 105px; overflow: hidden; color: #7788a3; font-size: 11px; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
-    .logout { border: 0; padding: 7px; color: #9aa7b9; background: transparent; font-size: 11px; }
-    .logout:hover { color: var(--red); }
+    .user-menu-wrap { position: relative; }
+    .user-menu { display: flex; align-items: center; gap: 8px; border: 0; padding: 6px 9px 6px 6px; border-radius: 12px; color: #53647e; background: transparent; transition: background .12s ease; }
+    .user-menu:hover, .user-menu.open { background: var(--blue-50); }
+    .avatar { display: grid; place-items: center; width: 39px; height: 39px; border-radius: 50%; color: #fff; background: linear-gradient(135deg, #76a7ff, #1d4ed8); font-size: 14px; font-weight: 800; }
+    .avatar.avatar-lg { width: 46px; height: 46px; font-size: 16px; }
+    .user-menu small { display: block; max-width: 140px; overflow: hidden; color: #536887; font-size: 14px; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
+    .user-menu-caret { color: #9aa7b9; font-size: 11px; transition: transform .12s ease; }
+    .user-menu.open .user-menu-caret { transform: rotate(180deg); }
+    .user-dropdown { position: absolute; right: 0; top: calc(100% + 10px); z-index: 40; width: 260px; padding: 15px; border: 1px solid #e2ebf8; border-radius: 16px; background: #fff; box-shadow: 0 18px 40px rgba(24,45,92,.16); transform-origin: top right; transform: translateY(-6px) scale(.97); opacity: 0; pointer-events: none; transition: opacity .12s ease, transform .12s ease; }
+    .user-dropdown.open { transform: translateY(0) scale(1); opacity: 1; pointer-events: auto; }
+    .user-dropdown-head { display: flex; align-items: center; gap: 12px; padding-bottom: 14px; border-bottom: 1px solid #eef2fa; }
+    .user-dropdown-head b { display: block; overflow: hidden; color: var(--blue-950); font-size: 15px; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
+    .user-dropdown-head small { display: block; margin-top: 2px; color: #90a0b7; font-size: 12px; font-weight: 700; }
+    .user-dropdown-row { display: flex; align-items: center; gap: 9px; padding: 11px 0; color: #536887; font-size: 13px; font-weight: 700; border-bottom: 1px solid #f3f6fb; }
+    .user-dropdown-row:last-of-type { border-bottom: 0; }
+    .user-dropdown-icon { display: grid; place-items: center; width: 25px; height: 25px; border-radius: 8px; color: var(--blue); background: var(--blue-50); font-size: 12px; flex: 0 0 auto; }
+    .user-dropdown-logout { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; margin-top: 13px; min-height: 42px; border: 0; border-radius: 10px; color: #fff; background: linear-gradient(135deg, #ff7a7a, #d92c2c); font-size: 13px; font-weight: 800; transition: transform .12s ease; }
+    .user-dropdown-logout:hover { transform: translateY(-1px); }
 
     .dashboard { width: min(1160px, calc(100% - 48px)); margin: 0 auto; padding: 38px 0 70px; }
     .welcome-line { display: flex; align-items: end; justify-content: space-between; gap: 18px; margin-bottom: 22px; }
@@ -357,11 +370,11 @@
     .admin-header { display: flex; align-items: center; justify-content: space-between; gap: 15px; margin-bottom: 17px; }
     .admin-header h3 { margin: 5px 0 0; color: var(--blue-950); font-size: 17px; letter-spacing: -.04em; }
     .admin-tag { padding: 6px 8px; border-radius: 8px; color: var(--blue); background: var(--blue-100); font-size: 9px; font-weight: 800; }
-    .admin-tools { display: grid; grid-template-columns: minmax(200px, .9fr) 130px minmax(180px, 1fr) auto; gap: 9px; align-items: end; }
-    .admin-tools label { display: block; margin-bottom: 6px; color: #70819c; font-size: 10px; font-weight: 800; }
-    .admin-tools input { width: 100%; height: 38px; outline: 0; padding: 0 10px; border: 1px solid #dfe8f5; border-radius: 9px; color: var(--ink); background: white; font-size: 11px; }
+    .admin-tools { display: grid; grid-template-columns: minmax(200px, .9fr) 150px minmax(180px, 1fr) auto; gap: 10px; align-items: end; }
+    .admin-tools label { display: block; margin-bottom: 6px; color: #70819c; font-size: 11px; font-weight: 800; }
+    .admin-tools input { width: 100%; height: 44px; outline: 0; padding: 0 12px; border: 1px solid #dfe8f5; border-radius: 10px; color: var(--ink); background: white; font-size: 13px; }
     .admin-tools input:focus { border-color: #74a1f7; box-shadow: 0 0 0 3px rgba(37,99,235,.08); }
-    .small-blue { width: auto; min-width: 100px; min-height: 38px; padding: 0 13px; box-shadow: none; border-radius: 9px; font-size: 10px; }
+    .small-blue { width: auto; min-width: 112px; min-height: 44px; padding: 0 16px; box-shadow: none; border-radius: 10px; font-size: 12px; }
     .admin-user-result { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-top: 16px; padding: 12px; border: 1px solid #deebfc; border-radius: 12px; background: white; }
     .admin-user-result h4 { margin: 0 0 4px; color: var(--blue-950); font-size: 12px; }
     .admin-user-result p { margin: 0; color: #90a0b7; font-size: 9px; }
@@ -451,6 +464,7 @@
       .topbar { height: 72px; }
       .topbar-nav { display: none; }
       .user-menu small { display: none; }
+      .user-dropdown { width: 220px; right: -6px; }
       .wallet-pill small { display: none; }
       .dashboard { padding-top: 27px; }
       .welcome-line { align-items: flex-start; flex-direction: column; }
@@ -508,7 +522,7 @@
         <div class="eyebrow">FAST RC GATEWAY • BLUE &amp; SECURE</div>
         <h1>Apni RC,<br /><em>instant card.</em></h1>
         <p>Login karo, wallet recharge karwao aur vehicle number dalte hi front + back RC ek hi PNG me download karo.</p>
-        <div class="benefit-list"><span><b>✓</b> RC Card ₹15</span><span><b>•</b> MParivahan Coming Soon</span><span><b>✓</b> Front + back combined</span><span><b>✓</b> Mobile account</span></div>
+        <div class="benefit-list"><span><b>✓</b> RC Card <span id="auth-benefit-price">₹15</span></span><span><b>•</b> MParivahan Coming Soon</span><span><b>✓</b> Front + back combined</span><span><b>✓</b> Mobile account</span></div>
         <div class="auth-visual" aria-hidden="true">
           <div class="visual-card back"></div>
           <div class="visual-card front">
@@ -517,7 +531,7 @@
             <div class="card-bottom"><span>TRANSPORT DEPARTMENT</span><i>VALID</i></div>
           </div>
           <div class="float-note note-one"><b>⚡</b><span><strong>Instant download</strong><small>Ek click, one PNG</small></span></div>
-          <div class="float-note note-two"><b>✓</b><span><strong>Wallet protected</strong><small>RC Card ₹15 · MParivahan soon</small></span></div>
+          <div class="float-note note-two"><b>✓</b><span><strong>Wallet protected</strong><small>RC Card <span id="auth-float-price">₹15</span> · MParivahan soon</small></span></div>
         </div>
       </div>
 
@@ -542,7 +556,7 @@
           <div class="field password-field"><label>Password</label><div class="password-wrap"><input id="signup-password" type="password" placeholder="Minimum 6 characters" autocomplete="new-password" /><button class="password-toggle" data-toggle-password="signup-password" type="button">Show</button></div></div>
           <div class="auth-error" id="signup-error"></div>
           <button class="blue-button" type="submit" id="signup-button">Account banao <span>→</span></button>
-          <p class="form-footnote">Wallet recharge ke baad RC Card ₹15 me download hoga. MParivahan Coming Soon.</p>
+          <p class="form-footnote">Wallet recharge ke baad RC Card <span id="form-footnote-price">₹15</span> me download hoga. MParivahan Coming Soon.</p>
         </form>
         <form class="auth-form" id="forgot-form" hidden>
           <div id="forgot-copy"><h2>Password reset</h2><p>Email aur mobile verify karke naya password set karo.</p></div>
@@ -560,11 +574,21 @@
     <header class="topbar" id="topbar" hidden>
       <a class="brand" href="#app"><span class="brand-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M6 6h12M6 10h8M6 14h6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M16.5 14.5v4M14.5 16.5h4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span><span class="brand-name"><strong>Instant<span>RC</span>card</strong><small>RC DOWNLOAD PLATFORM</small></span></a>
       <nav class="topbar-nav"><button class="active" data-scroll="app" type="button">RC Download</button><button data-scroll="transactions" type="button">My history</button><button data-scroll="admin-card" id="admin-nav" type="button" hidden>Admin panel</button></nav>
-      <div class="top-actions"><button class="install-button compact" id="install-dashboard-button" type="button" hidden>＋ Install app</button><button class="wallet-pill wallet-trigger" id="wallet-top-trigger" type="button" aria-label="Open wallet topup"><span class="wallet-icon">₹</span><span><b id="wallet-amount">₹0</b><small> wallet</small></span></button><button class="user-menu" type="button"><span class="avatar" id="avatar">U</span><small id="user-name">User</small></button><button class="logout" id="logout-button" type="button" title="Logout">↪</button></div>
+      <div class="top-actions"><button class="install-button compact" id="install-dashboard-button" type="button" hidden>＋ Install app</button><button class="wallet-pill wallet-trigger" id="wallet-top-trigger" type="button" aria-label="Open wallet topup"><span class="wallet-icon">₹</span><span><b id="wallet-amount">₹0</b><small> wallet</small></span></button>
+        <div class="user-menu-wrap" id="user-menu-wrap">
+          <button class="user-menu" id="user-menu-button" type="button" aria-haspopup="true" aria-expanded="false"><span class="avatar" id="avatar">U</span><small id="user-name">User</small><span class="user-menu-caret" aria-hidden="true">▾</span></button>
+          <div class="user-dropdown" id="user-dropdown" hidden>
+            <div class="user-dropdown-head"><span class="avatar avatar-lg" id="dropdown-avatar">U</span><div><b id="dropdown-name">User</b><small id="dropdown-mobile">+91 —</small></div></div>
+            <div class="user-dropdown-row"><span class="user-dropdown-icon">@</span><span id="dropdown-email">Email not set</span></div>
+            <div class="user-dropdown-row"><span class="user-dropdown-icon">₹</span><span id="dropdown-wallet">₹0 wallet balance</span></div>
+            <button class="user-dropdown-logout" id="logout-button" type="button">↪ Logout</button>
+          </div>
+        </div>
+      </div>
     </header>
 
     <main class="dashboard" id="dashboard" hidden>
-      <div class="welcome-line"><div><div class="section-label">INSTANT RCCARD DESK</div><h1 id="welcome-title">RC download karo.</h1><p id="welcome-subtitle">Vehicle number dalo aur compact RC Card PNG seedha download karo.</p></div><div class="price-note"><b>₹15</b><span>RC Card download<br />MParivahan Coming Soon</span></div></div>
+      <div class="welcome-line"><div><div class="section-label">INSTANT RCCARD DESK</div><h1 id="welcome-title">RC download karo.</h1><p id="welcome-subtitle">Vehicle number dalo aur compact RC Card PNG seedha download karo.</p></div><div class="price-note"><b id="price-note-amount">₹15</b><span>RC Card download<br />MParivahan Coming Soon</span></div></div>
       <section class="admin-kpi-section" id="admin-kpi-section" hidden>
         <div class="admin-kpi-heading"><div><div class="section-label">OWNER ACCESS · LIVE OVERVIEW</div><h2>Admin KPI dashboard</h2><p>Users, topup aur RC download ka real-time overview.</p></div><span class="admin-tag">ADMIN ONLY</span></div>
         <div class="admin-kpi-filters">
@@ -595,6 +619,11 @@
           <button class="blue-button small-blue" id="admin-baseline-save" type="button">Save baseline</button>
           <small>Homepage par yahi baseline + live count "Lakh+" format me dikhega (jaise 2 Lakh+, 1.71 Lakh+).</small>
         </div>
+        <div class="admin-rating-row">
+          <div><label>RC Card download rate (₹)</label><input id="admin-rc-price-input" type="number" min="1" max="1000" step="1" placeholder="15" /></div>
+          <button class="blue-button small-blue" id="admin-rc-price-save" type="button">Save rate</button>
+          <small>Default ₹15 hai. Change karte hi ye rate site par har jagah (price note, wallet, download charge) turant show hoga.</small>
+        </div>
       </section>
       <section class="ad-ticker" id="ad-ticker" hidden aria-label="Current offers">
         <div class="ad-ticker-label"><span>OFFERS</span><b>InstantRCcard updates</b></div>
@@ -607,7 +636,7 @@
       <div class="wallet-alert" id="wallet-alert" role="alert" hidden><span class="wallet-alert-icon">!</span><span><b>Recharge your wallet</b><small id="wallet-alert-text">RC Card download ke liye ₹15 wallet balance chahiye.</small></span><button id="close-wallet-alert" type="button" aria-label="Close alert">×</button></div>
 
       <div class="content-grid">
-        <div class="side-stack"><section class="panel balance-card wallet-card wallet-trigger" id="wallet-card-trigger" role="button" tabindex="0" aria-label="Open wallet topup"><div class="section-label">CURRENT WALLET</div><div class="balance-amount" id="balance-large">₹0</div><p>Tap karke wallet topup request bhejo.</p></section><section class="panel account-card"><div class="card-heading"><h3>Account details</h3></div><div class="account-row"><span class="account-icon">◉</span><span><b id="account-name">User</b><span>Registered name</span></span></div><div class="account-row"><span class="account-icon">⌕</span><span><b id="account-mobile">+91 —</b><span>Mobile account</span></span></div><div class="account-row"><span class="account-icon">@</span><span><b id="account-email">Email not set</b><span>Recovery email</span></span></div><div class="account-row"><span class="account-icon">₹</span><span><b>RC Card ₹15</b><span>MParivahan format Coming Soon</span></span></div></section></div>
+        <div class="side-stack"><section class="panel balance-card wallet-card wallet-trigger" id="wallet-card-trigger" role="button" tabindex="0" aria-label="Open wallet topup"><div class="section-label">CURRENT WALLET</div><div class="balance-amount" id="balance-large">₹0</div><p>Tap karke wallet topup request bhejo.</p></section><section class="panel account-card"><div class="card-heading"><h3>Account details</h3></div><div class="account-row"><span class="account-icon">◉</span><span><b id="account-name">User</b><span>Registered name</span></span></div><div class="account-row"><span class="account-icon">⌕</span><span><b id="account-mobile">+91 —</b><span>Mobile account</span></span></div><div class="account-row"><span class="account-icon">@</span><span><b id="account-email">Email not set</b><span>Recovery email</span></span></div><div class="account-row"><span class="account-icon">₹</span><span><b id="account-rc-price">RC Card ₹15</b><span>MParivahan format Coming Soon</span></span></div></section></div>
         <section class="panel transactions-card" id="transactions"><div class="card-heading"><h3>Recent wallet history</h3><button id="refresh-transactions" type="button">Refresh ↻</button></div><div class="transaction-list" id="transaction-list"><div class="empty-list">Abhi koi transaction nahi hai.</div></div></section>
         <section class="panel admin-card" id="admin-card" hidden>
           <div class="admin-header"><div><div class="section-label">OWNER ACCESS</div><h3>Admin control center</h3></div><span class="admin-tag">ADMIN ONLY</span></div>
@@ -652,7 +681,7 @@
       <p>Vehicle number ke liye aapka preferred download format select karein.</p>
       <div class="format-options">
         <button class="format-option coming-soon" data-download-format="mparivahan" type="button"><span class="format-icon">▤</span><span><b>MParivahan RC <i>Coming Soon!</i></b><small>A4 page layout · abhi service start nahi hui</small></span><span class="format-arrow">•</span></button>
-        <button class="format-option rc-card" data-download-format="rc-card" type="button"><span class="format-icon">▣</span><span><b>RC Card <i>₹15</i></b><small>Compact card layout · front upar · back neeche</small></span><span class="format-arrow">→</span></button>
+        <button class="format-option rc-card" data-download-format="rc-card" type="button"><span class="format-icon">▣</span><span><b>RC Card <i id="format-option-price">₹15</i></b><small>Compact card layout · front upar · back neeche</small></span><span class="format-arrow">→</span></button>
       </div>
     </div>
   </div>
