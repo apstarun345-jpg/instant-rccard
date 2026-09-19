@@ -8,6 +8,7 @@
     var roboMessages = [];
     var roboMessageIndex = 0;
     var roboGreetingLocked = false;
+    var fetchingMessageTimer = null;
 
     function appIsInstalled() {
       return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
@@ -90,7 +91,22 @@
       else if (name === 'adminDeleteAd') { url = '/api/admin/ads/' + encodeURIComponent(args[0]); options.method = 'DELETE'; }
       else if (name === 'adminToggleAd') { url = '/api/admin/ads/' + encodeURIComponent(args[0]); options.method = 'POST'; }
       else throw new Error('Unknown request');
-      var response = await fetch(url, options);
+      var requestController = null;
+      var requestTimer = null;
+      if (name === 'buyRc' && window.AbortController) {
+        requestController = new AbortController();
+        options.signal = requestController.signal;
+        requestTimer = window.setTimeout(function () { requestController.abort(); }, 24_000);
+      }
+      var response;
+      try {
+        response = await fetch(url, options);
+      } catch (error) {
+        if (error && error.name === 'AbortError') throw new Error('RC provider response slow ho raha hai. Please dobara try karein.');
+        throw error;
+      } finally {
+        if (requestTimer) clearTimeout(requestTimer);
+      }
       var payload;
       try { payload = await response.json(); } catch (error) { throw new Error('Server se invalid response aaya.'); }
       return payload;
@@ -210,8 +226,26 @@
     function setFetchingOverlay(visible) {
       var overlay = $('#fetching-overlay');
       if (!overlay) return;
+      if (fetchingMessageTimer) {
+        clearInterval(fetchingMessageTimer);
+        fetchingMessageTimer = null;
+      }
       overlay.hidden = !visible;
       document.body.style.overflow = visible ? 'hidden' : '';
+      if (!visible) return;
+
+      var text = $('#fetching-overlay-text');
+      var messages = [
+        'Secure RC provider se connection ho raha hai…',
+        'Front aur back image process ho rahi hai…',
+        'Clear RC Card prepare ho raha hai…'
+      ];
+      var index = 0;
+      if (text) text.textContent = messages[index];
+      fetchingMessageTimer = window.setInterval(function () {
+        index = (index + 1) % messages.length;
+        if (text) text.textContent = messages[index];
+      }, 1800);
     }
 
     function showWalletAlert(text) {
@@ -671,9 +705,14 @@
     function loadImage(source) {
       return new Promise(function (resolve, reject) {
         var image = new Image();
+        var timer = window.setTimeout(function () {
+          image.onload = null;
+          image.onerror = null;
+          reject(new Error('RC image load timeout ho gaya.'));
+        }, 8000);
         if (/^https?:\/\//i.test(source)) image.crossOrigin = 'anonymous';
-        image.onload = function () { resolve(image); };
-        image.onerror = reject;
+        image.onload = function () { clearTimeout(timer); resolve(image); };
+        image.onerror = function () { clearTimeout(timer); reject(new Error('RC image load nahi ho paayi.')); };
         image.src = source;
       });
     }
@@ -682,8 +721,9 @@
       var frontSource = safeImage(frontValue);
       var backSource = safeImage(backValue);
       if (!frontSource || !backSource) throw new Error('Front/back RC image valid nahi hai.');
-      var front = await loadImage(frontSource);
-      var back = await loadImage(backSource);
+      var loadedImages = await Promise.all([loadImage(frontSource), loadImage(backSource)]);
+      var front = loadedImages[0];
+      var back = loadedImages[1];
       var dpi = 300;
       var mm = function (value) { return Math.round(value * dpi / 25.4); };
       var pageWidth = 2480; // A4 at 300 DPI
@@ -726,8 +766,9 @@
       var frontSource = safeImage(frontValue);
       var backSource = safeImage(backValue);
       if (!frontSource || !backSource) throw new Error('Front/back RC image valid nahi hai.');
-      var front = await loadImage(frontSource);
-      var back = await loadImage(backSource);
+      var loadedImages = await Promise.all([loadImage(frontSource), loadImage(backSource)]);
+      var front = loadedImages[0];
+      var back = loadedImages[1];
       var dpi = 300;
       var mm = function (value) { return Math.round(value * dpi / 25.4); };
       // RC Card output is exactly two standard card faces, stacked without an A4-sized canvas.

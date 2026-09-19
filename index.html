@@ -326,6 +326,9 @@
     .fetching-modal strong { color: var(--blue-950); font-size: 20px; letter-spacing: -.04em; }
     .fetching-modal small { color: var(--muted); font-size: 12px; }
     .fetching-spinner { display: block; width: 42px; height: 42px; border: 4px solid #dbeafe; border-top-color: var(--blue); border-radius: 50%; animation: spin .75s linear infinite; }
+    .fetching-progress { width: min(190px, 75%); height: 4px; overflow: hidden; border-radius: 99px; background: #e7effc; }
+    .fetching-progress span { display: block; width: 42%; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #3e7ff0, #8bb9ff); animation: fetching-progress 1.15s ease-in-out infinite; }
+    @keyframes fetching-progress { 0% { transform: translateX(-125%); } 100% { transform: translateX(290%); } }
     /* Slightly larger type keeps the main flow readable on phones and desktops. */
     body { font-size: 15px; }
     .auth-copy .eyebrow, .section-label { font-size: 12px; }
@@ -693,6 +696,22 @@
       .welcome-line { padding: 13px 14px 14px 19px; }
       .welcome-line > div:first-child { padding-left: 5px; }
     }
+
+    /* Keep the fetch indicator visibly moving, even when the device reduces motion. */
+    .fetching-spinner { animation: spin .65s linear infinite !important; will-change: transform; }
+    .fetching-progress span { animation: fetching-progress 1.15s ease-in-out infinite !important; }
+    .fetching-modal strong::after { content: ""; display: inline-block; width: 1.1em; text-align: left; animation: fetching-dots 1.05s steps(4, end) infinite; }
+    @keyframes fetching-dots {
+      0%, 20% { content: ""; }
+      40% { content: "."; }
+      60% { content: ".."; }
+      80%, 100% { content: "..."; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .fetching-spinner { animation: spin .65s linear infinite !important; }
+      .fetching-progress span { animation: fetching-progress 1.15s ease-in-out infinite !important; }
+      .fetching-modal strong::after { animation: fetching-dots 1.05s steps(4, end) infinite !important; }
+    }
   </style>
 </head>
 <body>
@@ -955,8 +974,9 @@
   <div class="fetching-backdrop" id="fetching-overlay" hidden>
     <div class="fetching-modal" role="status" aria-live="polite">
       <span class="fetching-spinner"></span>
+      <div class="fetching-progress" aria-hidden="true"><span></span></div>
       <strong>Fetching RC Card</strong>
-      <small>Front aur back RC image aa rahi hai…</small>
+      <small id="fetching-overlay-text">Front aur back RC image aa rahi hai…</small>
     </div>
   </div>
   <div class="welcome-back-backdrop" id="welcome-back-modal" hidden>

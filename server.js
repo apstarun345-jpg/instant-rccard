@@ -25,7 +25,11 @@ const SESSION_SECONDS = 60 * 60 * 24 * 7;
 const STATS_TIME_ZONE = process.env.APP_TIME_ZONE || 'Asia/Kolkata';
 const MAX_BODY_BYTES = 5_000_000;
 const MAX_AD_BYTES = 40_000;
-const UPSTREAM_TIMEOUT_MS = 30_000;
+const UPSTREAM_TIMEOUT_MS = 20_000;
+const RC_CACHE_TTL_MS = 10 * 60 * 1000;
+const RC_CACHE_MAX_ENTRIES = 24;
+const providerCache = new Map();
+const providerInflight = new Map();
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -509,7 +513,7 @@ async function normalizeProviderImage(value) {
   return /^[A-Za-z0-9+/=_-]+$/.test(raw) ? `data:image/png;base64,${raw}` : '';
 }
 
-async function fetchProvider(vrn) {
+async function fetchProviderFromApi(vrn) {
   if (!RC_API_TOKEN) return { success: false, message: 'RC_API_TOKEN server environment me configured nahi hai.' };
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
@@ -526,15 +530,53 @@ async function fetchProvider(vrn) {
     if (!response.ok || payload?.success === false) return { success: false, message: payload?.message || payload?.error || 'RC image nahi mili. Vehicle number check karo.' };
     const images = providerImages(payload);
     if (!images) return { success: false, message: 'Front aur back RC image available nahi hai.' };
-    const front = await normalizeProviderImage(images.front);
-    const back = await normalizeProviderImage(images.back);
+    // Front aur back ko parallel normalize karne se provider URL responses faster complete hote hain.
+    const [front, back] = await Promise.all([
+      normalizeProviderImage(images.front),
+      normalizeProviderImage(images.back)
+    ]);
     if (!front || !back) return { success: false, message: 'Front aur back RC image download nahi ho paayi.' };
     return { success: true, images: { front, back } };
   } catch (error) {
-    return { success: false, message: error.name === 'AbortError' ? 'RC provider timeout ho gaya.' : 'RC provider se connection nahi ho paaya.' };
+    return { success: false, message: error.name === 'AbortError' ? 'RC provider timeout ho gaya. Thodi der baad dobara try karein.' : 'RC provider se connection nahi ho paaya.' };
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function cachedProviderImages(vrn) {
+  const entry = providerCache.get(vrn);
+  if (!entry) return null;
+  if (entry.expiresAt <= Date.now()) {
+    providerCache.delete(vrn);
+    return null;
+  }
+  // Refresh recency so frequently used vehicle numbers stay hot in the small cache.
+  providerCache.delete(vrn);
+  providerCache.set(vrn, entry);
+  return entry.images;
+}
+
+function rememberProviderImages(vrn, images) {
+  providerCache.delete(vrn);
+  providerCache.set(vrn, { images, expiresAt: Date.now() + RC_CACHE_TTL_MS });
+  while (providerCache.size > RC_CACHE_MAX_ENTRIES) providerCache.delete(providerCache.keys().next().value);
+}
+
+async function fetchProvider(vrn) {
+  const cached = cachedProviderImages(vrn);
+  if (cached) return { success: true, images: cached, cached: true };
+  const existing = providerInflight.get(vrn);
+  if (existing) return existing;
+
+  const pending = fetchProviderFromApi(vrn)
+    .then((result) => {
+      if (result.success && result.images) rememberProviderImages(vrn, result.images);
+      return result;
+    })
+    .finally(() => providerInflight.delete(vrn));
+  providerInflight.set(vrn, pending);
+  return pending;
 }
 
 async function restoreFromSheet() {
