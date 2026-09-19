@@ -55,6 +55,9 @@
     // Refresh par pehle cookie session verify hota hai, isliye login flash nahi dikhega.
     $('#auth-view').hidden = true;
     $('#session-loading').hidden = false;
+    window.setTimeout(function () {
+      if (!$('#session-loading').hidden) clearSession();
+    }, 12_000);
 
     async function callServer(name, args) {
       var url = '';
@@ -95,16 +98,20 @@
       else throw new Error('Unknown request');
       var requestController = null;
       var requestTimer = null;
-      if (name === 'buyRc' && window.AbortController) {
+      var requestTimeoutMs = name === 'buyRc' ? 24_000 : (name === 'getMe' || name === 'getSupportSettings' ? 8_000 : 0);
+      if (requestTimeoutMs && window.AbortController) {
         requestController = new AbortController();
         options.signal = requestController.signal;
-        requestTimer = window.setTimeout(function () { requestController.abort(); }, 24_000);
+        requestTimer = window.setTimeout(function () { requestController.abort(); }, requestTimeoutMs);
       }
       var response;
       try {
         response = await fetch(url, options);
       } catch (error) {
-        if (error && error.name === 'AbortError') throw new Error('RC provider response slow ho raha hai. Please dobara try karein.');
+        if (error && error.name === 'AbortError') {
+          if (name === 'buyRc') throw new Error('RC provider response slow ho raha hai. Please dobara try karein.');
+          throw new Error('Server response slow ho raha hai. Please refresh karke dobara try karein.');
+        }
         throw error;
       } finally {
         if (requestTimer) clearTimeout(requestTimer);
@@ -1896,7 +1903,8 @@
 
     async function boot() {
       loadPublicPricing();
-      await loadSupportSettings();
+      // WhatsApp/QR configuration is optional; it must never block session restore.
+      loadSupportSettings();
       try {
         var response = await callServer('getMe', []);
         if (response.success) showApp(response.user); else clearSession();
