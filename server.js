@@ -37,7 +37,7 @@ const MIME_TYPES = {
   '.ico': 'image/x-icon'
 };
 
-let db = { users: [], transactions: [], ads: [] };
+let db = { users: [], transactions: [], ads: [], settings: {}, rateLog: [] };
 let mutationQueue = Promise.resolve();
 let sheetSyncQueue = Promise.resolve();
 
@@ -67,11 +67,33 @@ function validVrn(vrn) {
   return /^[A-Z0-9]{4,15}$/.test(vrn);
 }
 
-function priceForDownload(downloadType) {
-  return RC_PRICES[downloadType] || RC_PRICES.mparivahan;
+function defaultRcCardPrice() {
+  return settingsNumber('rcCardPrice');
+}
+
+function customRcCardPrice(user) {
+  if (!user || user.rcCardPrice == null || user.rcCardPrice === '') return null;
+  const value = Number(user.rcCardPrice);
+  return Number.isFinite(value) && value >= 1 ? Math.round(value) : null;
+}
+
+function hasCustomRcCardRate(user) {
+  return customRcCardPrice(user) != null;
+}
+
+function userRcCardPrice(user) {
+  const custom = customRcCardPrice(user);
+  return custom == null ? defaultRcCardPrice() : custom;
+}
+
+function priceForDownload(downloadType, user) {
+  if (downloadType === 'rc-card') return userRcCardPrice(user);
+  return RC_PRICES.mparivahan;
 }
 
 function publicUser(user) {
+  const rcCard = userRcCardPrice(user);
+  const custom = customRcCardPrice(user);
   return {
     name: user.name,
     email: user.email || '',
@@ -79,11 +101,98 @@ function publicUser(user) {
     wallet: Number(user.wallet || 0),
     role: user.role,
     pricePerRc: RC_PRICES.mparivahan,
+    customRcCardPrice: custom,
     prices: {
       mparivahan: RC_PRICES.mparivahan,
-      rcCard: RC_PRICES['rc-card']
+      rcCard
     }
   };
+}
+
+// Admin ke "Users & rates" section ke liye extra detail (wallet, status, created date).
+function publicAdminUser(user) {
+  const custom = customRcCardPrice(user);
+  return {
+    ...publicUser(user),
+    active: user.active !== false,
+    createdAt: user.createdAt || '',
+    lastLogin: user.lastLogin || '',
+    rateUpdatedAt: user.rcRateUpdatedAt || '',
+    rateUpdatedBy: user.rcRateUpdatedBy || '',
+    rate: userRcCardPrice(user),
+    customRate: custom,
+    hasCustomRate: custom != null
+  };
+}
+
+function appendRateLog(admin, user, from, to) {
+  if (!Array.isArray(db.rateLog)) db.rateLog = [];
+  const entry = {
+    id: crypto.randomUUID(),
+    time: new Date().toISOString(),
+    adminMobile: admin ? admin.mobile : '',
+    mobile: user.mobile,
+    name: user.name || '',
+    from: from == null ? null : from,
+    to: to == null ? null : to
+  };
+  db.rateLog.push(entry);
+  if (db.rateLog.length > 300) db.rateLog = db.rateLog.slice(-300);
+  return entry;
+}
+
+// Ek user ka RC Card rate set/clear karta hai + audit log + Sheet sync queue karta hai.
+function applyUserRate(admin, user, { price, clear }) {
+  const from = customRcCardPrice(user);
+  let to = null;
+  if (!clear) {
+    const value = Number(price);
+    if (!Number.isFinite(value) || value < 1 || value > 1000) {
+      return { ok: false, status: 422, message: 'RC rate ₹1 se ₹1000 ke beech hona chahiye.' };
+    }
+    to = Math.round(value);
+  }
+  user.rcCardPrice = to;
+  user.rcRateUpdatedAt = new Date().toISOString();
+  user.rcRateUpdatedBy = admin ? admin.mobile : '';
+  const rateLogEntry = appendRateLog(admin, user, from, to);
+  queueSheetSync('user', sheetUserPayload(user));
+  queueSheetSync('rateLog', rateLogEntry);
+  return { ok: true, from, to };
+}
+
+// Naam, mobile ya email ke partial match se users dhoondta hai (admin list ke liye).
+function searchAdminUsers(query) {
+  const raw = String(query ?? '').trim().toLowerCase();
+  if (!raw) return db.users.slice();
+  const digits = normalizeMobile(raw);
+  return db.users.filter((user) => {
+    if (String(user.name || '').toLowerCase().includes(raw)) return true;
+    if (String(user.email || '').toLowerCase().includes(raw)) return true;
+    if (String(user.mobile || '').includes(raw)) return true;
+    return Boolean(digits && digits.length >= 3 && String(user.mobile || '').includes(digits));
+  });
+}
+
+function sortAdminUsers(users) {
+  return users.slice().sort((a, b) => {
+    if ((a.role === 'admin') !== (b.role === 'admin')) return a.role === 'admin' ? -1 : 1;
+    return String(b.createdAt || '').localeCompare(String(a.createdAt || ''));
+  });
+}
+
+// Mobile/email/naam teeno se user resolve karta hai; ambiguous naam par saaf message deta hai.
+function resolveAdminUserQuery(query) {
+  const raw = String(query ?? '').trim();
+  if (!raw) return { status: 422, message: 'User ka mobile number, email ya naam daalo.' };
+  const direct = findUserByQuery(raw);
+  if (direct) return { user: direct };
+  const matches = searchAdminUsers(raw);
+  if (matches.length === 1) return { user: matches[0] };
+  if (matches.length > 1) {
+    return { status: 422, message: `"${raw}" se ${matches.length} users mile. Exact mobile/email daalo ya "Users & rates" tab me sahi user choose karo.` };
+  }
+  return { status: 404, message: 'Is mobile/email/naam ka account nahi mila.' };
 }
 
 function securityHeaders() {
@@ -135,11 +244,13 @@ async function loadDatabase() {
     db = {
       users: Array.isArray(parsed.users) ? parsed.users : [],
       transactions: Array.isArray(parsed.transactions) ? parsed.transactions : [],
-      ads: Array.isArray(parsed.ads) ? parsed.ads : []
+      ads: Array.isArray(parsed.ads) ? parsed.ads : [],
+      settings: parsed.settings && typeof parsed.settings === 'object' ? parsed.settings : {},
+      rateLog: Array.isArray(parsed.rateLog) ? parsed.rateLog : []
     };
   } catch (error) {
     if (error.code !== 'ENOENT') throw error;
-    db = { users: [], transactions: [], ads: [] };
+    db = { users: [], transactions: [], ads: [], settings: {}, rateLog: [] };
     await persistDatabase();
   }
 }
@@ -162,6 +273,23 @@ function withMutationLock(work) {
 
 function findUser(mobile) {
   return db.users.find((user) => user.mobile === mobile) || null;
+}
+
+function findUserByEmail(email) {
+  const normalized = normalizeEmail(email);
+  if (!normalized) return null;
+  return db.users.find((user) => normalizeEmail(user.email) === normalized) || null;
+}
+
+function findUserByQuery(query) {
+  const raw = String(query ?? '').trim();
+  if (!raw) return null;
+  if (raw.includes('@')) return findUserByEmail(raw);
+  const mobile = normalizeMobile(raw);
+  if (validMobile(mobile)) return findUser(mobile);
+  // Also try email-style lookup when input looks like email without needing @ check again
+  if (validEmail(normalizeEmail(raw))) return findUserByEmail(raw);
+  return null;
 }
 
 function syncAdminRole(user) {
@@ -250,6 +378,9 @@ function sheetUserPayload(user) {
     salt: user.salt || '',
     role: user.role,
     wallet: Number(user.wallet || 0),
+    rcCardPrice: user.rcCardPrice != null && user.rcCardPrice !== '' ? Number(user.rcCardPrice) : '',
+    rcRateUpdatedAt: user.rcRateUpdatedAt || '',
+    rcRateUpdatedBy: user.rcRateUpdatedBy || '',
     createdAt: user.createdAt,
     lastLogin: user.lastLogin,
     active: Boolean(user.active)
@@ -383,20 +514,28 @@ async function restoreFromSheet() {
 
     // Google Sheet is the durable source when it contains account records.
     // Keep a local database if the sheet is empty/unavailable during first setup.
-    if (accounts.length || !db.users.length) db.users = accounts.map((account) => ({
-      id: String(account.userId || account.id || `sheet-${account.mobile}`),
-      name: String(account.name || ''),
-      email: normalizeEmail(account.email),
-      mobile: normalizeMobile(account.mobile),
-      salt: String(account.salt || ''),
-      passwordHash: String(account.passwordHash || ''),
-      wallet: Number(account.wallet || 0),
-      role: account.role === 'admin' ? 'admin' : 'user',
-      createdAt: account.createdAt || new Date().toISOString(),
-      lastLogin: account.lastLogin || account.createdAt || new Date().toISOString(),
-      active: account.active !== false && String(account.active).toLowerCase() !== 'false'
-    }));
+    if (accounts.length || !db.users.length) db.users = accounts.map((account) => {
+      const customPrice = Number(account.rcCardPrice);
+      return {
+        id: String(account.userId || account.id || `sheet-${account.mobile}`),
+        name: String(account.name || ''),
+        email: normalizeEmail(account.email),
+        mobile: normalizeMobile(account.mobile),
+        salt: String(account.salt || ''),
+        passwordHash: String(account.passwordHash || ''),
+        wallet: Number(account.wallet || 0),
+        rcCardPrice: Number.isFinite(customPrice) && customPrice >= 1 ? Math.round(customPrice) : null,
+        rcRateUpdatedAt: account.rcRateUpdatedAt || '',
+        rcRateUpdatedBy: account.rcRateUpdatedBy || '',
+        role: account.role === 'admin' ? 'admin' : 'user',
+        createdAt: account.createdAt || new Date().toISOString(),
+        lastLogin: account.lastLogin || account.createdAt || new Date().toISOString(),
+        active: account.active !== false && String(account.active).toLowerCase() !== 'false'
+      };
+    });
     if (transactions.length || !db.transactions.length) db.transactions = transactions;
+    if (snapshot.settings && typeof snapshot.settings === 'object') db.settings = { ...db.settings, ...snapshot.settings };
+    if (Array.isArray(snapshot.rateLog)) db.rateLog = snapshot.rateLog.slice(-300);
     if (ads.length || !db.ads.length) db.ads = ads.map((ad) => ({
       id: String(ad.id || crypto.randomUUID()),
       title: String(ad.title || ''),
@@ -426,7 +565,8 @@ async function handleSignup(req, res) {
   return withMutationLock(async () => {
     if (findUser(mobile)) return sendError(res, 409, 'Is mobile number ka account pehle se bana hua hai.');
     const salt = crypto.randomBytes(16).toString('hex');
-    const user = { id: crypto.randomUUID(), name, email, mobile, salt, passwordHash: passwordHash(password, salt), wallet: 0, role: ADMIN_MOBILE && mobile === ADMIN_MOBILE ? 'admin' : 'user', createdAt: new Date().toISOString(), lastLogin: new Date().toISOString(), active: true };
+    if (findUserByEmail(email)) return sendError(res, 409, 'Is email ka account pehle se bana hua hai.');
+    const user = { id: crypto.randomUUID(), name, email, mobile, salt, passwordHash: passwordHash(password, salt), wallet: 0, rcCardPrice: null, role: ADMIN_MOBILE && mobile === ADMIN_MOBILE ? 'admin' : 'user', createdAt: new Date().toISOString(), lastLogin: new Date().toISOString(), active: true };
     db.users.push(user);
     await persistDatabase();
     queueSheetSync('user', sheetUserPayload(user));
@@ -439,12 +579,18 @@ async function handleLogin(req, res) {
   const email = normalizeEmail(body.email);
   const mobile = normalizeMobile(body.mobile);
   const password = String(body.password || '');
-  if (!validEmail(email) || !validMobile(mobile) || !password) return sendError(res, 422, 'Email, mobile number aur password enter karo.');
+  if (!validEmail(email) || !validMobile(mobile) || !password) {
+    return sendError(res, 422, 'Registered email, valid mobile number aur password enter karo.');
+  }
   const user = syncAdminRole(findUser(mobile));
-  if (!user || !user.active || !passwordMatches(password, user)) return sendError(res, 401, 'Email, mobile number ya password galat hai.');
-  // Older accounts may not have an email yet. A successful password login migrates it once.
-  if (!user.email) user.email = email;
-  if (user.email !== email) return sendError(res, 401, 'Email, mobile number ya password galat hai.');
+  if (!user || !user.active || !passwordMatches(password, user)) {
+    return sendError(res, 401, 'Email, mobile number ya password galat hai.');
+  }
+  // Purane valid accounts me email blank ho sakta hai; dono credentials ke saath pehli login par email save ho jayega.
+  if (!normalizeEmail(user.email)) user.email = email;
+  if (normalizeEmail(user.email) !== email) {
+    return sendError(res, 401, 'Email, mobile number ya password galat hai.');
+  }
   user.lastLogin = new Date().toISOString();
   await persistDatabase();
   queueSheetSync('user', sheetUserPayload(user));
@@ -483,13 +629,15 @@ async function handlePurchase(req, res) {
   const body = await readJson(req);
   const vrn = normalizeVrn(body.vrn);
   const downloadType = body.downloadType === 'rc-card' ? 'rc-card' : 'mparivahan';
-  const price = priceForDownload(downloadType);
   if (!validVrn(vrn)) return sendError(res, 422, 'Valid vehicle number daalo, jaise RJ14AB1234.');
-  if (downloadType === 'mparivahan') return sendJson(res, 200, { success: false, code: 'COMING_SOON', message: 'MParivahan RC format Coming Soon!', downloadType, requiredPrice: price });
 
   return withMutationLock(async () => {
     const fresh = syncAdminRole(findUser(user.mobile));
     if (!fresh) return sendError(res, 401, 'User account nahi mila.');
+    const price = priceForDownload(downloadType, fresh);
+    if (downloadType === 'mparivahan') {
+      return sendJson(res, 200, { success: false, code: 'COMING_SOON', message: 'MParivahan RC format Coming Soon!', downloadType, requiredPrice: price });
+    }
     if (Number(fresh.wallet) < price) {
       return sendJson(res, 200, {
         success: false,
@@ -525,10 +673,137 @@ async function handleAdminSearch(req, res) {
   const admin = requireAdmin(req, res);
   if (!admin) return;
   const body = await readJson(req);
+  const query = String(body.query || body.mobile || body.email || '').trim();
+  if (!query) return sendError(res, 422, 'User mobile number ya email daalo.');
+  const resolved = resolveAdminUserQuery(query);
+  if (!resolved.user) return sendError(res, resolved.status, resolved.message);
+  const user = resolved.user;
+  return sendJson(res, 200, {
+    success: true,
+    user: publicUser(user),
+    adminUser: publicAdminUser(user),
+    defaultRcCardPrice: defaultRcCardPrice(),
+    transactions: userTransactions(user.mobile, 10)
+  });
+}
+
+async function handleAdminSetUserRate(req, res) {
+  const admin = requireAdmin(req, res);
+  if (!admin) return;
+  const body = await readJson(req);
+  const query = String(body.query || body.mobile || body.email || '').trim();
+  const clearCustom = body.clear === true || body.price === null || body.price === '';
+  if (!query) return sendError(res, 422, 'User mobile number ya email daalo.');
+
+  return withMutationLock(async () => {
+    const resolved = resolveAdminUserQuery(query);
+    if (!resolved.user) return sendError(res, resolved.status, resolved.message);
+    const user = resolved.user;
+    const result = applyUserRate(admin, user, { price: body.price, clear: clearCustom });
+    if (!result.ok) return sendError(res, result.status, result.message);
+
+    await persistDatabase();
+    return sendJson(res, 200, {
+      success: true,
+      message: result.to == null
+        ? `${user.name} ab default global RC rate ₹${defaultRcCardPrice()} use karega.`
+        : `${user.name} ka RC Card rate ₹${result.to} set ho gaya.`,
+      user: publicUser(user),
+      adminUser: publicAdminUser(user),
+      defaultRcCardPrice: defaultRcCardPrice()
+    });
+  });
+}
+
+// Admin panel ka "Users & rates" tab: naam/mobile/email search + rate summary + rate audit log.
+async function handleAdminListUsers(req, res, searchParams) {
+  const admin = requireAdmin(req, res);
+  if (!admin) return;
+  const query = String(searchParams.get('q') || '').trim();
+  const limitRaw = Number(searchParams.get('limit'));
+  const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 300) : 100;
+  const matches = sortAdminUsers(searchAdminUsers(query));
+  const users = matches.slice(0, limit).map(publicAdminUser);
+  const customRateCount = db.users.filter(hasCustomRcCardRate).length;
+  return sendJson(res, 200, {
+    success: true,
+    users,
+    query,
+    matched: matches.length,
+    shown: users.length,
+    total: db.users.length,
+    activeUsers: db.users.filter((user) => user.active !== false).length,
+    customRateCount,
+    defaultRcCardPrice: defaultRcCardPrice(),
+    rateLog: (Array.isArray(db.rateLog) ? db.rateLog : []).slice(-15).reverse()
+  });
+}
+
+// Bulk rate: "all" (har normal user) ya "selected" (diye gaye mobile numbers).
+async function handleAdminBulkSetRate(req, res) {
+  const admin = requireAdmin(req, res);
+  if (!admin) return;
+  const body = await readJson(req);
+  const clearCustom = body.clear === true || body.price === null || body.price === '';
+  const scope = body.scope === 'selected' ? 'selected' : 'all';
+  if (!clearCustom) {
+    const value = Number(body.price);
+    if (!Number.isFinite(value) || value < 1 || value > 1000) {
+      return sendError(res, 422, 'RC rate ₹1 se ₹1000 ke beech hona chahiye.');
+    }
+  }
+  if (scope === 'all' && body.confirm !== true) {
+    return sendError(res, 422, 'Sabhi users par rate lagane ke liye confirm zaroori hai.');
+  }
+
+  return withMutationLock(async () => {
+    let targets;
+    if (scope === 'selected') {
+      const mobiles = Array.isArray(body.mobiles) ? body.mobiles.map(normalizeMobile).filter(validMobile) : [];
+      if (!mobiles.length) return sendError(res, 422, 'Kam se kam ek user ka mobile number daalo.');
+      targets = db.users.filter((user) => mobiles.includes(user.mobile));
+    } else {
+      targets = db.users.filter((user) => user.role !== 'admin');
+    }
+    if (!targets.length) return sendError(res, 404, 'Koi matching user nahi mila.');
+
+    let updated = 0;
+    for (const user of targets) {
+      const result = applyUserRate(admin, user, { price: body.price, clear: clearCustom });
+      if (result.ok) updated += 1;
+    }
+    await persistDatabase();
+    return sendJson(res, 200, {
+      success: true,
+      updated,
+      message: clearCustom
+        ? `${updated} user(s) ka custom rate hata diya — ab default ₹${defaultRcCardPrice()} apply hoga.`
+        : `${updated} user(s) ka RC Card rate ₹${Math.round(Number(body.price))} set ho gaya.`
+    });
+  });
+}
+
+async function handleAdminSetUserStatus(req, res) {
+  const admin = requireAdmin(req, res);
+  if (!admin) return;
+  const body = await readJson(req);
   const mobile = normalizeMobile(body.mobile);
-  const user = findUser(mobile);
-  if (!user) return sendError(res, 404, 'Is mobile number ka account nahi mila.');
-  return sendJson(res, 200, { success: true, user: publicUser(user), transactions: userTransactions(mobile, 10) });
+  const active = body.active !== false;
+  if (!validMobile(mobile)) return sendError(res, 422, 'Valid user mobile number daalo.');
+
+  return withMutationLock(async () => {
+    const user = findUser(mobile);
+    if (!user) return sendError(res, 404, 'User account nahi mila.');
+    if (user.mobile === admin.mobile && !active) return sendError(res, 422, 'Apna admin account block nahi kar sakte.');
+    user.active = active;
+    await persistDatabase();
+    queueSheetSync('user', sheetUserPayload(user));
+    return sendJson(res, 200, {
+      success: true,
+      user: publicAdminUser(user),
+      message: active ? `${user.name} ka account unblock ho gaya.` : `${user.name} ka account block kar diya.`
+    });
+  });
 }
 
 async function handleAdminRecharge(req, res) {
@@ -579,15 +854,167 @@ async function handleGetAds(req, res) {
   return sendJson(res, 200, { success: true, ads });
 }
 
+const DEFAULT_SETTINGS = { usersBaseline: 200000, downloadsBaseline: 171000, rating: '4.9', rcCardPrice: 15 };
+
+function settingsNumber(key) {
+  const raw = db.settings ? db.settings[key] : undefined;
+  if (raw === undefined || raw === null || raw === '') return DEFAULT_SETTINGS[key] || 0;
+  const value = Number(raw);
+  return Number.isFinite(value) && value >= 0 ? value : (DEFAULT_SETTINGS[key] || 0);
+}
+
 async function handlePublicStats(req, res) {
   const activeUsers = db.users.filter((user) => user.active !== false && user.role !== 'admin').length;
   const completedDownloads = db.transactions.filter((tx) => tx.type === 'RC_PURCHASE' && tx.status === 'SUCCESS').length;
-  const rating = String(process.env.PUBLIC_RATING || '').trim();
+  const configuredRating = String((db.settings && db.settings.rating) || '').trim();
+  const rating = configuredRating || String(process.env.PUBLIC_RATING || '').trim() || DEFAULT_SETTINGS.rating;
   return sendJson(res, 200, {
     success: true,
-    users: activeUsers,
-    downloads: completedDownloads,
-    rating: /^\d(?:\.\d)?$/.test(rating) ? rating : ''
+    users: activeUsers + settingsNumber('usersBaseline'),
+    downloads: completedDownloads + settingsNumber('downloadsBaseline'),
+    rating: /^\d(?:\.\d)?$/.test(rating) ? rating : '',
+    rcCardPrice: settingsNumber('rcCardPrice')
+  });
+}
+
+function dayKey(iso) {
+  return String(iso || '').slice(0, 10);
+}
+
+function monthKey(iso) {
+  return String(iso || '').slice(0, 7);
+}
+
+function sumAmount(list) {
+  return list.reduce((total, tx) => total + Number(tx.amount || 0), 0);
+}
+
+function computeAdminStats(fromDay, toDay) {
+  const now = new Date();
+  const todayKey = now.toISOString().slice(0, 10);
+  const monthNowKey = now.toISOString().slice(0, 7);
+  const lastMonthDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
+  const lastMonthKey = lastMonthDate.toISOString().slice(0, 7);
+
+  const totalUsers = db.users.filter((user) => user.role !== 'admin').length;
+  const activeUsers = db.users.filter((user) => user.role !== 'admin' && user.active !== false).length;
+
+  // "Topup" = wallet credits the admin has given users (manual admin recharge).
+  const topups = db.transactions.filter((tx) => tx.type === 'RECHARGE');
+  const rcDownloads = db.transactions.filter((tx) => tx.type === 'RC_PURCHASE' && tx.status === 'SUCCESS');
+
+  const todayTopup = sumAmount(topups.filter((tx) => dayKey(tx.time) === todayKey));
+  const monthTopup = sumAmount(topups.filter((tx) => monthKey(tx.time) === monthNowKey));
+  const lastMonthTopup = sumAmount(topups.filter((tx) => monthKey(tx.time) === lastMonthKey));
+
+  const todayRcDownloads = rcDownloads.filter((tx) => dayKey(tx.time) === todayKey).length;
+  const monthRcDownloads = rcDownloads.filter((tx) => monthKey(tx.time) === monthNowKey).length;
+  const lastMonthRcDownloads = rcDownloads.filter((tx) => monthKey(tx.time) === lastMonthKey).length;
+
+  let range = null;
+  if (fromDay && toDay) {
+    const inRange = (tx) => {
+      const key = dayKey(tx.time);
+      return key >= fromDay && key <= toDay;
+    };
+    range = {
+      from: fromDay,
+      to: toDay,
+      topup: sumAmount(topups.filter(inRange)),
+      rcDownloads: rcDownloads.filter(inRange).length,
+      newUsers: db.users.filter((user) => {
+        if (user.role === 'admin') return false;
+        const key = dayKey(user.createdAt);
+        return key >= fromDay && key <= toDay;
+      }).length
+    };
+  }
+
+  return {
+    totalUsers,
+    activeUsers,
+    todayTopup,
+    monthTopup,
+    lastMonthTopup,
+    todayRcDownloads,
+    monthRcDownloads,
+    lastMonthRcDownloads,
+    range
+  };
+}
+
+async function handleAdminStats(req, res, searchParams) {
+  const admin = requireAdmin(req, res);
+  if (!admin) return;
+  const fromRaw = String(searchParams.get('from') || '');
+  const toRaw = String(searchParams.get('to') || '');
+  const validDay = /^\d{4}-\d{2}-\d{2}$/;
+  const from = validDay.test(fromRaw) ? fromRaw : '';
+  const to = validDay.test(toRaw) ? toRaw : '';
+  const stats = computeAdminStats(from, to);
+  return sendJson(res, 200, {
+    success: true,
+    stats,
+    settings: {
+      rating: String((db.settings && db.settings.rating) || DEFAULT_SETTINGS.rating),
+      usersBaseline: settingsNumber('usersBaseline'),
+      downloadsBaseline: settingsNumber('downloadsBaseline'),
+      rcCardPrice: settingsNumber('rcCardPrice')
+    }
+  });
+}
+
+async function handleAdminUpdateRating(req, res) {
+  const admin = requireAdmin(req, res);
+  if (!admin) return;
+  const body = await readJson(req);
+  const rating = String(body.rating ?? '').trim();
+  if (rating && !/^[0-5](?:\.\d)?$/.test(rating)) {
+    return sendError(res, 422, 'Rating 0 se 5 ke beech ek decimal ke saath daalo, jaise 4.8.');
+  }
+  db.settings = db.settings || {};
+  db.settings.rating = rating;
+  await persistDatabase();
+  queueSheetSync('settings', { rating });
+  return sendJson(res, 200, { success: true, rating });
+}
+
+async function handleAdminUpdateBaseline(req, res) {
+  const admin = requireAdmin(req, res);
+  if (!admin) return;
+  const body = await readJson(req);
+  const usersBaseline = Number(body.usersBaseline);
+  const downloadsBaseline = Number(body.downloadsBaseline);
+  if (!Number.isFinite(usersBaseline) || usersBaseline < 0 || usersBaseline > 100_000_000) {
+    return sendError(res, 422, 'Users baseline 0 se 10 crore ke beech ek valid number hona chahiye.');
+  }
+  if (!Number.isFinite(downloadsBaseline) || downloadsBaseline < 0 || downloadsBaseline > 100_000_000) {
+    return sendError(res, 422, 'RC downloads baseline 0 se 10 crore ke beech ek valid number hona chahiye.');
+  }
+  db.settings = db.settings || {};
+  db.settings.usersBaseline = usersBaseline;
+  db.settings.downloadsBaseline = downloadsBaseline;
+  await persistDatabase();
+  queueSheetSync('settings', { usersBaseline, downloadsBaseline });
+  return sendJson(res, 200, { success: true, usersBaseline, downloadsBaseline });
+}
+
+async function handleAdminUpdateRcPrice(req, res) {
+  const admin = requireAdmin(req, res);
+  if (!admin) return;
+  const body = await readJson(req);
+  const price = Number(body.price);
+  if (!Number.isFinite(price) || price < 1 || price > 1000) {
+    return sendError(res, 422, 'RC Card rate ₹1 se ₹1000 ke beech hona chahiye.');
+  }
+  db.settings = db.settings || {};
+  db.settings.rcCardPrice = Math.round(price);
+  await persistDatabase();
+  queueSheetSync('settings', { rcCardPrice: db.settings.rcCardPrice });
+  return sendJson(res, 200, {
+    success: true,
+    rcCardPrice: db.settings.rcCardPrice,
+    message: 'Default RC Card rate update ho gaya. Jis user ka custom rate set nahi hai, woh ab ye rate use karega.'
   });
 }
 
@@ -683,12 +1110,20 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'POST' && pathname === '/api/rc/purchase') return await handlePurchase(req, res);
     if (req.method === 'POST' && pathname === '/api/admin/users/search') return await handleAdminSearch(req, res);
+    if (req.method === 'GET' && pathname === '/api/admin/users') return await handleAdminListUsers(req, res, url.searchParams);
+    if (req.method === 'POST' && pathname === '/api/admin/users/set-rate') return await handleAdminSetUserRate(req, res);
+    if (req.method === 'POST' && pathname === '/api/admin/users/bulk-rate') return await handleAdminBulkSetRate(req, res);
+    if (req.method === 'POST' && pathname === '/api/admin/users/status') return await handleAdminSetUserStatus(req, res);
     if (req.method === 'POST' && pathname === '/api/admin/recharge') return await handleAdminRecharge(req, res);
     if (req.method === 'GET' && pathname === '/api/admin/ads') return await handleAdminGetAds(req, res);
     if (req.method === 'POST' && pathname === '/api/admin/ads') return await handleAdminAddAd(req, res);
     const adRoute = pathname.match(/^\/api\/admin\/ads\/([^/]+)$/);
     if (adRoute && req.method === 'DELETE') return await handleAdminDeleteAd(req, res, decodeURIComponent(adRoute[1]));
     if (adRoute && req.method === 'POST') return await handleAdminToggleAd(req, res, decodeURIComponent(adRoute[1]));
+    if (req.method === 'GET' && pathname === '/api/admin/stats') return await handleAdminStats(req, res, url.searchParams);
+    if (req.method === 'POST' && pathname === '/api/admin/settings/rating') return await handleAdminUpdateRating(req, res);
+    if (req.method === 'POST' && pathname === '/api/admin/settings/baseline') return await handleAdminUpdateBaseline(req, res);
+    if (req.method === 'POST' && pathname === '/api/admin/settings/rc-price') return await handleAdminUpdateRcPrice(req, res);
     if (req.method === 'GET' && pathname === '/api/admin/transactions') {
       const admin = requireAdmin(req, res);
       if (!admin) return;

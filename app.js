@@ -1,5 +1,5 @@
 
-    var state = { token: '', user: null, selectedAdminMobile: '', pendingVrn: '', busy: false };
+    var state = { token: '', user: null, selectedAdminMobile: '', selectedAdminQuery: '', defaultRcCardPrice: 15, pendingVrn: '', busy: false, adminUsersQuery: '', bulkConfirm: false };
     var DOWNLOAD_PRICES = { mparivahan: 10, 'rc-card': 15 };
     var $ = function (selector) { return document.querySelector(selector); };
     var $$ = function (selector) { return Array.prototype.slice.call(document.querySelectorAll(selector)); };
@@ -63,9 +63,22 @@
       else if (name === 'getMyTransactions') { url = '/api/account/transactions'; }
       else if (name === 'getAds') { url = '/api/ads'; }
       else if (name === 'getStats') { url = '/api/public/stats'; }
-      else if (name === 'adminFindUser') { url = '/api/admin/users/search'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ mobile: args[0] }); }
+      else if (name === 'adminFindUser') { url = '/api/admin/users/search'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ query: args[0] }); }
+      else if (name === 'adminSetUserRate') { url = '/api/admin/users/set-rate'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ query: args[0], price: args[1], clear: args[2] === true }); }
+      else if (name === 'adminListUsers') { url = '/api/admin/users' + (args[0] ? '?q=' + encodeURIComponent(args[0]) : ''); }
+      else if (name === 'adminBulkRate') { url = '/api/admin/users/bulk-rate'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ price: args[0], clear: args[1] === true, scope: args[2] || 'all', mobiles: args[3] || [], confirm: args[4] === true }); }
+      else if (name === 'adminSetUserStatus') { url = '/api/admin/users/status'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ mobile: args[0], active: args[1] !== false }); }
       else if (name === 'adminRecharge') { url = '/api/admin/recharge'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ mobile: args[0], amount: args[1], note: args[2] }); }
       else if (name === 'adminGetTransactions') { url = '/api/admin/transactions'; }
+      else if (name === 'adminGetStats') {
+        var qs = new URLSearchParams();
+        if (args[0] && args[0].from) qs.set('from', args[0].from);
+        if (args[0] && args[0].to) qs.set('to', args[0].to);
+        url = '/api/admin/stats' + (qs.toString() ? '?' + qs.toString() : '');
+      }
+      else if (name === 'adminSetRating') { url = '/api/admin/settings/rating'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ rating: args[0] }); }
+      else if (name === 'adminSetBaseline') { url = '/api/admin/settings/baseline'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ usersBaseline: args[0], downloadsBaseline: args[1] }); }
+      else if (name === 'adminSetRcPrice') { url = '/api/admin/settings/rc-price'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ price: args[0] }); }
       else if (name === 'adminGetAds') { url = '/api/admin/ads'; }
       else if (name === 'adminAddAd') { url = '/api/admin/ads'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ title: args[0], imageData: args[1] }); }
       else if (name === 'adminDeleteAd') { url = '/api/admin/ads/' + encodeURIComponent(args[0]); options.method = 'DELETE'; }
@@ -117,7 +130,7 @@
     }
 
     function showWalletAlert(text) {
-      $('#wallet-alert-text').textContent = text || 'RC Card download ke liye ₹15 wallet balance chahiye. Admin se recharge karwao.';
+      $('#wallet-alert-text').textContent = text || 'RC Card download ke liye ' + formatMoney(priceForDownload('rc-card')) + ' wallet balance chahiye. Admin se recharge karwao.';
       $('#wallet-alert').hidden = false;
     }
 
@@ -167,6 +180,50 @@
       button.innerHTML = loading ? '<span class="loader"></span> Please wait…' : label;
     }
 
+    function applyRcPrice(price) {
+      var amount = formatMoney(price);
+      // Logged-in users always see their personal rate. Public/auth marketing
+      // numbers stay on the default global rate so other users aren't confused.
+      var personalSelectors = ['#price-note-amount', '#format-option-price'];
+      var publicSelectors = ['#form-footnote-price', '#auth-benefit-price', '#auth-float-price'];
+      personalSelectors.forEach(function (selector) {
+        var el = $(selector);
+        if (el) el.textContent = amount;
+      });
+      if (!state.user) {
+        publicSelectors.forEach(function (selector) {
+          var el = $(selector);
+          if (el) el.textContent = amount;
+        });
+      }
+      if ($('#account-rc-price')) $('#account-rc-price').textContent = 'RC Card ' + amount;
+      if ($('#account-rc-note')) {
+        var hasCustomRate = Boolean(state.user && state.user.customRcCardPrice != null);
+        $('#account-rc-note').textContent = hasCustomRate
+          ? 'Aapka special RC Card rate • MParivahan Coming Soon'
+          : 'MParivahan format Coming Soon';
+      }
+    }
+
+    function applyPublicDefaultPrice(price) {
+      var amount = formatMoney(price);
+      ['#form-footnote-price', '#auth-benefit-price', '#auth-float-price'].forEach(function (selector) {
+        var el = $(selector);
+        if (el) el.textContent = amount;
+      });
+      if (!state.user) applyRcPrice(price);
+    }
+
+    async function loadPublicPricing() {
+      try {
+        var result = await callServer('getStats', []);
+        if (result.success && result.rcCardPrice) {
+          state.defaultRcCardPrice = Number(result.rcCardPrice);
+          applyPublicDefaultPrice(result.rcCardPrice);
+        }
+      } catch (error) { /* pre-login pricing text is non-critical */ }
+    }
+
     function showApp(user) {
       state.user = user;
       $('#session-loading').hidden = true;
@@ -176,12 +233,16 @@
       var initials = String(user.name || 'U').trim().charAt(0).toUpperCase();
       $('#avatar').textContent = initials;
       $('#user-name').textContent = user.name;
+
       $('#welcome-title').textContent = 'Hello, ' + user.name.split(' ')[0] + '.';
       $('#account-name').textContent = user.name;
       $('#account-mobile').textContent = '+91 ' + user.mobile;
       if ($('#account-email')) $('#account-email').textContent = user.email || 'Email not set';
       $('#admin-nav').hidden = user.role !== 'admin';
+      if ($('#admin-rates-nav')) $('#admin-rates-nav').hidden = user.role !== 'admin';
       $('#admin-card').hidden = user.role !== 'admin';
+      $('#admin-kpi-section').hidden = user.role !== 'admin';
+      applyRcPrice(priceForDownload('rc-card'));
       updateWallet(user.wallet);
       loadAds();
       loadPublicStats();
@@ -189,6 +250,8 @@
       if (user.role === 'admin') {
         loadAdminTransactions();
         loadAdminAds();
+        loadAdminStats();
+        loadAdminUsers('', { silent: true });
       }
     }
 
@@ -196,6 +259,7 @@
       var value = Number(amount || 0);
       $('#wallet-amount').textContent = formatMoney(value);
       $('#balance-large').textContent = formatMoney(value);
+
       if (state.user) state.user.wallet = value;
     }
 
@@ -209,6 +273,7 @@
       $('#topbar').hidden = true;
       $('#dashboard').hidden = true;
       $('#admin-card').hidden = true;
+      $('#admin-kpi-section').hidden = true;
       setAuthMode('login');
     }
 
@@ -264,12 +329,25 @@
       } catch (error) { /* advertisements are non-critical */ }
     }
 
+    function trimDecimals(value) {
+      var rounded = Math.round(value * 100) / 100;
+      return String(rounded).replace(/\.00$/, '').replace(/(\.\d)0$/, '$1');
+    }
+
+    function formatBigCount(value) {
+      var n = Number(value || 0);
+      if (n <= 0) return '';
+      if (n >= 10000000) return trimDecimals(n / 10000000) + ' Cr+';
+      if (n >= 100000) return trimDecimals(n / 100000) + ' Lakh+';
+      return n.toLocaleString('en-IN') + '+';
+    }
+
     async function loadPublicStats() {
       try {
         var result = await callServer('getStats', []);
         if (!result.success) return;
-        $('#stat-users').textContent = result.users > 0 ? Number(result.users).toLocaleString('en-IN') + '+' : 'Growing';
-        $('#stat-downloads').textContent = result.downloads > 0 ? Number(result.downloads).toLocaleString('en-IN') + '+' : 'Ready';
+        $('#stat-users').textContent = formatBigCount(result.users) || 'Growing';
+        $('#stat-downloads').textContent = formatBigCount(result.downloads) || 'Ready';
         $('#stat-rating').textContent = result.rating ? result.rating + '/5' : '—';
       } catch (error) { /* public stats are non-critical */ }
     }
@@ -380,7 +458,9 @@
     function setAdminSection(section) {
       $$('[data-admin-section]').forEach(function (button) { button.classList.toggle('active', button.dataset.adminSection === section); });
       $('#admin-wallet-section').hidden = section !== 'wallet';
+      if ($('#admin-users-section')) $('#admin-users-section').hidden = section !== 'users';
       $('#admin-ads-section').hidden = section !== 'ads';
+      if (section === 'users') loadAdminUsers(state.adminUsersQuery || '', { silent: true });
     }
 
     function safeImage(value) {
@@ -532,7 +612,7 @@
         closeDownloadOptions();
         showWalletAlert('Wallet balance ' + formatMoney(state.user.wallet || 0) + ' hai. Is format ke liye ' + formatMoney(price) + ' chahiye.');
         setDownloadStatus('Recharge your wallet', 'Is format ke liye minimum ' + formatMoney(price) + ' wallet balance chahiye.', 'error');
-        toast('Recharge your wallet', 'RC Card download ke liye ₹15 chahiye.', 'error');
+        toast('Recharge your wallet', 'RC Card download ke liye ' + formatMoney(price) + ' chahiye.', 'error');
         return;
       }
 
@@ -553,7 +633,7 @@
             var requiredPrice = Number(response.requiredPrice || price);
             showWalletAlert('Wallet balance ' + formatMoney(response.wallet || 0) + ' hai. Is format ke liye ' + formatMoney(requiredPrice) + ' chahiye.');
             setDownloadStatus('Recharge your wallet', 'Is format ke liye minimum ' + formatMoney(requiredPrice) + ' wallet balance chahiye.', 'error');
-            toast('Recharge your wallet', 'RC Card download ke liye ₹15 chahiye.', 'error');
+            toast('Recharge your wallet', 'RC Card download ke liye ' + formatMoney(requiredPrice) + ' chahiye.', 'error');
           } else {
             setDownloadStatus('RC download failed', response.message, 'error');
             toast('RC fetch failed', response.message, 'error');
@@ -582,24 +662,290 @@
       }
     }
 
+    function fillAdminUserResult(user, defaultPrice) {
+      state.selectedAdminMobile = user.mobile;
+      state.selectedAdminQuery = user.mobile;
+      state.defaultRcCardPrice = Number(defaultPrice || state.defaultRcCardPrice || 15);
+      var personalRate = user.prices && user.prices.rcCard != null ? Number(user.prices.rcCard) : state.defaultRcCardPrice;
+      var isCustom = user.customRcCardPrice != null;
+      $('#admin-user-result').hidden = false;
+      $('#admin-user-name').textContent = user.name;
+      $('#admin-user-mobile').textContent = '+91 ' + user.mobile;
+      if ($('#admin-user-email')) $('#admin-user-email').textContent = user.email || 'Email not set';
+      if ($('#admin-user-rate-label')) {
+        $('#admin-user-rate-label').textContent = isCustom
+          ? ('Custom RC rate ' + formatMoney(personalRate))
+          : ('Default RC rate ' + formatMoney(personalRate));
+      }
+      $('#admin-user-balance').innerHTML = formatMoney(user.wallet) + '<small>current wallet</small>';
+      $('#admin-recharge-button').disabled = false;
+      if ($('#admin-user-rate-tools')) {
+        $('#admin-user-rate-tools').hidden = false;
+        $('#admin-user-rate-input').value = personalRate;
+        if ($('#admin-user-rate-help')) {
+          $('#admin-user-rate-help').textContent = isCustom
+            ? ('Is user ka custom rate ' + formatMoney(personalRate) + ' hai. Default global rate ' + formatMoney(state.defaultRcCardPrice) + ' hai.')
+            : ('Abhi default global rate ' + formatMoney(state.defaultRcCardPrice) + ' apply ho raha hai. Alag rate type karke set kar sakte ho.');
+        }
+      }
+    }
+
     async function findAdminUser() {
-      var mobile = normalizeMobile($('#admin-search-mobile').value);
-      $('#admin-search-mobile').value = mobile;
-      if (!validMobile(mobile)) { toast('Mobile check karo', 'Valid 10-digit user mobile number daalo.', 'error'); return; }
+      var query = String($('#admin-search-mobile').value || '').trim();
+      if (!query) { toast('Search check karo', 'User ka mobile number ya email daalo.', 'error'); return; }
+      var mobile = normalizeMobile(query);
+      if (validMobile(mobile)) {
+        query = mobile;
+        $('#admin-search-mobile').value = mobile;
+      } else if (query.includes('@')) {
+        query = query.toLowerCase();
+        $('#admin-search-mobile').value = query;
+        if (!validEmail(query)) { toast('Email check karo', 'Valid email address daalo.', 'error'); return; }
+      } else if (/^[A-Za-z][A-Za-z .'-]{2,}$/.test(query)) {
+        // Naam se search: server sirf tab user deta hai jab naam ek hi user se match kare.
+        query = query.replace(/\s+/g, ' ').trim();
+        $('#admin-search-mobile').value = query;
+      } else {
+        toast('Search check karo', 'Valid 10-digit mobile, email ya user ka naam daalo.', 'error');
+        return;
+      }
       var button = $('#admin-search-button');
       setButtonLoading(button, true, 'Find user');
       try {
-        var response = await callServer('adminFindUser', [mobile]);
-        if (!response.success) { $('#admin-user-result').hidden = true; toast('User nahi mila', response.message, 'error'); return; }
-        state.selectedAdminMobile = response.user.mobile;
-        $('#admin-user-result').hidden = false;
-        $('#admin-user-name').textContent = response.user.name;
-        $('#admin-user-mobile').textContent = '+91 ' + response.user.mobile;
-        $('#admin-user-balance').innerHTML = formatMoney(response.user.wallet) + '<small>current wallet</small>';
-        $('#admin-recharge-button').disabled = false;
-        toast('User found', response.user.name + ' ka wallet ready hai.', 'success');
+        var response = await callServer('adminFindUser', [query]);
+        if (!response.success) {
+          $('#admin-user-result').hidden = true;
+          if ($('#admin-user-rate-tools')) $('#admin-user-rate-tools').hidden = true;
+          state.selectedAdminMobile = '';
+          state.selectedAdminQuery = '';
+          toast('User nahi mila', response.message, 'error');
+          return;
+        }
+        fillAdminUserResult(response.user, response.defaultRcCardPrice);
+        toast('User found', response.user.name + ' ka account ready hai.', 'success');
       } catch (error) { toast('Admin error', error.message, 'error'); }
       finally { setButtonLoading(button, false, 'Find user'); }
+    }
+
+    async function saveAdminUserRate(clear) {
+      if (!state.selectedAdminMobile && !state.selectedAdminQuery) {
+        toast('Pehle user search karo', 'Mobile ya email se user find karo.', 'error');
+        return;
+      }
+      var button = clear ? $('#admin-user-rate-clear') : $('#admin-user-rate-save');
+      var price = clear ? null : Number($('#admin-user-rate-input').value);
+      if (!clear && (!Number.isFinite(price) || price < 1 || price > 1000)) {
+        toast('Rate error', 'User RC rate ₹1 se ₹1000 ke beech ek valid number daalo.', 'error');
+        return;
+      }
+      setButtonLoading(button, true, clear ? 'Use default' : 'Set user rate');
+      try {
+        var response = await callServer('adminSetUserRate', [state.selectedAdminQuery || state.selectedAdminMobile, price, clear === true]);
+        if (!response.success) { toast('Rate save failed', response.message, 'error'); return; }
+        fillAdminUserResult(response.user, response.defaultRcCardPrice);
+        toast(clear ? 'Default rate apply' : 'User rate set', response.message, 'success');
+        loadAdminUsers(state.adminUsersQuery, { silent: true });
+      } catch (error) { toast('Rate error', error.message, 'error'); }
+      finally { setButtonLoading(button, false, clear ? 'Use default' : 'Set user rate'); }
+    }
+
+    // ---------- Admin: Users & rates tab ----------
+    var adminUsersCache = [];
+
+    function rowForMobile(mobile) {
+      var rows = $$('#admin-users-body tr');
+      for (var i = 0; i < rows.length; i += 1) {
+        if (rows[i].dataset.mobile === mobile) return rows[i];
+      }
+      return null;
+    }
+
+    function renderAdminUsersTable() {
+      var body = $('#admin-users-body');
+      if (!body) return;
+      if (!adminUsersCache.length) {
+        body.innerHTML = '<tr><td colspan="6">Koi user nahi mila. Search clear karke "Show all" try karo.</td></tr>';
+        return;
+      }
+      body.innerHTML = adminUsersCache.map(function (user) {
+        var isCustom = user.customRcCardPrice != null;
+        var mobile = escapeHtml(user.mobile);
+        return '<tr data-mobile="' + mobile + '">' +
+          '<td><b class="admin-user-cell">' + escapeHtml(user.name || 'User') + (user.role === 'admin' ? ' (admin)' : '') + '</b><small class="admin-user-sub">' + escapeHtml(user.email || 'Email not set') + '</small></td>' +
+          '<td>+91 ' + mobile + '</td>' +
+          '<td>' + escapeHtml(formatMoney(user.wallet)) + '</td>' +
+          '<td><span class="admin-rate-cell"><input class="admin-row-rate" type="number" min="1" max="1000" step="1" value="' + escapeHtml(String(user.prices && user.prices.rcCard != null ? user.prices.rcCard : user.rate)) + '" data-mobile="' + mobile + '" aria-label="RC rate" /><span class="rate-state ' + (isCustom ? 'custom' : 'default') + '">' + (isCustom ? 'CUSTOM' : 'DEFAULT') + '</span></span></td>' +
+          '<td><span class="admin-rate-actions"><button class="blue-button small-blue" type="button" data-rate-save="' + mobile + '">Set rate</button>' +
+          (isCustom ? '<button class="ghost-button small-blue" type="button" data-rate-reset="' + mobile + '">Default</button>' : '') +
+          '</span></td>' +
+          '<td>' + (user.active === false
+            ? '<button class="ghost-button small-blue" type="button" data-user-toggle="' + mobile + '" data-active="1">Unblock</button> <span class="rate-state blocked">BLOCKED</span>'
+            : '<button class="ghost-button small-blue" type="button" data-user-toggle="' + mobile + '" data-active="0">Block</button>') + '</td>' +
+          '</tr>';
+      }).join('');
+    }
+
+    function renderAdminRateLog(log) {
+      var body = $('#admin-rate-log-body');
+      if (!body) return;
+      if (!log || !log.length) { body.innerHTML = '<tr><td colspan="4">Abhi koi rate change nahi hua.</td></tr>'; return; }
+      body.innerHTML = log.map(function (entry) {
+        return '<tr><td>' + escapeHtml(formatDate(entry.time)) + '</td><td>' + escapeHtml((entry.name || 'User') + ' • +91 ' + entry.mobile) + '</td><td>' + escapeHtml(entry.from == null ? 'Default' : formatMoney(entry.from)) + '</td><td>' + escapeHtml(entry.to == null ? 'Default' : formatMoney(entry.to)) + '</td></tr>';
+      }).join('');
+    }
+
+    function renderAdminUsers(response) {
+      adminUsersCache = Array.isArray(response.users) ? response.users : [];
+      state.adminUsersQuery = response.query || '';
+      state.defaultRcCardPrice = Number(response.defaultRcCardPrice || state.defaultRcCardPrice || 15);
+      if ($('#admin-rate-default')) $('#admin-rate-default').textContent = formatMoney(state.defaultRcCardPrice);
+      if ($('#admin-rate-total-users')) $('#admin-rate-total-users').textContent = Number(response.total || 0).toLocaleString('en-IN');
+      if ($('#admin-rate-custom-users')) $('#admin-rate-custom-users').textContent = Number(response.customRateCount || 0).toLocaleString('en-IN');
+      if ($('#admin-rate-match-chip')) {
+        var matched = Number(response.matched || 0);
+        var shown = Number(response.shown || 0);
+        var hasQuery = Boolean(String(response.query || '').trim());
+        var truncated = matched > shown;
+        $('#admin-rate-match-chip').hidden = !hasQuery && !truncated;
+        if (hasQuery || truncated) {
+          $('#admin-rate-match-count').textContent = shown.toLocaleString('en-IN') + ' / ' + matched.toLocaleString('en-IN') + ' shown' + (truncated ? ' — search se chhota karo' : '');
+        }
+      }
+      renderAdminUsersTable();
+      renderAdminRateLog(response.rateLog);
+    }
+
+    async function loadAdminUsers(query, options) {
+      if (!state.user || state.user.role !== 'admin') return;
+      var settings = options || {};
+      var button = settings.silent ? null : (query ? $('#admin-users-search-button') : $('#admin-users-all-button'));
+      if (button) setButtonLoading(button, true, query ? 'Search users' : 'Show all');
+      var response = null;
+      try {
+        response = await callServer('adminListUsers', [query == null ? '' : query]);
+        if (!response.success) { toast('Users load failed', response.message || 'List load nahi ho paayi.', 'error'); return; }
+        renderAdminUsers(response);
+      } catch (error) {
+        toast('Users load failed', error.message, 'error');
+      } finally {
+        if (button) setButtonLoading(button, false, query ? 'Search users' : 'Show all');
+      }
+    }
+
+    async function searchAdminUsersList() {
+      var query = String($('#admin-users-search').value || '').trim();
+      await loadAdminUsers(query);
+    }
+
+    async function showAllAdminUsers() {
+      $('#admin-users-search').value = '';
+      await loadAdminUsers('');
+    }
+
+    async function saveAdminRowRate(mobile, clear, button) {
+      var row = rowForMobile(mobile);
+      var input = row ? row.querySelector('.admin-row-rate') : null;
+      var price = clear ? null : Number(input ? input.value : NaN);
+      if (!clear && (!Number.isFinite(price) || price < 1 || price > 1000)) {
+        toast('Rate error', 'RC rate ₹1 se ₹1000 ke beech ek valid number daalo.', 'error');
+        return;
+      }
+      if (button) setButtonLoading(button, true, clear ? 'Default' : 'Set rate');
+      try {
+        var response = await callServer('adminSetUserRate', [mobile, price, clear === true]);
+        if (!response.success) { toast('Rate save failed', response.message, 'error'); return; }
+        toast(clear ? 'Default rate apply' : 'User rate set', response.message, 'success');
+        if (state.selectedAdminMobile === mobile && response.user) fillAdminUserResult(response.user, response.defaultRcCardPrice);
+        await loadAdminUsers(state.adminUsersQuery, { silent: true });
+      } catch (error) {
+        toast('Rate error', error.message, 'error');
+      } finally {
+        if (button) setButtonLoading(button, false, clear ? 'Default' : 'Set rate');
+      }
+    }
+
+    async function bulkAdminRate(clear, button) {
+      var price = clear ? null : Number($('#admin-bulk-rate-input').value);
+      if (!clear && (!Number.isFinite(price) || price < 1 || price > 1000)) {
+        toast('Rate error', 'Bulk rate ₹1 se ₹1000 ke beech ek valid number daalo.', 'error');
+        return;
+      }
+      var label = clear ? 'Sabhi custom rate hatao' : 'Sabhi users par apply karo';
+      if (!state.bulkConfirm) {
+        state.bulkConfirm = true;
+        setButtonLoading(button, false, 'Confirm? Dobara click karo');
+        setTimeout(function () {
+          if (state.bulkConfirm) { state.bulkConfirm = false; setButtonLoading(button, false, label); }
+        }, 7000);
+        return;
+      }
+      state.bulkConfirm = false;
+      setButtonLoading(button, true, label);
+      try {
+        var response = await callServer('adminBulkRate', [price, clear === true, 'all', [], true]);
+        if (!response.success) { toast('Bulk rate failed', response.message, 'error'); return; }
+        toast(clear ? 'Custom rates cleared' : 'Bulk rate applied', response.message, 'success');
+        await loadAdminUsers(state.adminUsersQuery, { silent: true });
+      } catch (error) {
+        toast('Bulk rate error', error.message, 'error');
+      } finally {
+        setButtonLoading(button, false, label);
+      }
+    }
+
+    async function toggleAdminUserStatus(mobile, nextActive, button) {
+      var label = nextActive ? 'Unblock' : 'Block';
+      if (!nextActive && !state.bulkConfirm) {
+        state.bulkConfirm = true;
+        setButtonLoading(button, false, 'Confirm? Dobara click karo');
+        setTimeout(function () {
+          if (state.bulkConfirm) { state.bulkConfirm = false; setButtonLoading(button, false, label); }
+        }, 7000);
+        return;
+      }
+      state.bulkConfirm = false;
+      setButtonLoading(button, true, label);
+      try {
+        var response = await callServer('adminSetUserStatus', [mobile, nextActive]);
+        if (!response.success) { toast('Status update failed', response.message, 'error'); return; }
+        toast(nextActive ? 'User unblocked' : 'User blocked', response.message, 'success');
+        await loadAdminUsers(state.adminUsersQuery, { silent: true });
+      } catch (error) {
+        toast('Status error', error.message, 'error');
+      } finally {
+        setButtonLoading(button, false, label);
+      }
+    }
+
+    function exportAdminUsersCsv() {
+      if (!state.user || state.user.role !== 'admin') return;
+      if (!adminUsersCache.length) { toast('CSV export', 'Pehle user list load karo.', 'error'); return; }
+      var rows = [['Name', 'Email', 'Mobile', 'Wallet', 'RC Card Rate', 'Rate Type', 'Status', 'Created']];
+      adminUsersCache.forEach(function (user) {
+        rows.push([
+          user.name || '',
+          user.email || '',
+          '+91 ' + user.mobile,
+          Number(user.wallet || 0),
+          Number(user.prices && user.prices.rcCard != null ? user.prices.rcCard : user.rate),
+          user.customRcCardPrice != null ? 'Custom' : 'Default',
+          user.active === false ? 'Blocked' : 'Active',
+          user.createdAt || ''
+        ]);
+      });
+      var csv = rows.map(function (row) {
+        return row.map(function (cell) { return '"' + String(cell == null ? '' : cell).replace(/"/g, '""') + '"'; }).join(',');
+      }).join('\r\n');
+      var blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      var url = URL.createObjectURL(blob);
+      var link = document.createElement('a');
+      link.href = url;
+      link.download = 'instant-rccard-users-' + new Date().toISOString().slice(0, 10) + '.csv';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+      toast('CSV ready', adminUsersCache.length + ' user(s) ka CSV download ho raha hai.', 'success');
     }
 
     async function rechargeAdminUser() {
@@ -614,6 +960,7 @@
         $('#admin-user-balance').innerHTML = formatMoney(response.user.wallet) + '<small>current wallet</small>';
         $('#admin-amount').value = '';
         await loadAdminTransactions();
+        loadAdminStats();
         toast('Recharge successful', response.user.name + ' ke wallet me ' + formatMoney(amount) + ' add ho gaye.', 'success');
       } catch (error) { toast('Recharge error', error.message, 'error'); }
       finally { setButtonLoading(button, false, 'Recharge'); }
@@ -631,6 +978,126 @@
           return '<tr><td>' + escapeHtml(formatDate(tx.time)) + '</td><td>' + escapeHtml(tx.mobile) + '</td><td>' + escapeHtml(tx.type) + '</td><td class="' + (credit ? 'credit' : 'debit') + '">' + (credit ? '+' : '') + escapeHtml(formatMoney(tx.amount)) + '</td><td>' + escapeHtml(tx.vrn || '—') + '</td></tr>';
         }).join('');
       } catch (error) { /* admin table is non-critical */ }
+    }
+
+    function renderAdminStats(stats) {
+      if (!stats) return;
+      $('#kpi-total-users').textContent = Number(stats.totalUsers || 0).toLocaleString('en-IN');
+      $('#kpi-active-users').textContent = Number(stats.activeUsers || 0).toLocaleString('en-IN');
+      $('#kpi-today-topup').textContent = formatMoney(stats.todayTopup);
+      $('#kpi-month-topup').textContent = formatMoney(stats.monthTopup);
+      $('#kpi-last-month-topup').textContent = formatMoney(stats.lastMonthTopup);
+      $('#kpi-today-rc').textContent = Number(stats.todayRcDownloads || 0).toLocaleString('en-IN');
+      $('#kpi-month-rc').textContent = Number(stats.monthRcDownloads || 0).toLocaleString('en-IN');
+      $('#kpi-last-month-rc').textContent = Number(stats.lastMonthRcDownloads || 0).toLocaleString('en-IN');
+      var rangeCard = $('#admin-kpi-range');
+      if (stats.range) {
+        rangeCard.hidden = false;
+        $('#kpi-range-label').textContent = stats.range.from + ' se ' + stats.range.to;
+        $('#kpi-range-topup').textContent = formatMoney(stats.range.topup);
+        $('#kpi-range-rc').textContent = Number(stats.range.rcDownloads || 0).toLocaleString('en-IN') + ' RC downloads • ' + Number(stats.range.newUsers || 0).toLocaleString('en-IN') + ' new users';
+      } else {
+        rangeCard.hidden = true;
+      }
+    }
+
+    async function loadAdminStats(range) {
+      if (!state.user || state.user.role !== 'admin') return;
+      try {
+        var response = await callServer('adminGetStats', [range || null]);
+        if (response.success) {
+          renderAdminStats(response.stats);
+          if (response.settings) {
+            if (response.settings.rating) $('#admin-rating-input').value = response.settings.rating;
+            $('#admin-users-baseline-input').value = response.settings.usersBaseline;
+            $('#admin-downloads-baseline-input').value = response.settings.downloadsBaseline;
+            if (response.settings.rcCardPrice) $('#admin-rc-price-input').value = response.settings.rcCardPrice;
+          }
+        }
+      } catch (error) { /* KPI dashboard is non-critical */ }
+    }
+
+    function applyAdminStatsFilter() {
+      var from = $('#admin-stats-from').value;
+      var to = $('#admin-stats-to').value;
+      if (!from || !to) { toast('Date filter', 'From aur To dono date choose karo.', 'error'); return; }
+      if (from > to) { toast('Date filter', 'From date, To date se pehle honi chahiye.', 'error'); return; }
+      loadAdminStats({ from: from, to: to });
+    }
+
+    function resetAdminStatsFilter() {
+      $('#admin-stats-from').value = '';
+      $('#admin-stats-to').value = '';
+      loadAdminStats();
+    }
+
+    async function saveAdminRating() {
+      var button = $('#admin-rating-save');
+      var value = $('#admin-rating-input').value.trim();
+      setButtonLoading(button, true, 'Save rating');
+      try {
+        var response = await callServer('adminSetRating', [value]);
+        if (!response.success) throw new Error(response.message || 'Rating save nahi ho paayi.');
+        toast('Rating updated', 'Homepage rating ab ' + (value || '—') + ' show hogi.', 'success');
+        loadPublicStats();
+      } catch (error) { toast('Rating error', error.message, 'error'); }
+      finally { setButtonLoading(button, false, 'Save rating'); }
+    }
+
+    async function saveAdminBaseline() {
+      var button = $('#admin-baseline-save');
+      var users = Number($('#admin-users-baseline-input').value);
+      var downloads = Number($('#admin-downloads-baseline-input').value);
+      if (!Number.isFinite(users) || users < 0 || !Number.isFinite(downloads) || downloads < 0) {
+        toast('Baseline error', 'Valid non-negative numbers daalo.', 'error');
+        return;
+      }
+      setButtonLoading(button, true, 'Save baseline');
+      try {
+        var response = await callServer('adminSetBaseline', [users, downloads]);
+        if (!response.success) throw new Error(response.message || 'Baseline save nahi ho paayi.');
+        toast('Baseline updated', 'Homepage stats ab is baseline ke saath show honge.', 'success');
+        loadPublicStats();
+      } catch (error) { toast('Baseline error', error.message, 'error'); }
+      finally { setButtonLoading(button, false, 'Save baseline'); }
+    }
+
+    async function saveAdminRcPrice() {
+      var button = $('#admin-rc-price-save');
+      var price = Number($('#admin-rc-price-input').value);
+      if (!Number.isFinite(price) || price < 1 || price > 1000) {
+        toast('Rate error', 'RC Card rate ₹1 se ₹1000 ke beech ek valid number daalo.', 'error');
+        return;
+      }
+      setButtonLoading(button, true, 'Save default');
+      try {
+        var response = await callServer('adminSetRcPrice', [price]);
+        if (!response.success) throw new Error(response.message || 'Rate save nahi ho paayi.');
+        state.defaultRcCardPrice = Number(response.rcCardPrice);
+        toast('Default RC rate updated', 'Default rate ₹' + response.rcCardPrice + ' set ho gaya. Custom-rate users par asar nahi padega.', 'success');
+        applyPublicDefaultPrice(response.rcCardPrice);
+        // Admin ke apne account par custom rate na ho to unki screen bhi update ho.
+        if (state.user && state.user.customRcCardPrice == null) {
+          state.user.prices = state.user.prices || {};
+          state.user.prices.rcCard = response.rcCardPrice;
+          applyRcPrice(response.rcCardPrice);
+        }
+        if (state.selectedAdminMobile && $('#admin-user-rate-tools') && !$('#admin-user-rate-tools').hidden) {
+          // Refresh labels for currently selected user using latest default.
+          var label = $('#admin-user-rate-label');
+          if (label && label.textContent.indexOf('Default RC rate') === 0) {
+            label.textContent = 'Default RC rate ' + formatMoney(response.rcCardPrice);
+            $('#admin-user-rate-input').value = response.rcCardPrice;
+          }
+          if ($('#admin-user-rate-help')) {
+            var help = $('#admin-user-rate-help').textContent || '';
+            if (help.indexOf('default global rate') !== -1 || help.indexOf('Default global rate') !== -1) {
+              $('#admin-user-rate-help').textContent = help.replace(/₹[\d,]+(\.\d+)?/g, formatMoney(response.rcCardPrice)).replace(/Default global rate.*/, 'Default global rate ' + formatMoney(response.rcCardPrice) + ' apply ho raha hai. Alag rate type karke set kar sakte ho.');
+            }
+          }
+        }
+      } catch (error) { toast('Rate error', error.message, 'error'); }
+      finally { setButtonLoading(button, false, 'Save default'); }
     }
 
     $$('.auth-tab').forEach(function (button) { button.addEventListener('click', function () { setAuthMode(button.dataset.authTab); }); });
@@ -651,7 +1118,12 @@
       var mobile = normalizeMobile($('#login-mobile').value);
       var password = $('#login-password').value;
       $('#login-error').textContent = '';
-      if (!validEmail(email) || !validMobile(mobile) || !password) { $('#login-error').textContent = 'Email, mobile number aur password sahi se enter karo.'; return; }
+      if (!validEmail(email) || !validMobile(mobile) || !password) {
+        $('#login-error').textContent = 'Registered email, valid mobile number aur password enter karo.';
+        return;
+      }
+      $('#login-email').value = email;
+      $('#login-mobile').value = mobile;
       var button = $('#login-button'); setButtonLoading(button, true, 'Login karo <span>→</span>');
       try {
         var response = await callServer('login', [email, mobile, password]);
@@ -688,8 +1160,8 @@
       try {
         var response = await callServer('forgotPassword', [email, mobile, newPassword, confirmPassword]);
         if (!response.success) { $('#forgot-error').textContent = response.message; return; }
-        $('#login-email').value = email;
-        $('#login-mobile').value = mobile;
+        if ($('#login-email')) $('#login-email').value = email;
+        if ($('#login-mobile')) $('#login-mobile').value = mobile;
         $('#login-password').value = '';
         setAuthMode('login');
         toast('Password updated', 'Ab naye password se login karo.', 'success');
@@ -720,12 +1192,50 @@
     $('#logout-button').addEventListener('click', async function () { try { await callServer('logout', []); } catch (error) {} clearSession(); toast('Logged out', 'Aapka session close ho gaya.', 'success'); });
     $('#refresh-transactions').addEventListener('click', loadTransactions);
     $('#admin-search-button').addEventListener('click', findAdminUser);
+    $('#admin-search-mobile').addEventListener('keydown', function (event) {
+      if (event.key === 'Enter') { event.preventDefault(); findAdminUser(); }
+    });
     $('#admin-recharge-button').addEventListener('click', rechargeAdminUser);
+    if ($('#admin-user-rate-save')) $('#admin-user-rate-save').addEventListener('click', function () { saveAdminUserRate(false); });
+    if ($('#admin-user-rate-clear')) $('#admin-user-rate-clear').addEventListener('click', function () { saveAdminUserRate(true); });
+    if ($('#admin-users-search-button')) $('#admin-users-search-button').addEventListener('click', searchAdminUsersList);
+    if ($('#admin-users-search')) $('#admin-users-search').addEventListener('keydown', function (event) {
+      if (event.key === 'Enter') { event.preventDefault(); searchAdminUsersList(); }
+    });
+    if ($('#admin-users-all-button')) $('#admin-users-all-button').addEventListener('click', showAllAdminUsers);
+    if ($('#admin-users-csv-button')) $('#admin-users-csv-button').addEventListener('click', exportAdminUsersCsv);
+    if ($('#admin-bulk-rate-apply')) $('#admin-bulk-rate-apply').addEventListener('click', function () { bulkAdminRate(false, $('#admin-bulk-rate-apply')); });
+    if ($('#admin-bulk-rate-clear')) $('#admin-bulk-rate-clear').addEventListener('click', function () { bulkAdminRate(true, $('#admin-bulk-rate-clear')); });
+    if ($('#admin-users-body')) {
+      $('#admin-users-body').addEventListener('click', function (event) {
+        var button = event.target && event.target.closest ? event.target.closest('button[data-rate-save], button[data-rate-reset], button[data-user-toggle]') : null;
+        if (!button) return;
+        if (button.dataset.rateSave) saveAdminRowRate(button.dataset.rateSave, false, button);
+        else if (button.dataset.rateReset) saveAdminRowRate(button.dataset.rateReset, true, button);
+        else if (button.dataset.userToggle) toggleAdminUserStatus(button.dataset.userToggle, button.dataset.active === '1', button);
+      });
+      $('#admin-users-body').addEventListener('keydown', function (event) {
+        if (event.key !== 'Enter' || !event.target.classList.contains('admin-row-rate')) return;
+        event.preventDefault();
+        var row = event.target.closest ? event.target.closest('tr[data-mobile]') : null;
+        if (row) saveAdminRowRate(row.dataset.mobile, false, row.querySelector('[data-rate-save]'));
+      });
+    }
+    $$('[data-goto-admin-section]').forEach(function (button) {
+      button.addEventListener('click', function () { setAdminSection(button.dataset.gotoAdminSection); });
+    });
+    if ($('#admin-rates-nav')) $('#admin-rates-nav').addEventListener('click', function () { setAdminSection('users'); });
+    $('#admin-stats-apply').addEventListener('click', applyAdminStatsFilter);
+    $('#admin-stats-reset').addEventListener('click', resetAdminStatsFilter);
+    $('#admin-rating-save').addEventListener('click', saveAdminRating);
+    $('#admin-baseline-save').addEventListener('click', saveAdminBaseline);
+    $('#admin-rc-price-save').addEventListener('click', saveAdminRcPrice);
     $('#admin-ad-upload').addEventListener('click', uploadAdvertisement);
     $$('[data-admin-section]').forEach(function (button) { button.addEventListener('click', function () { setAdminSection(button.dataset.adminSection); }); });
     $$('.topbar-nav button').forEach(function (button) { button.addEventListener('click', function () { var target = $('#' + button.dataset.scroll); if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' }); $$('.topbar-nav button').forEach(function (item) { item.classList.remove('active'); }); button.classList.add('active'); }); });
 
     async function boot() {
+      loadPublicPricing();
       try {
         var response = await callServer('getMe', []);
         if (response.success) showApp(response.user); else clearSession();
