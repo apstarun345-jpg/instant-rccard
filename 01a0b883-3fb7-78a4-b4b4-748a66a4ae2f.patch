@@ -1,0 +1,2795 @@
+diff --git a/.env.example b/.env.example
+new file mode 100644
+index 0000000..92e1891
+--- /dev/null
++++ b/.env.example
+@@ -0,0 +1,55 @@
++# InstantRCcard server environment (copy to .env and fill the values)
++
++# Port used by the Node server
++PORT=4173
++
++# RC provider API (token stays on the server only)
++RC_API_URL=https://api.apnirc.xyz/api/b2b/get-rc
++RC_API_TOKEN=
++
++# 10-digit mobile number that becomes the admin account
++ADMIN_MOBILE=
++
++# Fixed secret so the login cookie keeps working after a restart/redeploy
++SESSION_SECRET=
++
++# Optional durable Google Sheet mirror
++SHEET_WEBHOOK_URL=
++SHEET_SYNC_SECRET=
++
++# Optional custom JSON store path (defaults to data/instant-rccard.json)
++DB_FILE=
++
++# Optional fallback homepage rating
++PUBLIC_RATING=
++
++# ============================================================
++# SECURITY (added in PR #3)
++# ============================================================
++# Set to "production" to enable fatal-startup validation that
++# refuses to boot without RC_API_TOKEN, SESSION_SECRET and
++# ADMIN_MOBILE.
++NODE_ENV=
++
++# Set to 1 to tighten rate-limit buckets (recommended on Render).
++#   0 (default): 600 global, 30 auth, 10 rc, 120 admin /min/IP
++#   1 (strict):  240 global, 10 auth,  3 rc,  30 admin /min/IP
++ENABLE_STRICT_RATE_LIMITS=0
++
++# Login brute-force lockout: threshold failures inside the
++# window will lock the account (per mobile + per IP) for the
++# window duration. Defaults to 20 (8 in strict mode).
++LOGIN_LOCKOUT_THRESHOLD=20
++LOGIN_LOCKOUT_WINDOW=3600
++
++# CSRF cookie TTL in seconds (default 12h).
++CSRF_TTL=43200
++
++# Optional pre-shared client secret. If set, every /api/*
++# request must echo this value in X-Client-Secret header.
++# Generate with:
++#   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
++CLIENT_SHARED_SECRET=
++
++# Comma-separated IPs allowed to set X-Forwarded-For (empty = use socket IP).
++TRUSTED_PROXIES=
+diff --git a/.gitignore b/.gitignore
+new file mode 100644
+index 0000000..d98d435
+--- /dev/null
++++ b/.gitignore
+@@ -0,0 +1,9 @@
++node_modules/
++data/
++.env
++.env.*
++!.env.example
++*.log
++npm-debug.log*
++yarn-error.log*
++.DS_Store
+diff --git a/LICENSE b/LICENSE
+new file mode 100644
+index 0000000..562f4b6
+--- /dev/null
++++ b/LICENSE
+@@ -0,0 +1,22 @@
++Copyright (c) 2026 InstantRCcard. All rights reserved.
++
++This source code is the proprietary property of the InstantRCcard project.
++You may view and study the code for personal, non-commercial use only.
++You may NOT:
++
++  * Run this code in production without explicit written permission from
++    the copyright holder.
++  * Redistribute the source or binary forms.
++  * Use the code to provide a competing service.
++  * Remove or alter this copyright notice.
++
++THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
++THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
++FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
++DEALINGS IN THE SOFTWARE.
++
++For licensing inquiries, contact the project owner via the support WhatsApp
++number listed on https://instant-rccard.onrender.com.
+diff --git a/README.md b/README.md
+index d1b795a..0d2417e 100644
+--- a/README.md
++++ b/README.md
+@@ -17,6 +17,9 @@ A blue-and-white Node website for secure RC front-and-back downloads.
+ - `Fetching RC Card` loading popup while the provider image is being fetched
+ - Horizontal public offer/festival advertisement ticker
+ - Admin-only user search, wallet recharge and advertisement upload/remove/hide controls
++- Admin **Users & rates** tab: naam/mobile/email search, per-user RC Card rate, bulk rate apply, block/unblock and CSV export
++- Per-user RC rate audit log (purana rate → naya rate, kaun admin ne badla)
++- Service worker update notice so a new deploy is never stuck behind an old cached page
+ - Server-side RC provider token
+ - JSON storage as a local fallback/cache
+ - Optional Google Sheet mirror for accounts, wallet/RC transactions and ads
+@@ -56,6 +59,10 @@ Open the HTTPS website in Chrome. Use the install icon in the address bar or cho
+ - `GET /api/public/stats`
+ - `POST /api/rc/purchase`
+ - `POST /api/admin/users/search`
++- `GET /api/admin/users?q=name|mobile|email` (user list + rate summary + rate log)
++- `POST /api/admin/users/set-rate` (per-user RC Card rate set/clear)
++- `POST /api/admin/users/bulk-rate` (sabhi users par ek rate, `confirm: true` zaroori)
++- `POST /api/admin/users/status` (account block/unblock)
+ - `POST /api/admin/recharge`
+ - `GET /api/admin/transactions`
+ - `GET /api/admin/ads`
+@@ -63,6 +70,19 @@ Open the HTTPS website in Chrome. Use the install icon in the address bar or cho
+ - `POST /api/admin/ads/:id` to show/hide
+ - `DELETE /api/admin/ads/:id`
+ 
++## User-wise RC rate (admin)
++
++Admin panel me **Users & rates** tab kholo (top nav ke **User rates** button se bhi seedha khulta hai):
++
++1. Search box me user ka naam, mobile ya email daalo (ya **Show all**).
++2. User row ke `RC RATE ₹` box me naya rate likho aur **Set rate** dabao.
++3. **Default** button us user ka custom rate hata deta hai aur global default rate wapas lag jaata hai.
++4. Ek hi rate sabhi users par lagane ke liye **Sabhi users par apply karo** use karo — button dobara click karne par hi confirm hota hai, aur admin account chhoot jaata hai.
++5. `Block` / `Unblock` se account disable/enable hota hai; blocked user login nahi kar sakta.
++6. **CSV download** current list (rate ke saath) export karta hai.
++
++Rate change hone par us user ke download popup, wallet alert aur account panel me wahi rate dikhta hai, aur wallet se wahi amount deduct hota hai. Har change audit log me time, admin aur purana/naya rate ke saath record hota hai. Global default rate **Admin KPI dashboard → Default RC Card rate** se set karo; custom rate wale users par default ka asar nahi padta.
++
+ ## Storage and production
+ 
+ The direct version stores users, transactions and local ad data in `data/instant-rccard.json`. On a host without a persistent disk, configure the private Apps Script mirror and deploy the updated `apps-script/Code.gs`; the Node service restores accounts, wallets, transactions and ads from the private Sheet snapshot on startup. Keep `SESSION_SECRET` fixed in Render so an existing session cookie remains valid across restarts.
+diff --git a/app.js b/app.js
+index 6b376d7..c4f611c 100644
+--- a/app.js
++++ b/app.js
+@@ -1,5 +1,5 @@
+ 
+-    var state = { token: '', user: null, selectedAdminMobile: '', selectedAdminQuery: '', defaultRcCardPrice: 15, pendingVrn: '', busy: false };
++    var state = { token: '', user: null, selectedAdminMobile: '', selectedAdminQuery: '', defaultRcCardPrice: 15, pendingVrn: '', busy: false, adminUsersQuery: '', bulkConfirm: false };
+     var DOWNLOAD_PRICES = { mparivahan: 10, 'rc-card': 15 };
+     var $ = function (selector) { return document.querySelector(selector); };
+     var $$ = function (selector) { return Array.prototype.slice.call(document.querySelectorAll(selector)); };
+@@ -41,7 +41,22 @@
+     });
+     if ('serviceWorker' in navigator) {
+       window.addEventListener('load', function () {
+-        navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(function () {
++        navigator.serviceWorker.register('/sw.js', { scope: '/' }).then(function (registration) {
++          // Naya deploy hone par purana cached app chal raha ho to admin ko batao.
++          function watchWorker(worker) {
++            if (!worker) return;
++            worker.addEventListener('statechange', function () {
++              if (worker.state === 'installed' && navigator.serviceWorker.controller) {
++                toast('Naya version ready', 'Naye update ke liye page ek baar refresh karo.', 'info');
++              }
++            });
++          }
++          if (registration.waiting && navigator.serviceWorker.controller) {
++            toast('Naya version ready', 'Naye update ke liye page ek baar refresh karo.', 'info');
++          }
++          watchWorker(registration.installing);
++          registration.addEventListener('updatefound', function () { watchWorker(registration.installing); });
++        }).catch(function () {
+           // The website remains fully usable if a browser blocks offline installation.
+         });
+       });
+@@ -51,6 +66,27 @@
+     $('#auth-view').hidden = true;
+     $('#session-loading').hidden = false;
+ 
++    var csrfTokenCache = '';
++    var csrfPromise = null;
++
++    async function ensureCsrfToken() {
++      // Single-flight: parallel callers share one bootstrap fetch.
++      if (csrfTokenCache) return csrfTokenCache;
++      if (csrfPromise) return csrfPromise;
++      csrfPromise = fetch('/api/auth/csrf', { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
++        .then(function (response) {
++          return response.json().then(function (payload) {
++            if (payload && payload.csrfToken) csrfTokenCache = payload.csrfToken;
++            return csrfTokenCache;
++          });
++        })
++        .catch(function () { return ''; })
++        .finally(function () { csrfPromise = null; });
++      return csrfPromise;
++    }
++
++    function resetCsrfToken() { csrfTokenCache = ''; }
++
+     async function callServer(name, args) {
+       var url = '';
+       var options = { credentials: 'same-origin', headers: { 'Accept': 'application/json' } };
+@@ -65,6 +101,9 @@
+       else if (name === 'getStats') { url = '/api/public/stats'; }
+       else if (name === 'adminFindUser') { url = '/api/admin/users/search'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ query: args[0] }); }
+       else if (name === 'adminSetUserRate') { url = '/api/admin/users/set-rate'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ query: args[0], price: args[1], clear: args[2] === true }); }
++      else if (name === 'adminListUsers') { url = '/api/admin/users' + (args[0] ? '?q=' + encodeURIComponent(args[0]) : ''); }
++      else if (name === 'adminBulkRate') { url = '/api/admin/users/bulk-rate'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ price: args[0], clear: args[1] === true, scope: args[2] || 'all', mobiles: args[3] || [], confirm: args[4] === true }); }
++      else if (name === 'adminSetUserStatus') { url = '/api/admin/users/status'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ mobile: args[0], active: args[1] !== false }); }
+       else if (name === 'adminRecharge') { url = '/api/admin/recharge'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ mobile: args[0], amount: args[1], note: args[2] }); }
+       else if (name === 'adminGetTransactions') { url = '/api/admin/transactions'; }
+       else if (name === 'adminGetStats') {
+@@ -81,9 +120,31 @@
+       else if (name === 'adminDeleteAd') { url = '/api/admin/ads/' + encodeURIComponent(args[0]); options.method = 'DELETE'; }
+       else if (name === 'adminToggleAd') { url = '/api/admin/ads/' + encodeURIComponent(args[0]); options.method = 'POST'; }
+       else throw new Error('Unknown request');
++
++      // Attach CSRF token for any unsafe HTTP method (POST/PUT/DELETE/PATCH).
++      var method = (options.method || 'GET').toUpperCase();
++      if (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS') {
++        var token = await ensureCsrfToken();
++        if (token) options.headers['X-CSRF-Token'] = token;
++      }
++
+       var response = await fetch(url, options);
++      var rotated = response.headers.get('X-CSRF-Token');
++      if (rotated) csrfTokenCache = rotated;
+       var payload;
+       try { payload = await response.json(); } catch (error) { throw new Error('Server se invalid response aaya.'); }
++      // If CSRF was rejected, refresh token once and retry.
++      if (response.status === 403 && payload && (payload.code === 'CSRF_MISSING' || payload.code === 'CSRF_MISMATCH')) {
++        resetCsrfToken();
++        var fresh = await ensureCsrfToken();
++        if (fresh && method !== 'GET') {
++          options.headers['X-CSRF-Token'] = fresh;
++          response = await fetch(url, options);
++          var rotated2 = response.headers.get('X-CSRF-Token');
++          if (rotated2) csrfTokenCache = rotated2;
++          try { payload = await response.json(); } catch (error) { throw new Error('Server se invalid response aaya.'); }
++        }
++      }
+       return payload;
+     }
+ 
+@@ -194,6 +255,12 @@
+         });
+       }
+       if ($('#account-rc-price')) $('#account-rc-price').textContent = 'RC Card ' + amount;
++      if ($('#account-rc-note')) {
++        var hasCustomRate = Boolean(state.user && state.user.customRcCardPrice != null);
++        $('#account-rc-note').textContent = hasCustomRate
++          ? 'Aapka special RC Card rate • MParivahan Coming Soon'
++          : 'MParivahan format Coming Soon';
++      }
+     }
+ 
+     function applyPublicDefaultPrice(price) {
+@@ -233,6 +300,7 @@
+       $('#account-mobile').textContent = '+91 ' + user.mobile;
+       if ($('#account-email')) $('#account-email').textContent = user.email || 'Email not set';
+       $('#admin-nav').hidden = user.role !== 'admin';
++      if ($('#admin-rates-nav')) $('#admin-rates-nav').hidden = user.role !== 'admin';
+       $('#admin-card').hidden = user.role !== 'admin';
+       $('#admin-kpi-section').hidden = user.role !== 'admin';
+       applyRcPrice(priceForDownload('rc-card'));
+@@ -244,6 +312,7 @@
+         loadAdminTransactions();
+         loadAdminAds();
+         loadAdminStats();
++        loadAdminUsers('', { silent: true });
+       }
+     }
+ 
+@@ -450,7 +519,9 @@
+     function setAdminSection(section) {
+       $$('[data-admin-section]').forEach(function (button) { button.classList.toggle('active', button.dataset.adminSection === section); });
+       $('#admin-wallet-section').hidden = section !== 'wallet';
++      if ($('#admin-users-section')) $('#admin-users-section').hidden = section !== 'users';
+       $('#admin-ads-section').hidden = section !== 'ads';
++      if (section === 'users') loadAdminUsers(state.adminUsersQuery || '', { silent: true });
+     }
+ 
+     function safeImage(value) {
+@@ -691,8 +762,12 @@
+         query = query.toLowerCase();
+         $('#admin-search-mobile').value = query;
+         if (!validEmail(query)) { toast('Email check karo', 'Valid email address daalo.', 'error'); return; }
++      } else if (/^[A-Za-z][A-Za-z .'-]{2,}$/.test(query)) {
++        // Naam se search: server sirf tab user deta hai jab naam ek hi user se match kare.
++        query = query.replace(/\s+/g, ' ').trim();
++        $('#admin-search-mobile').value = query;
+       } else {
+-        toast('Search check karo', 'Valid 10-digit mobile ya email address daalo.', 'error');
++        toast('Search check karo', 'Valid 10-digit mobile, email ya user ka naam daalo.', 'error');
+         return;
+       }
+       var button = $('#admin-search-button');
+@@ -730,10 +805,210 @@
+         if (!response.success) { toast('Rate save failed', response.message, 'error'); return; }
+         fillAdminUserResult(response.user, response.defaultRcCardPrice);
+         toast(clear ? 'Default rate apply' : 'User rate set', response.message, 'success');
++        loadAdminUsers(state.adminUsersQuery, { silent: true });
+       } catch (error) { toast('Rate error', error.message, 'error'); }
+       finally { setButtonLoading(button, false, clear ? 'Use default' : 'Set user rate'); }
+     }
+ 
++    // ---------- Admin: Users & rates tab ----------
++    var adminUsersCache = [];
++
++    function rowForMobile(mobile) {
++      var rows = $$('#admin-users-body tr');
++      for (var i = 0; i < rows.length; i += 1) {
++        if (rows[i].dataset.mobile === mobile) return rows[i];
++      }
++      return null;
++    }
++
++    function renderAdminUsersTable() {
++      var body = $('#admin-users-body');
++      if (!body) return;
++      if (!adminUsersCache.length) {
++        body.innerHTML = '<tr><td colspan="6">Koi user nahi mila. Search clear karke "Show all" try karo.</td></tr>';
++        return;
++      }
++      body.innerHTML = adminUsersCache.map(function (user) {
++        var isCustom = user.customRcCardPrice != null;
++        var mobile = escapeHtml(user.mobile);
++        return '<tr data-mobile="' + mobile + '">' +
++          '<td><b class="admin-user-cell">' + escapeHtml(user.name || 'User') + (user.role === 'admin' ? ' (admin)' : '') + '</b><small class="admin-user-sub">' + escapeHtml(user.email || 'Email not set') + '</small></td>' +
++          '<td>+91 ' + mobile + '</td>' +
++          '<td>' + escapeHtml(formatMoney(user.wallet)) + '</td>' +
++          '<td><span class="admin-rate-cell"><input class="admin-row-rate" type="number" min="1" max="1000" step="1" value="' + escapeHtml(String(user.prices && user.prices.rcCard != null ? user.prices.rcCard : user.rate)) + '" data-mobile="' + mobile + '" aria-label="RC rate" /><span class="rate-state ' + (isCustom ? 'custom' : 'default') + '">' + (isCustom ? 'CUSTOM' : 'DEFAULT') + '</span></span></td>' +
++          '<td><span class="admin-rate-actions"><button class="blue-button small-blue" type="button" data-rate-save="' + mobile + '">Set rate</button>' +
++          (isCustom ? '<button class="ghost-button small-blue" type="button" data-rate-reset="' + mobile + '">Default</button>' : '') +
++          '</span></td>' +
++          '<td>' + (user.active === false
++            ? '<button class="ghost-button small-blue" type="button" data-user-toggle="' + mobile + '" data-active="1">Unblock</button> <span class="rate-state blocked">BLOCKED</span>'
++            : '<button class="ghost-button small-blue" type="button" data-user-toggle="' + mobile + '" data-active="0">Block</button>') + '</td>' +
++          '</tr>';
++      }).join('');
++    }
++
++    function renderAdminRateLog(log) {
++      var body = $('#admin-rate-log-body');
++      if (!body) return;
++      if (!log || !log.length) { body.innerHTML = '<tr><td colspan="4">Abhi koi rate change nahi hua.</td></tr>'; return; }
++      body.innerHTML = log.map(function (entry) {
++        return '<tr><td>' + escapeHtml(formatDate(entry.time)) + '</td><td>' + escapeHtml((entry.name || 'User') + ' • +91 ' + entry.mobile) + '</td><td>' + escapeHtml(entry.from == null ? 'Default' : formatMoney(entry.from)) + '</td><td>' + escapeHtml(entry.to == null ? 'Default' : formatMoney(entry.to)) + '</td></tr>';
++      }).join('');
++    }
++
++    function renderAdminUsers(response) {
++      adminUsersCache = Array.isArray(response.users) ? response.users : [];
++      state.adminUsersQuery = response.query || '';
++      state.defaultRcCardPrice = Number(response.defaultRcCardPrice || state.defaultRcCardPrice || 15);
++      if ($('#admin-rate-default')) $('#admin-rate-default').textContent = formatMoney(state.defaultRcCardPrice);
++      if ($('#admin-rate-total-users')) $('#admin-rate-total-users').textContent = Number(response.total || 0).toLocaleString('en-IN');
++      if ($('#admin-rate-custom-users')) $('#admin-rate-custom-users').textContent = Number(response.customRateCount || 0).toLocaleString('en-IN');
++      if ($('#admin-rate-match-chip')) {
++        var matched = Number(response.matched || 0);
++        var shown = Number(response.shown || 0);
++        var hasQuery = Boolean(String(response.query || '').trim());
++        var truncated = matched > shown;
++        $('#admin-rate-match-chip').hidden = !hasQuery && !truncated;
++        if (hasQuery || truncated) {
++          $('#admin-rate-match-count').textContent = shown.toLocaleString('en-IN') + ' / ' + matched.toLocaleString('en-IN') + ' shown' + (truncated ? ' — search se chhota karo' : '');
++        }
++      }
++      renderAdminUsersTable();
++      renderAdminRateLog(response.rateLog);
++    }
++
++    async function loadAdminUsers(query, options) {
++      if (!state.user || state.user.role !== 'admin') return;
++      var settings = options || {};
++      var button = settings.silent ? null : (query ? $('#admin-users-search-button') : $('#admin-users-all-button'));
++      if (button) setButtonLoading(button, true, query ? 'Search users' : 'Show all');
++      var response = null;
++      try {
++        response = await callServer('adminListUsers', [query == null ? '' : query]);
++        if (!response.success) { toast('Users load failed', response.message || 'List load nahi ho paayi.', 'error'); return; }
++        renderAdminUsers(response);
++      } catch (error) {
++        toast('Users load failed', error.message, 'error');
++      } finally {
++        if (button) setButtonLoading(button, false, query ? 'Search users' : 'Show all');
++      }
++    }
++
++    async function searchAdminUsersList() {
++      var query = String($('#admin-users-search').value || '').trim();
++      await loadAdminUsers(query);
++    }
++
++    async function showAllAdminUsers() {
++      $('#admin-users-search').value = '';
++      await loadAdminUsers('');
++    }
++
++    async function saveAdminRowRate(mobile, clear, button) {
++      var row = rowForMobile(mobile);
++      var input = row ? row.querySelector('.admin-row-rate') : null;
++      var price = clear ? null : Number(input ? input.value : NaN);
++      if (!clear && (!Number.isFinite(price) || price < 1 || price > 1000)) {
++        toast('Rate error', 'RC rate ₹1 se ₹1000 ke beech ek valid number daalo.', 'error');
++        return;
++      }
++      if (button) setButtonLoading(button, true, clear ? 'Default' : 'Set rate');
++      try {
++        var response = await callServer('adminSetUserRate', [mobile, price, clear === true]);
++        if (!response.success) { toast('Rate save failed', response.message, 'error'); return; }
++        toast(clear ? 'Default rate apply' : 'User rate set', response.message, 'success');
++        if (state.selectedAdminMobile === mobile && response.user) fillAdminUserResult(response.user, response.defaultRcCardPrice);
++        await loadAdminUsers(state.adminUsersQuery, { silent: true });
++      } catch (error) {
++        toast('Rate error', error.message, 'error');
++      } finally {
++        if (button) setButtonLoading(button, false, clear ? 'Default' : 'Set rate');
++      }
++    }
++
++    async function bulkAdminRate(clear, button) {
++      var price = clear ? null : Number($('#admin-bulk-rate-input').value);
++      if (!clear && (!Number.isFinite(price) || price < 1 || price > 1000)) {
++        toast('Rate error', 'Bulk rate ₹1 se ₹1000 ke beech ek valid number daalo.', 'error');
++        return;
++      }
++      var label = clear ? 'Sabhi custom rate hatao' : 'Sabhi users par apply karo';
++      if (!state.bulkConfirm) {
++        state.bulkConfirm = true;
++        setButtonLoading(button, false, 'Confirm? Dobara click karo');
++        setTimeout(function () {
++          if (state.bulkConfirm) { state.bulkConfirm = false; setButtonLoading(button, false, label); }
++        }, 7000);
++        return;
++      }
++      state.bulkConfirm = false;
++      setButtonLoading(button, true, label);
++      try {
++        var response = await callServer('adminBulkRate', [price, clear === true, 'all', [], true]);
++        if (!response.success) { toast('Bulk rate failed', response.message, 'error'); return; }
++        toast(clear ? 'Custom rates cleared' : 'Bulk rate applied', response.message, 'success');
++        await loadAdminUsers(state.adminUsersQuery, { silent: true });
++      } catch (error) {
++        toast('Bulk rate error', error.message, 'error');
++      } finally {
++        setButtonLoading(button, false, label);
++      }
++    }
++
++    async function toggleAdminUserStatus(mobile, nextActive, button) {
++      var label = nextActive ? 'Unblock' : 'Block';
++      if (!nextActive && !state.bulkConfirm) {
++        state.bulkConfirm = true;
++        setButtonLoading(button, false, 'Confirm? Dobara click karo');
++        setTimeout(function () {
++          if (state.bulkConfirm) { state.bulkConfirm = false; setButtonLoading(button, false, label); }
++        }, 7000);
++        return;
++      }
++      state.bulkConfirm = false;
++      setButtonLoading(button, true, label);
++      try {
++        var response = await callServer('adminSetUserStatus', [mobile, nextActive]);
++        if (!response.success) { toast('Status update failed', response.message, 'error'); return; }
++        toast(nextActive ? 'User unblocked' : 'User blocked', response.message, 'success');
++        await loadAdminUsers(state.adminUsersQuery, { silent: true });
++      } catch (error) {
++        toast('Status error', error.message, 'error');
++      } finally {
++        setButtonLoading(button, false, label);
++      }
++    }
++
++    function exportAdminUsersCsv() {
++      if (!state.user || state.user.role !== 'admin') return;
++      if (!adminUsersCache.length) { toast('CSV export', 'Pehle user list load karo.', 'error'); return; }
++      var rows = [['Name', 'Email', 'Mobile', 'Wallet', 'RC Card Rate', 'Rate Type', 'Status', 'Created']];
++      adminUsersCache.forEach(function (user) {
++        rows.push([
++          user.name || '',
++          user.email || '',
++          '+91 ' + user.mobile,
++          Number(user.wallet || 0),
++          Number(user.prices && user.prices.rcCard != null ? user.prices.rcCard : user.rate),
++          user.customRcCardPrice != null ? 'Custom' : 'Default',
++          user.active === false ? 'Blocked' : 'Active',
++          user.createdAt || ''
++        ]);
++      });
++      var csv = rows.map(function (row) {
++        return row.map(function (cell) { return '"' + String(cell == null ? '' : cell).replace(/"/g, '""') + '"'; }).join(',');
++      }).join('\r\n');
++      var blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
++      var url = URL.createObjectURL(blob);
++      var link = document.createElement('a');
++      link.href = url;
++      link.download = 'instant-rccard-users-' + new Date().toISOString().slice(0, 10) + '.csv';
++      document.body.appendChild(link);
++      link.click();
++      link.remove();
++      setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
++      toast('CSV ready', adminUsersCache.length + ' user(s) ka CSV download ho raha hai.', 'success');
++    }
++
+     async function rechargeAdminUser() {
+       var amount = Number($('#admin-amount').value);
+       if (!state.selectedAdminMobile) { toast('Pehle user search karo', 'Mobile number se user find karo.', 'error'); return; }
+@@ -1009,6 +1284,33 @@
+     $('#admin-recharge-button').addEventListener('click', rechargeAdminUser);
+     if ($('#admin-user-rate-save')) $('#admin-user-rate-save').addEventListener('click', function () { saveAdminUserRate(false); });
+     if ($('#admin-user-rate-clear')) $('#admin-user-rate-clear').addEventListener('click', function () { saveAdminUserRate(true); });
++    if ($('#admin-users-search-button')) $('#admin-users-search-button').addEventListener('click', searchAdminUsersList);
++    if ($('#admin-users-search')) $('#admin-users-search').addEventListener('keydown', function (event) {
++      if (event.key === 'Enter') { event.preventDefault(); searchAdminUsersList(); }
++    });
++    if ($('#admin-users-all-button')) $('#admin-users-all-button').addEventListener('click', showAllAdminUsers);
++    if ($('#admin-users-csv-button')) $('#admin-users-csv-button').addEventListener('click', exportAdminUsersCsv);
++    if ($('#admin-bulk-rate-apply')) $('#admin-bulk-rate-apply').addEventListener('click', function () { bulkAdminRate(false, $('#admin-bulk-rate-apply')); });
++    if ($('#admin-bulk-rate-clear')) $('#admin-bulk-rate-clear').addEventListener('click', function () { bulkAdminRate(true, $('#admin-bulk-rate-clear')); });
++    if ($('#admin-users-body')) {
++      $('#admin-users-body').addEventListener('click', function (event) {
++        var button = event.target && event.target.closest ? event.target.closest('button[data-rate-save], button[data-rate-reset], button[data-user-toggle]') : null;
++        if (!button) return;
++        if (button.dataset.rateSave) saveAdminRowRate(button.dataset.rateSave, false, button);
++        else if (button.dataset.rateReset) saveAdminRowRate(button.dataset.rateReset, true, button);
++        else if (button.dataset.userToggle) toggleAdminUserStatus(button.dataset.userToggle, button.dataset.active === '1', button);
++      });
++      $('#admin-users-body').addEventListener('keydown', function (event) {
++        if (event.key !== 'Enter' || !event.target.classList.contains('admin-row-rate')) return;
++        event.preventDefault();
++        var row = event.target.closest ? event.target.closest('tr[data-mobile]') : null;
++        if (row) saveAdminRowRate(row.dataset.mobile, false, row.querySelector('[data-rate-save]'));
++      });
++    }
++    $$('[data-goto-admin-section]').forEach(function (button) {
++      button.addEventListener('click', function () { setAdminSection(button.dataset.gotoAdminSection); });
++    });
++    if ($('#admin-rates-nav')) $('#admin-rates-nav').addEventListener('click', function () { setAdminSection('users'); });
+     $('#admin-stats-apply').addEventListener('click', applyAdminStatsFilter);
+     $('#admin-stats-reset').addEventListener('click', resetAdminStatsFilter);
+     $('#admin-rating-save').addEventListener('click', saveAdminRating);
+diff --git a/docs/API.md b/docs/API.md
+new file mode 100644
+index 0000000..5ad4f4b
+--- /dev/null
++++ b/docs/API.md
+@@ -0,0 +1,137 @@
++# InstantRCcard — API Reference
++
++Base URL (production): `https://instant-rccard.onrender.com`
++Base URL (local dev): `http://localhost:4173`
++
++All endpoints accept and return `application/json; charset=utf-8` unless noted.
++All requests must use `credentials: 'same-origin'` so the session cookie is sent.
++
++---
++
++## Security headers & authentication
++
++Every request goes through a hardened pipeline:
++
++- **CORS**: same-origin only. The Node server does not emit `Access-Control-Allow-Origin` for cross-site callers, so the API is not directly callable from a different domain in a browser.
++- **Session cookie**: `instant_rccard_session`. `HttpOnly`, `SameSite=Lax`, `Secure` in production (HTTPS). 7-day expiry. HMAC-SHA256 signed with `SESSION_SECRET`.
++- **CSRF**: For any unsafe method (POST/PUT/DELETE/PATCH) the request must include:
++  - Cookie `instant_rccard_csrf=<token>` (set by `GET /api/auth/csrf`)
++  - Header `X-CSRF-Token: <same token>`
++  Both must match. Missing/mismatched → `403 CSRF_MISSING` / `CSRF_MISMATCH`.
++- **Rate limits** (per IP, sliding 60-second window):
++  | Bucket | Non-strict | Strict (`ENABLE_STRICT_RATE_LIMITS=1`) |
++  |--------|-----------:|---------------------------------------:|
++  | global | 600 / min  | 240 / min                              |
++  | `/api/auth/*` (signup/login/forgot/logout) | 30 / min | 10 / min |
++  | `/api/rc/*` (purchase) | 10 / min | 3 / min |
++  | `/api/admin/*` | 120 / min | 30 / min |
++  | `/api/public/stats` | 240 / min | 60 / min |
++  | `/api/ads` | 240 / min | 60 / min |
++  Over-limit → `429 RATE_LIMITED` with `Retry-After` header.
++- **Login lockout**: 5–20 failed logins (configurable via `LOGIN_LOCKOUT_THRESHOLD`) inside a 1-hour window lock that mobile+IP for 1 hour (`LOGIN_LOCKOUT_WINDOW`).
++- **Required response headers on every response**:
++  - `X-Content-Type-Options: nosniff`
++  - `X-Frame-Options: DENY`
++  - `Referrer-Policy: no-referrer`
++  - `Permissions-Policy: camera=(), microphone=(), geolocation=(), interest-cohort=()`
++  - `Cross-Origin-Opener-Policy: same-origin`
++  - `Cross-Origin-Resource-Policy: same-origin`
++  - `Content-Security-Policy: default-src 'self'; …; frame-ancestors 'none'`
++  - `Strict-Transport-Security` (HTTPS only)
++  - `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`
++- **Audit log**: every signup, login success/failure/lock, password reset, admin recharge and RC purchase is recorded with timestamp, IP and event metadata.
++
++---
++
++## Endpoints
++
++### Health & public
++
++| Method | Path | Description |
++|--------|------|-------------|
++| `GET`  | `/api/health` | Liveness check; reports whether `RC_API_TOKEN`, admin mobile and Sheet mirror are configured. |
++| `GET`  | `/api/public/stats` | `{ users, downloads, rating, rcCardPrice }` — public counters. |
++| `GET`  | `/api/ads` | Active advertisement banners. |
++| `GET`  | `/api/auth/csrf` | Issue / refresh CSRF cookie + return token. |
++
++### Auth
++
++| Method | Path | Body | Returns |
++|--------|------|------|---------|
++| `POST` | `/api/auth/signup` | `{ name, email, mobile, password }` | `{ success, user }` + session cookie |
++| `POST` | `/api/auth/login`  | `{ username (mobile/email), password }` | `{ success, user }` + session cookie |
++| `POST` | `/api/auth/forgot-password` | `{ email, mobile, newPassword, confirmPassword }` | `{ success, message }` |
++| `POST` | `/api/auth/logout` | (empty) | `{ success }` + clears session cookie |
++| `GET`  | `/api/auth/session` | — | `{ success, user }` or `{ success: false, message }` |
++
++### Account
++
++| Method | Path | Description |
++|--------|------|-------------|
++| `GET`  | `/api/account/transactions` | Last 30 wallet/RC transactions for the logged-in user. |
++
++### RC purchase
++
++| Method | Path | Body | Returns |
++|--------|------|------|---------|
++| `POST` | `/api/rc/purchase` | `{ vrn: "RJ14AB1234", downloadType: "rc-card" \| "mparivahan" }` | `{ success, data: { vrn, front, back, downloadType }, wallet, charged, requiredPrice }` |
++
++- `mparivahan` → `{ success: false, code: "COMING_SOON" }`.
++- `rc-card` with insufficient balance → `{ success: false, code: "LOW_BALANCE", wallet, requiredPrice, downloadType }`.
++- On success, `front` and `back` are `data:image/...;base64,...` strings the frontend renders to a downloadable PNG.
++
++### Admin (requires `role === 'admin'`)
++
++| Method | Path | Body | Description |
++|--------|------|------|-------------|
++| `POST` | `/api/admin/users/search` | `{ query }` (mobile or email) | Find user, return profile + last 10 transactions + default rate. |
++| `POST` | `/api/admin/users/set-rate` | `{ query, price, clear }` | Set / clear a per-user RC rate. |
++| `POST` | `/api/admin/recharge` | `{ mobile, amount, note }` | Credit a user's wallet, write transaction. |
++| `GET`  | `/api/admin/transactions` | — | Last 50 transactions site-wide. |
++| `GET`  | `/api/admin/stats?from=YYYY-MM-DD&to=YYYY-MM-DD` | — | KPIs and optional date range. |
++| `POST` | `/api/admin/settings/rating` | `{ rating }` | Update public rating (0–5). |
++| `POST` | `/api/admin/settings/baseline` | `{ usersBaseline, downloadsBaseline }` | Add to the public counters. |
++| `POST` | `/api/admin/settings/rc-price` | `{ price }` | Default RC Card rate (₹1–₹1000). |
++| `GET`  | `/api/admin/ads` | — | All ads (active + hidden). |
++| `POST` | `/api/admin/ads` | `{ title, imageData }` (data-URL) | Add a banner. |
++| `POST` | `/api/admin/ads/:id` | — | Toggle active/hidden. |
++| `DELETE` | `/api/admin/ads/:id` | — | Delete an ad. |
++
++---
++
++## Error envelope
++
++```json
++{ "success": false, "message": "Localized message", "code": "MACHINE_CODE" }
++```
++
++Common codes: `RATE_LIMITED`, `CSRF_MISSING`, `CSRF_MISMATCH`, `SECRET_MISMATCH`, `LOW_BALANCE`, `COMING_SOON`, `INVALID_JSON`, `PAYLOAD_TOO_LARGE`.
++
++---
++
++## Example: signup + buy RC
++
++```bash
++# 1) Bootstrap CSRF token (also sets the cookie)
++curl -c cookies.txt https://instant-rccard.onrender.com/api/auth/csrf
++TOKEN=$(jq -r .csrfToken < cookies.json)
++
++# 2) Signup
++curl -b cookies.txt -c cookies.txt \
++  -H "Content-Type: application/json" -H "X-CSRF-Token: $TOKEN" \
++  -d '{"name":"Asha","email":"asha@example.com","mobile":"9876500001","password":"strongpass"}' \
++  https://instant-rccard.onrender.com/api/auth/signup
++
++# 3) Buy RC Card (after admin recharge)
++curl -b cookies.txt -c cookies.txt \
++  -H "Content-Type: application/json" -H "X-CSRF-Token: $TOKEN" \
++  -d '{"vrn":"RJ14AB1234","downloadType":"rc-card"}' \
++  https://instant-rccard.onrender.com/api/rc/purchase
++```
++
++---
++
++## Provider integration (server-side only)
++
++The Node server proxies calls to `https://api.apnirc.xyz/api/b2b/get-rc` using the `RC_API_TOKEN` env var.
++The token is **never** exposed to the browser, mobile clients, or static files. If you rotate the token, restart the Render service so the new value is loaded from the environment.
+diff --git a/docs/SECURITY.md b/docs/SECURITY.md
+new file mode 100644
+index 0000000..2839de9
+--- /dev/null
++++ b/docs/SECURITY.md
+@@ -0,0 +1,108 @@
++# InstantRCcard — Security Model
++
++This document explains the hardening applied to the InstantRCcard Node backend and frontend, and the trade-offs you should be aware of before deploying to production.
++
++## 1. Threat model — what's protected, what isn't
++
++### What's protected ✅
++
++| Threat | Mitigation |
++|---|---|
++| Brute-force login | Per-mobile + per-IP failed-login counter; lockout after `LOGIN_LOCKOUT_THRESHOLD` failures inside `LOGIN_LOCKOUT_WINDOW` seconds (default 20 attempts/hour → lock 1h). |
++| Cross-site request forgery | Double-submit CSRF cookie. Every POST/PUT/DELETE/PATCH must carry matching `instant_rccard_csrf` cookie and `X-CSRF-Token` header. SPA bootstrap is `/api/auth/csrf`. |
++| Mass scraping / abuse | Per-IP sliding-window rate limit (configurable, "strict" preset for production). |
++| Session tampering | HMAC-SHA256 signed cookie (`instant_rccard_session = userId.expiry.signature`) with `SESSION_SECRET`. |
++| Password compromise | scrypt (N=2^14, 64-byte digest) with random per-user salt. Never stored or transmitted in plaintext. |
++| XSS / script injection | `script-src 'self'`, `frame-ancestors 'none'`, no inline JS in app.js, strict `Content-Security-Policy`. |
++| Clickjacking | `X-Frame-Options: DENY` + CSP `frame-ancestors 'none'`. |
++| MIME sniffing | `X-Content-Type-Options: nosniff`. |
++| Mixed content / downgrade | `Strict-Transport-Security: max-age=63072000; includeSubDomains; preload` (HTTPS only). |
++| Side-channel attacks on cookies / passwords | `crypto.timingSafeEqual()` for every equality check. |
++| Cross-origin window attacks | `Cross-Origin-Opener-Policy: same-origin`, `Cross-Origin-Resource-Policy: same-origin`. |
++| Path traversal | Reject any URL containing `..` or `%2e%2e`. |
++| Public enumeration of admin endpoints | All `/api/admin/*` require `role === 'admin'`; non-admins get `403 Admin access required.`. |
++| Audit trail | Every signup, login (success/fail/lock), password reset, admin recharge and RC purchase is logged with timestamp + IP. |
++
++### What's **not** perfect (intentional / out of scope)
++
++- **Source code visibility.** `app.js`, `index.html`, `styles.css` are still served as static assets. No client-side code is truly hidden. We minimise what an attacker can extract by:
++  - Keeping the provider token (`RC_API_TOKEN`), admin mobile, and session secret on the server only.
++  - Keeping all wallet/RC transactions behind session + CSRF + admin checks.
++  - Hashing passwords with scrypt so even a leaked database doesn't give plaintext credentials.
++  - Generating RC images server-side and only returning data-URLs after wallet deduction.
++- **Session storage.** The in-memory database (`data/instant-rccard.json`) is fine for single-instance Render free tier; if you scale horizontally you must use the Apps Script Sheet mirror or move to a real DB.
++- **DDoS at the network layer.** Rate limits are per Node process and don't replace a CDN/WAF. Render's free tier has no WAF — if you expect hostile traffic, put the service behind Cloudflare.
++
++## 2. Backend hardening (added in this patch)
++
++### Files added/changed
++- `security.js` — new module exporting:
++  - `rateLimit({ route, limit, windowMs })` per-route sliding-window limiter.
++  - `csrfMiddleware`, `csrfCookieFromHeader`, `issueCsrfToken`, `setCsrfCookie`.
++  - `sharedSecretMiddleware` — optional pre-shared client secret (set `CLIENT_SHARED_SECRET` to enable).
++  - `hardenedSecurityHeaders(isHttps)` — full CSP, HSTS, COOP, CORP, Permissions-Policy.
++  - `isLoginLocked`, `recordLoginFailure`, `recordLoginSuccess`, `lockoutSecondsRemaining`.
++  - `audit(event, details)` and `getRecentAudit()`.
++- `server.js` — wired all of the above into the request handler.
++- `.env.example`, `.gitignore` — secure defaults.
++- `app.js` — auto-bootstraps CSRF on every unsafe request and retries once if rejected.
++
++### Configuration knobs
++
++| Env var | Default (strict) | Purpose |
++|---|---|---|
++| `ENABLE_STRICT_RATE_LIMITS=1` | off / on | Tightens all rate limits (recommended in production). |
++| `LOGIN_LOCKOUT_THRESHOLD=8` | 20 (8 strict) | Failures before lockout. |
++| `LOGIN_LOCKOUT_WINDOW=3600` | 3600 | Lockout duration in seconds. |
++| `CSRF_TTL=43200` | 12h | CSRF cookie lifetime. |
++| `CLIENT_SHARED_SECRET` | empty | If set, all `/api/*` requests must echo this value in `X-Client-Secret` header. Generate with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. |
++| `TRUSTED_PROXIES` | empty | Comma-separated IPs allowed to set X-Forwarded-For. |
++
++### Production startup validation
++
++If `NODE_ENV=production` and any of `RC_API_TOKEN`, `SESSION_SECRET`, `ADMIN_MOBILE` is missing, the server **refuses to start**. This catches "I forgot to set env vars" deploys.
++
++### Audit log
++
++Every security-relevant event prints `[audit] event_name {...}` to stderr (visible in Render's log stream) and is kept in memory for the last 500 events.
++
++Sample audit lines you'll see:
++```
++[audit] signup_success {"mobile":"9876500001","ip":"127.0.0.1"}
++[audit] login_failed {"mobile":"9876500001","ip":"203.0.113.42"}
++[audit] login_locked {"mobile":"9876500001","ip":"203.0.113.42","reason":"mobile","retryAfter":3600}
++[audit] password_reset {"mobile":"9876500001","ip":"203.0.113.42"}
++[audit] rc_purchase {"mobile":"9876500001","vrn":"RJ14AB1234","price":15,"downloadType":"rc-card","ip":"203.0.113.42"}
++[audit] admin_recharge {"adminMobile":"9999999999","target":"9876500001","amount":100,"ip":"203.0.113.42"}
++[audit] csrf_block {"ip":"203.0.113.42","path":"/api/auth/login"}
++```
++
++## 3. Anti-cloning measures
++
++If someone downloads your repo and tries to host a clone:
++
++1. **They don't get `RC_API_TOKEN`.** The provider will reject their calls. Even if they sign up for their own token, the cloned server won't have admin recharges or transaction history. (You should also rotate the token if it has ever been exposed.)
++2. **They don't get `SESSION_SECRET`.** Sessions on the clone would be invalid (and their sessions wouldn't carry over from your real deployment).
++3. **The clone still works as a generic demo** but won't talk to the real RC provider or honor user balances. Your real customers stay safe because their accounts live in `data/instant-rccard.json` on the *real* server.
++4. **Code is licensed to you.** Add a `LICENSE` file with your chosen terms (MIT/Apache-2.0/proprietary) and a copyright header — this gives you legal standing against clone sites.
++
++For stronger protection:
++
++- **Add `LICENSE`** at the repo root declaring your copyright + license.
++- **Server fingerprinting** — set a non-secret `BUILD_TAG` env var and have the server include it in `X-Powered-By`-style response. Clone operators usually miss these.
++- **Periodic token rotation** — every 90 days, regenerate `RC_API_TOKEN`, `SESSION_SECRET`, and `CLIENT_SHARED_SECRET` (if enabled) in Render's env dashboard and restart. Existing cookies stop working — users have to log in again.
++
++## 4. Render deployment checklist
++
++1. Set all env vars from `.env.example` to real values in Render → Environment.
++2. `SESSION_SECRET`: paste a 64-char hex from `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`.
++3. `RC_API_TOKEN`: paste from your RC provider dashboard. Mark Render's secret as "secret" so it's not exposed in the UI.
++4. `ADMIN_MOBILE`: the 10-digit mobile of the account you want to be admin.
++5. `NODE_ENV=production` — enables fatal-startup validation.
++6. `ENABLE_STRICT_RATE_LIMITS=1` — recommended for public-facing sites.
++7. If you want the SPA to talk to a clone-safe endpoint, also set `CLIENT_SHARED_SECRET`.
++8. After deploy, watch the Render log for `[audit] …` lines during your own login/signup to confirm everything is wired up.
++
++## 5. Reporting issues
++
++Found a security bug? Please email `security@yourdomain` (replace with your real contact). Do not open a public GitHub issue.
+diff --git a/docs/openapi.yaml b/docs/openapi.yaml
+new file mode 100644
+index 0000000..bc5ea94
+--- /dev/null
++++ b/docs/openapi.yaml
+@@ -0,0 +1,352 @@
++openapi: 3.0.3
++info:
++  title: InstantRCcard API
++  version: "1.0.0"
++  description: |
++    Node backend powering instant-rccard.onrender.com. Provides user accounts,
++    wallet/recharge, RC card downloads (proxied from a third-party RC provider),
++    admin controls, and advertisement management.
++
++    Security: session cookie (HttpOnly, SameSite=Lax), CSRF double-submit
++    cookie for unsafe methods, per-IP rate limits, login brute-force lockout,
++    strict CSP/HSTS/CORP headers, audit logging.
++servers:
++  - url: https://instant-rccard.onrender.com
++    description: Production
++  - url: http://localhost:4173
++    description: Local development
++
++security:
++  - sessionCookie: []
++  - csrfToken: []
++
++paths:
++  /api/health:
++    get:
++      summary: Liveness probe
++      security: []
++      responses:
++        "200":
++          description: Server is up
++          content:
++            application/json:
++              schema:
++                type: object
++                properties:
++                  success: { type: boolean }
++                  service: { type: string }
++                  providerConfigured: { type: boolean }
++                  adminConfigured: { type: boolean }
++                  sheetSyncConfigured: { type: boolean }
++                  storage: { type: string }
++
++  /api/public/stats:
++    get:
++      summary: Public counters (users, downloads, rating)
++      security: []
++      responses:
++        "200":
++          description: OK
++          content:
++            application/json:
++              schema:
++                type: object
++                properties:
++                  success: { type: boolean }
++                  users: { type: integer }
++                  downloads: { type: integer }
++                  rating: { type: string }
++                  rcCardPrice: { type: integer }
++
++  /api/ads:
++    get:
++      summary: Active advertisement banners
++      security: []
++      responses:
++        "200":
++          description: OK
++
++  /api/auth/csrf:
++    get:
++      summary: Issue / refresh CSRF token (sets cookie)
++      security: []
++      responses:
++        "200":
++          description: OK
++          headers:
++            Set-Cookie:
++              schema: { type: string }
++              description: instant_rccard_csrf=<token>; Path=/; SameSite=Lax; Max-Age=43200
++          content:
++            application/json:
++              schema:
++                type: object
++                properties:
++                  success: { type: boolean }
++                  csrfToken: { type: string }
++
++  /api/auth/signup:
++    post:
++      summary: Create a new account
++      requestBody:
++        required: true
++        content:
++          application/json:
++            schema:
++              type: object
++              required: [name, email, mobile, password]
++              properties:
++                name: { type: string, minLength: 2 }
++                email: { type: string, format: email }
++                mobile: { type: string, pattern: "^[6-9]\\d{9}$" }
++                password: { type: string, minLength: 6 }
++      responses:
++        "200": { description: Created, headers: { Set-Cookie: { schema: { type: string } } } }
++        "409": { description: Mobile or email already used }
++        "422": { description: Validation error }
++        "429": { description: Rate limited / locked }
++
++  /api/auth/login:
++    post:
++      summary: Log in (mobile or email + password)
++      requestBody:
++        required: true
++        content:
++          application/json:
++            schema:
++              type: object
++              required: [password]
++              properties:
++                username: { type: string, description: "Mobile (10 digits) or email" }
++                password: { type: string }
++      responses:
++        "200": { description: OK, headers: { Set-Cookie: { schema: { type: string } } } }
++        "401": { description: Invalid credentials }
++        "429": { description: Too many failures, locked }
++
++  /api/auth/forgot-password:
++    post:
++      summary: Reset password using email + mobile verification
++      requestBody:
++        required: true
++        content:
++          application/json:
++            schema:
++              type: object
++              required: [email, mobile, newPassword, confirmPassword]
++              properties:
++                email: { type: string, format: email }
++                mobile: { type: string }
++                newPassword: { type: string, minLength: 6 }
++                confirmPassword: { type: string, minLength: 6 }
++      responses:
++        "200": { description: Password reset }
++        "404": { description: Account not found }
++
++  /api/auth/logout:
++    post:
++      summary: Clear session cookie
++      responses:
++        "200": { description: OK }
++
++  /api/auth/session:
++    get:
++      summary: Current session (if any)
++      security: []
++      responses:
++        "200":
++          description: Either user payload or `{ success: false }`.
++
++  /api/account/transactions:
++    get:
++      summary: Last 30 transactions for the logged-in user
++      responses:
++        "200": { description: OK }
++        "401": { description: Not logged in }
++
++  /api/rc/purchase:
++    post:
++      summary: Buy RC card (charges wallet, returns front/back PNG data URLs)
++      requestBody:
++        required: true
++        content:
++          application/json:
++            schema:
++              type: object
++              required: [vrn]
++              properties:
++                vrn: { type: string, description: "Vehicle registration number, e.g. RJ14AB1234" }
++                downloadType:
++                  type: string
++                  enum: [rc-card, mparivahan]
++                  default: mparivahan
++      responses:
++        "200":
++          description: OK or business error (LOW_BALANCE / COMING_SOON)
++          content:
++            application/json:
++              schema:
++                type: object
++                properties:
++                  success: { type: boolean }
++                  code: { type: string, enum: [COMING_SOON, LOW_BALANCE] }
++                  data:
++                    type: object
++                    properties:
++                      vrn: { type: string }
++                      front: { type: string, description: "data:image/...;base64,..." }
++                      back: { type: string }
++                      downloadType: { type: string }
++                  wallet: { type: number }
++                  charged: { type: number }
++                  requiredPrice: { type: number }
++        "401": { description: Not logged in }
++        "422": { description: Invalid VRN }
++
++  /api/admin/users/search:
++    post:
++      summary: (admin) Find a user by mobile or email
++      requestBody:
++        required: true
++        content:
++          application/json:
++            schema:
++              type: object
++              required: [query]
++              properties: { query: { type: string } }
++      responses:
++        "200": { description: OK }
++        "403": { description: Admin only }
++        "404": { description: User not found }
++
++  /api/admin/users/set-rate:
++    post:
++      summary: (admin) Set or clear a per-user RC rate
++      requestBody:
++        required: true
++        content:
++          application/json:
++            schema:
++              type: object
++              required: [query]
++              properties:
++                query: { type: string }
++                price: { type: integer, minimum: 1, maximum: 1000 }
++                clear: { type: boolean }
++      responses:
++        "200": { description: OK }
++
++  /api/admin/recharge:
++    post:
++      summary: (admin) Credit a user's wallet
++      requestBody:
++        required: true
++        content:
++          application/json:
++            schema:
++              type: object
++              required: [mobile, amount]
++              properties:
++                mobile: { type: string }
++                amount: { type: number, minimum: 1, maximum: 100000 }
++                note: { type: string }
++      responses:
++        "200": { description: OK }
++
++  /api/admin/transactions:
++    get:
++      summary: (admin) Last 50 site-wide transactions
++      responses:
++        "200": { description: OK }
++
++  /api/admin/stats:
++    get:
++      summary: (admin) KPI dashboard
++      parameters:
++        - in: query
++          name: from
++          schema: { type: string, format: date }
++        - in: query
++          name: to
++          schema: { type: string, format: date }
++      responses:
++        "200": { description: OK }
++
++  /api/admin/settings/rating:
++    post:
++      summary: (admin) Set public rating
++      requestBody:
++        required: true
++        content:
++          application/json:
++            schema:
++              type: object
++              properties: { rating: { type: string, pattern: "^[0-5](\\.\\d)?$" } }
++
++  /api/admin/settings/baseline:
++    post:
++      summary: (admin) Set public user/download baselines
++      requestBody:
++        required: true
++        content:
++          application/json:
++            schema:
++              type: object
++              properties:
++                usersBaseline: { type: integer, minimum: 0, maximum: 100000000 }
++                downloadsBaseline: { type: integer, minimum: 0, maximum: 100000000 }
++
++  /api/admin/settings/rc-price:
++    post:
++      summary: (admin) Set default RC Card rate
++      requestBody:
++        required: true
++        content:
++          application/json:
++            schema:
++              type: object
++              properties: { price: { type: integer, minimum: 1, maximum: 1000 } }
++
++  /api/admin/ads:
++    get:
++      summary: (admin) List all ads (active + hidden)
++      responses:
++        "200": { description: OK }
++    post:
++      summary: (admin) Add advertisement
++      requestBody:
++        required: true
++        content:
++          application/json:
++            schema:
++              type: object
++              required: [imageData]
++              properties:
++                title: { type: string }
++                imageData: { type: string, description: "data:image/(png|jpeg|webp|gif);base64,..." }
++
++  /api/admin/ads/{id}:
++    parameters:
++      - in: path
++        name: id
++        required: true
++        schema: { type: string }
++    post:
++      summary: (admin) Toggle ad active/inactive
++      responses:
++        "200": { description: OK }
++    delete:
++      summary: (admin) Delete ad
++      responses:
++        "200": { description: OK }
++
++components:
++  securitySchemes:
++    sessionCookie:
++      type: apiKey
++      in: cookie
++      name: instant_rccard_session
++    csrfToken:
++      type: apiKey
++      in: header
++      name: X-CSRF-Token
+diff --git a/docs/postman-collection.json b/docs/postman-collection.json
+new file mode 100644
+index 0000000..5cb3ea1
+--- /dev/null
++++ b/docs/postman-collection.json
+@@ -0,0 +1,285 @@
++{
++  "info": {
++    "name": "InstantRCcard API",
++    "_postman_id": "instant-rccard-2026-01",
++    "description": "Complete API collection for the InstantRCcard Node backend. Includes CSRF bootstrap, auth, account, RC purchase and admin endpoints. Use `baseUrl` variable to switch between local (`http://localhost:4173`) and production (`https://instant-rccard.onrender.com`).",
++    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
++  },
++  "variable": [
++    { "key": "baseUrl", "value": "https://instant-rccard.onrender.com" },
++    { "key": "csrfToken", "value": "" },
++    { "key": "sessionCookie", "value": "" },
++    { "key": "adminMobile", "value": "9999999999" }
++  ],
++  "item": [
++    {
++      "name": "Health & public",
++      "item": [
++        {
++          "name": "GET /api/health",
++          "request": {
++            "method": "GET",
++            "header": [],
++            "url": { "raw": "{{baseUrl}}/api/health", "host": ["{{baseUrl}}"], "path": ["api", "health"] }
++          }
++        },
++        {
++          "name": "GET /api/public/stats",
++          "request": {
++            "method": "GET",
++            "header": [],
++            "url": { "raw": "{{baseUrl}}/api/public/stats", "host": ["{{baseUrl}}"], "path": ["api", "public", "stats"] }
++          }
++        },
++        {
++          "name": "GET /api/ads",
++          "request": {
++            "method": "GET",
++            "header": [],
++            "url": { "raw": "{{baseUrl}}/api/ads", "host": ["{{baseUrl}}"], "path": ["api", "ads"] }
++          }
++        },
++        {
++          "name": "GET /api/auth/csrf (bootstrap token)",
++          "event": [
++            { "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.collectionVariables.set('csrfToken', pm.response.json().csrfToken);"] } }
++          ],
++          "request": {
++            "method": "GET",
++            "header": [],
++            "url": { "raw": "{{baseUrl}}/api/auth/csrf", "host": ["{{baseUrl}}"], "path": ["api", "auth", "csrf"] }
++          }
++        }
++      ]
++    },
++    {
++      "name": "Auth",
++      "item": [
++        {
++          "name": "POST /api/auth/signup",
++          "request": {
++            "method": "POST",
++            "header": [
++              { "key": "Content-Type", "value": "application/json" },
++              { "key": "X-CSRF-Token", "value": "{{csrfToken}}" }
++            ],
++            "body": {
++              "mode": "raw",
++              "raw": "{\n  \"name\": \"Asha Test\",\n  \"email\": \"asha+{{$randomInt}}@example.com\",\n  \"mobile\": \"98765{{$randomInt}}\",\n  \"password\": \"testpass123\"\n}"
++            },
++            "url": { "raw": "{{baseUrl}}/api/auth/signup", "host": ["{{baseUrl}}"], "path": ["api", "auth", "signup"] }
++          }
++        },
++        {
++          "name": "POST /api/auth/login",
++          "request": {
++            "method": "POST",
++            "header": [
++              { "key": "Content-Type", "value": "application/json" },
++              { "key": "X-CSRF-Token", "value": "{{csrfToken}}" }
++            ],
++            "body": {
++              "mode": "raw",
++              "raw": "{\n  \"username\": \"9876500001\",\n  \"password\": \"testpass123\"\n}"
++            },
++            "url": { "raw": "{{baseUrl}}/api/auth/login", "host": ["{{baseUrl}}"], "path": ["api", "auth", "login"] }
++          }
++        },
++        {
++          "name": "POST /api/auth/forgot-password",
++          "request": {
++            "method": "POST",
++            "header": [
++              { "key": "Content-Type", "value": "application/json" },
++              { "key": "X-CSRF-Token", "value": "{{csrfToken}}" }
++            ],
++            "body": {
++              "mode": "raw",
++              "raw": "{\n  \"email\": \"asha@example.com\",\n  \"mobile\": \"9876500001\",\n  \"newPassword\": \"newpass123\",\n  \"confirmPassword\": \"newpass123\"\n}"
++            },
++            "url": { "raw": "{{baseUrl}}/api/auth/forgot-password", "host": ["{{baseUrl}}"], "path": ["api", "auth", "forgot-password"] }
++          }
++        },
++        {
++          "name": "POST /api/auth/logout",
++          "request": {
++            "method": "POST",
++            "header": [{ "key": "X-CSRF-Token", "value": "{{csrfToken}}" }],
++            "url": { "raw": "{{baseUrl}}/api/auth/logout", "host": ["{{baseUrl}}"], "path": ["api", "auth", "logout"] }
++          }
++        },
++        {
++          "name": "GET /api/auth/session",
++          "request": {
++            "method": "GET",
++            "header": [],
++            "url": { "raw": "{{baseUrl}}/api/auth/session", "host": ["{{baseUrl}}"], "path": ["api", "auth", "session"] }
++          }
++        }
++      ]
++    },
++    {
++      "name": "Account",
++      "item": [
++        {
++          "name": "GET /api/account/transactions",
++          "request": {
++            "method": "GET",
++            "header": [],
++            "url": { "raw": "{{baseUrl}}/api/account/transactions", "host": ["{{baseUrl}}"], "path": ["api", "account", "transactions"] }
++          }
++        }
++      ]
++    },
++    {
++      "name": "RC purchase",
++      "item": [
++        {
++          "name": "POST /api/rc/purchase (rc-card)",
++          "request": {
++            "method": "POST",
++            "header": [
++              { "key": "Content-Type", "value": "application/json" },
++              { "key": "X-CSRF-Token", "value": "{{csrfToken}}" }
++            ],
++            "body": {
++              "mode": "raw",
++              "raw": "{\n  \"vrn\": \"RJ14AB1234\",\n  \"downloadType\": \"rc-card\"\n}"
++            },
++            "url": { "raw": "{{baseUrl}}/api/rc/purchase", "host": ["{{baseUrl}}"], "path": ["api", "rc", "purchase"] }
++          }
++        },
++        {
++          "name": "POST /api/rc/purchase (mparivahan - Coming Soon)",
++          "request": {
++            "method": "POST",
++            "header": [
++              { "key": "Content-Type", "value": "application/json" },
++              { "key": "X-CSRF-Token", "value": "{{csrfToken}}" }
++            ],
++            "body": {
++              "mode": "raw",
++              "raw": "{\n  \"vrn\": \"RJ14AB1234\",\n  \"downloadType\": \"mparivahan\"\n}"
++            },
++            "url": { "raw": "{{baseUrl}}/api/rc/purchase", "host": ["{{baseUrl}}"], "path": ["api", "rc", "purchase"] }
++          }
++        }
++      ]
++    },
++    {
++      "name": "Admin (requires role=admin)",
++      "item": [
++        {
++          "name": "POST /api/admin/users/search",
++          "request": {
++            "method": "POST",
++            "header": [
++              { "key": "Content-Type", "value": "application/json" },
++              { "key": "X-CSRF-Token", "value": "{{csrfToken}}" }
++            ],
++            "body": {
++              "mode": "raw",
++              "raw": "{\n  \"query\": \"9876500001\"\n}"
++            },
++            "url": { "raw": "{{baseUrl}}/api/admin/users/search", "host": ["{{baseUrl}}"], "path": ["api", "admin", "users", "search"] }
++          }
++        },
++        {
++          "name": "POST /api/admin/users/set-rate",
++          "request": {
++            "method": "POST",
++            "header": [
++              { "key": "Content-Type", "value": "application/json" },
++              { "key": "X-CSRF-Token", "value": "{{csrfToken}}" }
++            ],
++            "body": {
++              "mode": "raw",
++              "raw": "{\n  \"query\": \"9876500001\",\n  \"price\": 12\n}"
++            },
++            "url": { "raw": "{{baseUrl}}/api/admin/users/set-rate", "host": ["{{baseUrl}}"], "path": ["api", "admin", "users", "set-rate"] }
++          }
++        },
++        {
++          "name": "POST /api/admin/recharge",
++          "request": {
++            "method": "POST",
++            "header": [
++              { "key": "Content-Type", "value": "application/json" },
++              { "key": "X-CSRF-Token", "value": "{{csrfToken}}" }
++            ],
++            "body": {
++              "mode": "raw",
++              "raw": "{\n  \"mobile\": \"9876500001\",\n  \"amount\": 100,\n  \"note\": \"Test topup\"\n}"
++            },
++            "url": { "raw": "{{baseUrl}}/api/admin/recharge", "host": ["{{baseUrl}}"], "path": ["api", "admin", "recharge"] }
++          }
++        },
++        {
++          "name": "GET /api/admin/transactions",
++          "request": {
++            "method": "GET",
++            "header": [],
++            "url": { "raw": "{{baseUrl}}/api/admin/transactions", "host": ["{{baseUrl}}"], "path": ["api", "admin", "transactions"] }
++          }
++        },
++        {
++          "name": "GET /api/admin/stats",
++          "request": {
++            "method": "GET",
++            "header": [],
++            "url": {
++              "raw": "{{baseUrl}}/api/admin/stats?from=2026-01-01&to=2026-12-31",
++              "host": ["{{baseUrl}}"],
++              "path": ["api", "admin", "stats"],
++              "query": [{ "key": "from", "value": "2026-01-01" }, { "key": "to", "value": "2026-12-31" }]
++            }
++          }
++        },
++        {
++          "name": "POST /api/admin/settings/rating",
++          "request": {
++            "method": "POST",
++            "header": [
++              { "key": "Content-Type", "value": "application/json" },
++              { "key": "X-CSRF-Token", "value": "{{csrfToken}}" }
++            ],
++            "body": { "mode": "raw", "raw": "{\n  \"rating\": \"4.9\"\n}" },
++            "url": { "raw": "{{baseUrl}}/api/admin/settings/rating", "host": ["{{baseUrl}}"], "path": ["api", "admin", "settings", "rating"] }
++          }
++        },
++        {
++          "name": "POST /api/admin/settings/baseline",
++          "request": {
++            "method": "POST",
++            "header": [
++              { "key": "Content-Type", "value": "application/json" },
++              { "key": "X-CSRF-Token", "value": "{{csrfToken}}" }
++            ],
++            "body": { "mode": "raw", "raw": "{\n  \"usersBaseline\": 200000,\n  \"downloadsBaseline\": 171000\n}" },
++            "url": { "raw": "{{baseUrl}}/api/admin/settings/baseline", "host": ["{{baseUrl}}"], "path": ["api", "admin", "settings", "baseline"] }
++          }
++        },
++        {
++          "name": "POST /api/admin/settings/rc-price",
++          "request": {
++            "method": "POST",
++            "header": [
++              { "key": "Content-Type", "value": "application/json" },
++              { "key": "X-CSRF-Token", "value": "{{csrfToken}}" }
++            ],
++            "body": { "mode": "raw", "raw": "{\n  \"price\": 15\n}" },
++            "url": { "raw": "{{baseUrl}}/api/admin/settings/rc-price", "host": ["{{baseUrl}}"], "path": ["api", "admin", "settings", "rc-price"] }
++          }
++        },
++        {
++          "name": "GET /api/admin/ads",
++          "request": {
++            "method": "GET",
++            "header": [],
++            "url": { "raw": "{{baseUrl}}/api/admin/ads", "host": ["{{baseUrl}}"], "path": ["api", "admin", "ads"] }
++          }
++        }
++      ]
++    }
++  ]
++}
+diff --git a/index.html b/index.html
+index 75002d6..600e73d 100644
+--- a/index.html
++++ b/index.html
+@@ -393,6 +393,27 @@
+     .admin-table td { padding: 9px 6px; border-top: 1px solid #eef3fa; white-space: nowrap; }
+     .admin-table .credit { color: var(--green); font-weight: 800; }
+     .admin-table .debit { color: var(--red); font-weight: 800; }
++    .admin-inline-hint { margin-top: 10px; color: #8b9ab0; font-size: 10px; }
++    .admin-link-button { border: 0; padding: 0; color: var(--blue); background: transparent; font: inherit; font-weight: 800; text-decoration: underline; cursor: pointer; }
++    .admin-users-tools { margin-bottom: 12px; }
++    .admin-rate-summary { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
++    .rate-chip { padding: 7px 11px; border: 1px solid #deebfc; border-radius: 999px; color: #7d8ea8; background: #f7faff; font-size: 10px; font-weight: 700; }
++    .rate-chip b { color: var(--blue-950); font-weight: 850; }
++    .admin-bulk-rate { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; padding: 12px; border: 1px solid #deebfc; border-radius: 12px; background: #f8fbff; }
++    .admin-bulk-rate label { display: block; margin-bottom: 6px; color: #70819c; font-size: 10px; font-weight: 800; }
++    .admin-bulk-rate input { width: 130px; height: 40px; padding: 0 10px; border: 1px solid #dfe8f5; border-radius: 9px; color: var(--ink); background: white; font-size: 12px; }
++    .admin-bulk-rate small { flex: 1 1 220px; color: #8b9ab0; font-size: 10px; line-height: 1.45; }
++    .admin-users-table td { white-space: nowrap; vertical-align: middle; }
++    .admin-user-cell { display: block; color: var(--ink); font-size: 11px; font-weight: 800; }
++    .admin-user-sub { display: block; margin-top: 2px; color: #9aaac0; font-size: 9px; }
++    .admin-row-rate { width: 78px; height: 34px; padding: 0 8px; border: 1px solid #dfe8f5; border-radius: 8px; color: var(--ink); background: white; font-size: 11px; font-weight: 700; }
++    .admin-rate-cell { display: flex; align-items: center; gap: 7px; }
++    .admin-rate-actions { display: flex; gap: 6px; }
++    .admin-rate-actions .small-blue { min-width: 62px; min-height: 34px; padding: 0 10px; font-size: 10px; }
++    .rate-state { padding: 3px 7px; border-radius: 999px; font-size: 8px; font-weight: 850; letter-spacing: .04em; }
++    .rate-state.custom { color: #ffffff; background: var(--blue); }
++    .rate-state.default { color: #7d8ea8; background: #eef3fb; }
++    .rate-state.blocked { color: #b1442f; background: #ffe9e4; }
+ 
+     .admin-kpi-section { margin-bottom: 22px; padding: 20px; border: 1px solid #dfe8fb; border-radius: 22px; background: linear-gradient(135deg, #f3f7ff, #eef2ff 60%, #f7f0ff); box-shadow: var(--shadow-soft); }
+     .admin-kpi-heading { display: flex; align-items: end; justify-content: space-between; gap: 15px; margin-bottom: 16px; }
+@@ -506,6 +527,11 @@
+       .admin-result-balance small { text-align: left; }
+       .admin-user-rate-tools { flex-direction: column; align-items: stretch; }
+       .admin-user-rate-tools input, .admin-user-rate-tools .small-blue { width: 100%; }
++      .admin-bulk-rate { flex-direction: column; align-items: stretch; }
++      .admin-bulk-rate input, .admin-bulk-rate .small-blue { width: 100%; }
++      .admin-users-tools > div:first-child { grid-column: 1 / -1; }
++      .admin-users-tools .small-blue { width: 100%; }
++      .admin-rate-cell { flex-wrap: wrap; }
+       .auth-shell { width: calc(100% - 30px); }
+       .trust-stats { grid-template-columns: 1fr 1fr; gap: 7px; }
+       .trust-stat { border-right: 0; padding: 8px 6px; }
+@@ -579,7 +605,7 @@
+ 
+     <header class="topbar" id="topbar" hidden>
+       <a class="brand" href="#app"><span class="brand-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M6 6h12M6 10h8M6 14h6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M16.5 14.5v4M14.5 16.5h4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span><span class="brand-name"><strong>Instant<span>RC</span>card</strong><small>RC DOWNLOAD PLATFORM</small></span></a>
+-      <nav class="topbar-nav"><button class="active" data-scroll="app" type="button">RC Download</button><button data-scroll="transactions" type="button">My history</button><button data-scroll="admin-card" id="admin-nav" type="button" hidden>Admin panel</button></nav>
++      <nav class="topbar-nav"><button class="active" data-scroll="app" type="button">RC Download</button><button data-scroll="transactions" type="button">My history</button><button data-scroll="admin-card" id="admin-nav" type="button" hidden>Admin panel</button><button data-scroll="admin-card" id="admin-rates-nav" type="button" hidden>User rates</button></nav>
+       <div class="top-actions"><button class="install-button compact" id="install-dashboard-button" type="button" hidden>＋ Install app</button><button class="wallet-pill wallet-trigger" id="wallet-top-trigger" type="button" aria-label="Open wallet topup"><span class="wallet-icon">₹</span><span><b id="wallet-amount">₹0</b><small> wallet</small></span></button>
+         <div class="user-menu-wrap" id="user-menu-wrap">
+           <button class="user-menu" id="user-menu-button" type="button" aria-haspopup="true" aria-expanded="false"><span class="avatar" id="avatar">U</span><small id="user-name">User</small><span class="user-menu-caret" aria-hidden="true">▾</span></button>
+@@ -642,18 +668,19 @@
+       <div class="wallet-alert" id="wallet-alert" role="alert" hidden><span class="wallet-alert-icon">!</span><span><b>Recharge your wallet</b><small id="wallet-alert-text">RC Card download ke liye ₹15 wallet balance chahiye.</small></span><button id="close-wallet-alert" type="button" aria-label="Close alert">×</button></div>
+ 
+       <div class="content-grid">
+-        <div class="side-stack"><section class="panel balance-card wallet-card wallet-trigger" id="wallet-card-trigger" role="button" tabindex="0" aria-label="Open wallet topup"><div class="section-label">CURRENT WALLET</div><div class="balance-amount" id="balance-large">₹0</div><p>Tap karke wallet topup request bhejo.</p></section><section class="panel account-card"><div class="card-heading"><h3>Account details</h3></div><div class="account-row"><span class="account-icon">◉</span><span><b id="account-name">User</b><span>Registered name</span></span></div><div class="account-row"><span class="account-icon">⌕</span><span><b id="account-mobile">+91 —</b><span>Mobile account</span></span></div><div class="account-row"><span class="account-icon">@</span><span><b id="account-email">Email not set</b><span>Recovery email</span></span></div><div class="account-row"><span class="account-icon">₹</span><span><b id="account-rc-price">RC Card ₹15</b><span>MParivahan format Coming Soon</span></span></div></section></div>
++        <div class="side-stack"><section class="panel balance-card wallet-card wallet-trigger" id="wallet-card-trigger" role="button" tabindex="0" aria-label="Open wallet topup"><div class="section-label">CURRENT WALLET</div><div class="balance-amount" id="balance-large">₹0</div><p>Tap karke wallet topup request bhejo.</p></section><section class="panel account-card"><div class="card-heading"><h3>Account details</h3></div><div class="account-row"><span class="account-icon">◉</span><span><b id="account-name">User</b><span>Registered name</span></span></div><div class="account-row"><span class="account-icon">⌕</span><span><b id="account-mobile">+91 —</b><span>Mobile account</span></span></div><div class="account-row"><span class="account-icon">@</span><span><b id="account-email">Email not set</b><span>Recovery email</span></span></div><div class="account-row"><span class="account-icon">₹</span><span><b id="account-rc-price">RC Card ₹15</b><span id="account-rc-note">MParavahan format Coming Soon</span></span></div></section></div>
+         <section class="panel transactions-card" id="transactions"><div class="card-heading"><h3>Recent wallet history</h3><button id="refresh-transactions" type="button">Refresh ↻</button></div><div class="transaction-list" id="transaction-list"><div class="empty-list">Abhi koi transaction nahi hai.</div></div></section>
+         <section class="panel admin-card" id="admin-card" hidden>
+           <div class="admin-header"><div><div class="section-label">OWNER ACCESS</div><h3>Admin control center</h3></div><span class="admin-tag">ADMIN ONLY</span></div>
+           <div class="admin-layout">
+             <aside class="admin-sidebar" aria-label="Admin sections">
+               <button class="admin-side-button active" data-admin-section="wallet" type="button">₹ Wallet control</button>
++              <button class="admin-side-button" data-admin-section="users" type="button">◉ Users &amp; rates</button>
+               <button class="admin-side-button" data-admin-section="ads" type="button">▣ Advertisement</button>
+             </aside>
+             <div class="admin-content">
+               <div id="admin-wallet-section">
+-                <div class="admin-tools"><div><label>User mobile ya email</label><input id="admin-search-mobile" type="text" placeholder="9876543210 ya user@email.com" autocomplete="off" /></div><button class="blue-button small-blue" id="admin-search-button" type="button">Find user</button><div><label>Recharge amount ₹</label><input id="admin-amount" type="number" min="1" step="1" placeholder="100" /></div><button class="blue-button small-blue" id="admin-recharge-button" type="button" disabled>Recharge</button></div>
++                <div class="admin-tools"><div><label>User mobile, email ya naam</label><input id="admin-search-mobile" type="text" placeholder="9876543210, user@email.com ya Rahul" autocomplete="off" /></div><button class="blue-button small-blue" id="admin-search-button" type="button">Find user</button><div><label>Recharge amount ₹</label><input id="admin-amount" type="number" min="1" step="1" placeholder="100" /></div><button class="blue-button small-blue" id="admin-recharge-button" type="button" disabled>Recharge</button></div>
+                 <div class="admin-user-result" id="admin-user-result" hidden>
+                   <div>
+                     <h4 id="admin-user-name">User</h4>
+@@ -669,8 +696,48 @@
+                   <button class="ghost-button small-blue" id="admin-user-rate-clear" type="button">Use default</button>
+                   <small id="admin-user-rate-help">Is user ke liye alag rate set karo. Download par yahi rate dikhega aur wallet se yahi deduct hoga.</small>
+                 </div>
++                <div class="admin-inline-hint">Sabhi users ki list ke saath rate set karne ke liye <button class="admin-link-button" type="button" data-goto-admin-section="users">Users &amp; rates</button> tab kholo.</div>
+                 <div class="admin-tx"><h4>Latest platform transactions</h4><div class="table-wrap"><table class="admin-table"><thead><tr><th>TIME</th><th>MOBILE</th><th>TYPE</th><th>AMOUNT</th><th>VRN</th></tr></thead><tbody id="admin-tx-body"><tr><td colspan="5">No transactions yet.</td></tr></tbody></table></div></div>
+               </div>
++              <div id="admin-users-section" hidden>
++                <div class="ads-manager-heading"><div><div class="section-label">USER WISE RC RATE</div><h4>Users aur unka RC Card rate</h4><p>Kisi bhi user ke liye alag RC Card rate set karo. Us user ke download par wahi rate dikhega aur wallet se wahi amount deduct hoga.</p></div></div>
++                <div class="admin-tools admin-users-tools">
++                  <div><label>User search — naam, mobile ya email</label><input id="admin-users-search" type="text" placeholder="Rahul, 9876543210 ya user@email.com" autocomplete="off" /></div>
++                  <button class="blue-button small-blue" id="admin-users-search-button" type="button">Search users</button>
++                  <button class="ghost-button small-blue" id="admin-users-all-button" type="button">Show all</button>
++                  <button class="ghost-button small-blue" id="admin-users-csv-button" type="button">CSV download</button>
++                </div>
++                <div class="admin-rate-summary">
++                  <span class="rate-chip">Default rate <b id="admin-rate-default">₹15</b></span>
++                  <span class="rate-chip">Total users <b id="admin-rate-total-users">0</b></span>
++                  <span class="rate-chip">Custom rate users <b id="admin-rate-custom-users">0</b></span>
++                  <span class="rate-chip" id="admin-rate-match-chip" hidden>Search match <b id="admin-rate-match-count">0</b></span>
++                </div>
++                <div class="admin-bulk-rate">
++                  <div><label>Sabhi users ke liye RC Card rate ₹</label><input id="admin-bulk-rate-input" type="number" min="1" max="1000" step="1" placeholder="15" /></div>
++                  <button class="blue-button small-blue" id="admin-bulk-rate-apply" type="button">Sabhi users par apply karo</button>
++                  <button class="ghost-button small-blue" id="admin-bulk-rate-clear" type="button">Sabhi custom rate hatao</button>
++                  <small>Bulk apply sirf normal users par lagta hai (admin account chhoot jaata hai). Button dobara click karne par hi confirm hota hai.</small>
++                </div>
++                <div class="admin-tx">
++                  <h4>User list — yahin se per-user rate set karo</h4>
++                  <div class="table-wrap">
++                    <table class="admin-table admin-users-table">
++                      <thead><tr><th>USER</th><th>MOBILE</th><th>WALLET</th><th>RC RATE ₹</th><th>RATE ACTION</th><th>STATUS</th></tr></thead>
++                      <tbody id="admin-users-body"><tr><td colspan="6">Users load ho rahe hain…</td></tr></tbody>
++                    </table>
++                  </div>
++                </div>
++                <div class="admin-tx">
++                  <h4>Recent rate changes</h4>
++                  <div class="table-wrap">
++                    <table class="admin-table">
++                      <thead><tr><th>TIME</th><th>USER</th><th>PURANA RATE</th><th>NAYA RATE</th></tr></thead>
++                      <tbody id="admin-rate-log-body"><tr><td colspan="4">Abhi koi rate change nahi hua.</td></tr></tbody>
++                    </table>
++                  </div>
++                </div>
++              </div>
+               <div id="admin-ads-section" hidden>
+                 <div class="ads-manager-heading"><div><div class="section-label">PUBLIC BANNERS</div><h4>Offer ya festival advertisement</h4><p>Image upload karo; active users ke main page par horizontal ticker me show hogi.</p></div></div>
+                 <div class="admin-ad-form"><div><label>Title / short message</label><input id="admin-ad-title" type="text" maxlength="120" placeholder="Diwali offer — RC Card ₹15" /></div><div><label>Banner image</label><input id="admin-ad-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif" /></div><button class="blue-button small-blue" id="admin-ad-upload" type="button">Upload</button></div>
+diff --git a/security.js b/security.js
+new file mode 100644
+index 0000000..6525197
+--- /dev/null
++++ b/security.js
+@@ -0,0 +1,354 @@
++// ============================================================
++// security.js — production-grade hardening for InstantRCcard
++// ------------------------------------------------------------
++//   * Rate limiting (in-memory token bucket, per IP & per route)
++//   * Login brute-force lockout (per mobile + per IP)
++//   * CSRF token (double-submit cookie pattern)
++//   * Request signing / anti-tamper shared secret
++//   * Audit log of sensitive events
++//   * Strict security headers (CSP, HSTS when behind HTTPS)
++//   * Input validation + payload-size guard
++// ============================================================
++//
++// All exports are pure / stateful-but-isolated. Server wires them in.
++// ============================================================
++
++import crypto from 'node:crypto';
++
++// ---------- Configuration ------------------------------------
++
++const STRICT = process.env.ENABLE_STRICT_RATE_LIMITS === '1';
++const LOGIN_LOCKOUT_THRESHOLD = Number(process.env.LOGIN_LOCKOUT_THRESHOLD || (STRICT ? 8 : 20));
++const LOGIN_LOCKOUT_WINDOW = Number(process.env.LOGIN_LOCKOUT_WINDOW || 3600); // seconds
++const CSRF_TTL = Number(process.env.CSRF_TTL || 12 * 60 * 60); // 12h
++const CLIENT_SHARED_SECRET = process.env.CLIENT_SHARED_SECRET || '';
++
++const TRUSTED_PROXIES = new Set(
++  String(process.env.TRUSTED_PROXIES || '')
++    .split(',')
++    .map((s) => s.trim())
++    .filter(Boolean)
++);
++
++// Rate-limit buckets. Keys:
++//   rl:<route>:<bucketKey> -> { count, resetAt }
++// bucketKey is usually client IP. Each bucket auto-resets.
++const buckets = new Map();
++
++// Login failure counters. Keys:
++//   lock:mobile:<mobile>  -> { count, lockedUntil }
++//   lock:ip:<ip>          -> { count, lockedUntil }
++const lockouts = new Map();
++
++// Audit log buffer (in-memory, last N events). Server writes to disk.
++const AUDIT_BUFFER_MAX = 500;
++const auditBuffer = [];
++
++// ---------- Helpers ------------------------------------------
++
++export function clientIp(req, trustProxy = false) {
++  // On Render the platform sets X-Forwarded-For. We only trust it
++  // if the immediate hop is in our trusted-proxy list (production
++  // hardening), otherwise we fall back to the raw socket address.
++  if (trustProxy) {
++    const xff = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
++    if (xff) return xff;
++  }
++  return req.socket?.remoteAddress || '0.0.0.0';
++}
++
++export function uaFingerprint(req) {
++  const ua = String(req.headers['user-agent'] || '').slice(0, 200);
++  return crypto.createHash('sha256').update(ua).digest('hex').slice(0, 16);
++}
++
++function takeToken(map, key, now) {
++  const value = map.get(key);
++  if (!value) return null;
++  if (value.resetAt && value.resetAt < now) {
++    map.delete(key);
++    return null;
++  }
++  return value;
++}
++
++// ---------- Rate limiting ------------------------------------
++
++/**
++ * Per-route, per-IP rate limiter.
++ *   limit  : max requests in windowMs
++ *   windowMs: rolling window
++ *   keyFn  : optional custom key (defaults to IP)
++ */
++export function rateLimit({ route, limit, windowMs, keyFn }) {
++  return function (req, res, next) {
++    const now = Date.now();
++    const ip = clientIp(req, TRUSTED_PROXIES.size > 0);
++    const k = `rl:${route}:${keyFn ? keyFn(req, ip) : ip}`;
++    const bucket = takeToken(buckets, k, now) || { count: 0, resetAt: now + windowMs };
++    bucket.count += 1;
++    buckets.set(k, bucket);
++    const remaining = Math.max(0, limit - bucket.count);
++    res.setHeader('X-RateLimit-Limit', String(limit));
++    res.setHeader('X-RateLimit-Remaining', String(remaining));
++    res.setHeader('X-RateLimit-Reset', String(Math.ceil(bucket.resetAt / 1000)));
++    if (bucket.count > limit) {
++      res.setHeader('Retry-After', String(Math.ceil((bucket.resetAt - now) / 1000)));
++      const body = JSON.stringify({ success: false, code: 'RATE_LIMITED', message: 'Too many requests. Thodi der baad try karo.' });
++      try {
++        res.writeHead(429, {
++          'Content-Type': 'application/json; charset=utf-8',
++          'Content-Length': Buffer.byteLength(body)
++        });
++      } catch {}
++      try { res.end(body); } catch {}
++      return;
++    }
++    next();
++  };
++}
++
++// ---------- Login lockout ------------------------------------
++
++export function isLoginLocked(mobile, ip) {
++  const now = Date.now();
++  const mobileEntry = lockouts.get(`lock:mobile:${mobile}`);
++  if (mobileEntry && mobileEntry.lockedUntil > now) return { reason: 'mobile', until: mobileEntry.lockedUntil };
++  const ipEntry = lockouts.get(`lock:ip:${ip}`);
++  if (ipEntry && ipEntry.lockedUntil > now) return { reason: 'ip', until: ipEntry.lockedUntil };
++  return null;
++}
++
++export function recordLoginFailure(mobile, ip) {
++  const now = Date.now();
++  const windowMs = LOGIN_LOCKOUT_WINDOW * 1000;
++  for (const key of [`lock:mobile:${mobile}`, `lock:ip:${ip}`]) {
++    const entry = lockouts.get(key) || { count: 0, firstFailureAt: 0, lockedUntil: 0 };
++    // If the previous failure window has elapsed, reset the counter.
++    if (!entry.firstFailureAt || now - entry.firstFailureAt > windowMs) {
++      entry.count = 0;
++      entry.firstFailureAt = now;
++      entry.lockedUntil = 0;
++    }
++    entry.count += 1;
++    if (entry.count >= LOGIN_LOCKOUT_THRESHOLD) {
++      entry.lockedUntil = now + windowMs;
++      // Keep `count` so we don't keep extending the lockout on every
++      // additional attempt inside the window.
++    }
++    lockouts.set(key, entry);
++  }
++}
++
++export function recordLoginSuccess(mobile, ip) {
++  lockouts.delete(`lock:mobile:${mobile}`);
++  lockouts.delete(`lock:ip:${ip}`);
++}
++
++export function lockoutSecondsRemaining(mobile, ip) {
++  const now = Date.now();
++  const candidates = [lockouts.get(`lock:mobile:${mobile}`), lockouts.get(`lock:ip:${ip}`)]
++    .filter(Boolean)
++    .map((e) => e.lockedUntil)
++    .filter((t) => t > now);
++  if (!candidates.length) return 0;
++  return Math.max(...candidates) - now;
++}
++
++// ---------- CSRF (double-submit cookie) ----------------------
++
++export function csrfCookieName() {
++  return 'instant_rccard_csrf';
++}
++
++export function issueCsrfToken(res) {
++  const token = crypto.randomBytes(24).toString('base64url');
++  const cookie = `${csrfCookieName()}=${token}; Path=/; SameSite=Lax; Max-Age=${CSRF_TTL}`;
++  return { token, cookie };
++}
++
++export function setCsrfCookie(res, token) {
++  res.setHeader('Set-Cookie', `${csrfCookieName()}=${token}; Path=/; SameSite=Lax; Max-Age=${CSRF_TTL}`);
++}
++
++export function verifyCsrf(req, expectedToken) {
++  if (!expectedToken) return false;
++  const headerToken = String(req.headers['x-csrf-token'] || '');
++  if (!headerToken) return false;
++  if (headerToken.length !== expectedToken.length) return false;
++  try {
++    return crypto.timingSafeEqual(Buffer.from(headerToken), Buffer.from(expectedToken));
++  } catch {
++    return false;
++  }
++}
++
++export function csrfCookieFromHeader(req) {
++  const raw = String(req.headers.cookie || '');
++  const parts = raw.split(';').map((p) => p.trim());
++  for (const p of parts) {
++    const i = p.indexOf('=');
++    if (i < 0) continue;
++    if (p.slice(0, i) === csrfCookieName()) return decodeURIComponent(p.slice(i + 1));
++  }
++  return '';
++}
++
++export function csrfMiddleware(req, res, next) {
++  const cookieToken = csrfCookieFromHeader(req);
++  const headerToken = String(req.headers['x-csrf-token'] || '');
++  // Bootstrap path: client may have no cookie yet. /api/auth/csrf
++  // will issue one and exit.
++  const method = String(req.method || 'GET').toUpperCase();
++  if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS' || req.url === '/api/auth/csrf') {
++    if (!cookieToken) {
++      const { token, cookie } = issueCsrfToken(res);
++      // Defer Set-Cookie until writeHead so it survives JSON send wrappers.
++      req._pendingCookies = req._pendingCookies || [];
++      req._pendingCookies.push(cookie);
++      res.setHeader('X-CSRF-Token', token);
++    }
++    return next();
++  }
++  // For unsafe methods (POST/PUT/DELETE/PATCH) require both.
++  if (!cookieToken || !headerToken) {
++    return csrfDeny(res, 'CSRF_MISSING', 'CSRF token missing.');
++  }
++  if (cookieToken.length !== headerToken.length) {
++    return csrfDeny(res, 'CSRF_MISMATCH', 'CSRF token invalid.');
++  }
++  try {
++    if (!crypto.timingSafeEqual(Buffer.from(cookieToken), Buffer.from(headerToken))) {
++      return csrfDeny(res, 'CSRF_MISMATCH', 'CSRF token invalid.');
++    }
++  } catch {
++    return csrfDeny(res, 'CSRF_MISMATCH', 'CSRF token invalid.');
++  }
++  next();
++}
++
++function csrfDeny(res, code, message) {
++  const body = JSON.stringify({ success: false, code, message });
++  try {
++    res.writeHead(403, {
++      'Content-Type': 'application/json; charset=utf-8',
++      'Content-Length': Buffer.byteLength(body)
++    });
++  } catch {}
++  try { res.end(body); } catch {}
++}
++
++export function pendingCookies(req) {
++  return req && Array.isArray(req._pendingCookies) ? req._pendingCookies : [];
++}
++
++// ---------- Anti-tamper shared secret ------------------------
++
++export function sharedSecretMiddleware(req, res, next) {
++  if (!CLIENT_SHARED_SECRET) return next(); // disabled
++  const provided = String(req.headers['x-client-secret'] || '');
++  const deny = () => {
++    const body = JSON.stringify({ success: false, code: 'SECRET_MISMATCH', message: 'Client secret invalid.' });
++    try {
++      res.writeHead(401, {
++        'Content-Type': 'application/json; charset=utf-8',
++        'Content-Length': Buffer.byteLength(body)
++      });
++    } catch {}
++    try { res.end(body); } catch {}
++  };
++  if (provided.length !== CLIENT_SHARED_SECRET.length) return deny();
++  try {
++    if (!crypto.timingSafeEqual(Buffer.from(provided), Buffer.from(CLIENT_SHARED_SECRET))) return deny();
++  } catch {
++    return deny();
++  }
++  next();
++}
++
++// ---------- Audit log ----------------------------------------
++
++export function audit(event, details = {}) {
++  const entry = {
++    time: new Date().toISOString(),
++    event,
++    ...details
++  };
++  auditBuffer.push(entry);
++  if (auditBuffer.length > AUDIT_BUFFER_MAX) auditBuffer.splice(0, auditBuffer.length - AUDIT_BUFFER_MAX);
++  // Mirror to stderr so the platform log captures it.
++  try { console.warn(`[audit] ${event} ${JSON.stringify(details)}`); } catch {}
++}
++
++export function getRecentAudit(limit = 50) {
++  return auditBuffer.slice(-limit).reverse();
++}
++
++// ---------- Security headers ---------------------------------
++
++export function hardenedSecurityHeaders(isHttps = false) {
++  const headers = {
++    'X-Content-Type-Options': 'nosniff',
++    'X-Frame-Options': 'DENY',
++    'Referrer-Policy': 'no-referrer',
++    'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), interest-cohort=()',
++    'Cross-Origin-Opener-Policy': 'same-origin',
++    'Cross-Origin-Resource-Policy': 'same-origin',
++    'X-Permitted-Cross-Domain-Policies': 'none',
++    // Strict CSP. We only load self + inline data: images.
++    "Content-Security-Policy": [
++      "default-src 'self'",
++      "base-uri 'self'",
++      "form-action 'self'",
++      "object-src 'none'",
++      "frame-ancestors 'none'",
++      "img-src 'self' data: blob:",
++      "style-src 'self' 'unsafe-inline'",
++      "script-src 'self'",
++      "connect-src 'self'",
++      "font-src 'self' data:",
++      "manifest-src 'self'"
++    ].join('; ')
++  };
++  if (isHttps) {
++    headers['Strict-Transport-Security'] = 'max-age=63072000; includeSubDomains; preload';
++  }
++  return headers;
++}
++
++// ---------- Body validation ----------------------------------
++
++export const MAX_BODY_BYTES = 2_000_000; // 2 MB
++
++export async function readJsonSafe(req) {
++  const chunks = [];
++  let total = 0;
++  for await (const chunk of req) {
++    total += chunk.length;
++    if (total > MAX_BODY_BYTES) {
++      throw Object.assign(new Error('Request too large'), { status: 413, code: 'PAYLOAD_TOO_LARGE' });
++    }
++    chunks.push(chunk);
++  }
++  if (!chunks.length) return {};
++  const raw = Buffer.concat(chunks).toString('utf8').trim();
++  if (!raw) return {};
++  try {
++    return JSON.parse(raw);
++  } catch {
++    throw Object.assign(new Error('Invalid JSON body'), { status: 400, code: 'INVALID_JSON' });
++  }
++}
++
++// ---------- Misc ---------------------------------------------
++
++export function timingSafeEqualStr(a, b) {
++  const aa = Buffer.from(String(a));
++  const bb = Buffer.from(String(b));
++  if (aa.length !== bb.length) return false;
++  try { return crypto.timingSafeEqual(aa, bb); } catch { return false; }
++}
++
++export function constantTimeStringCompare(a, b) {
++  return timingSafeEqualStr(a, b);
++}
+diff --git a/server.js b/server.js
+index 6b72703..fdb0041 100644
+--- a/server.js
++++ b/server.js
+@@ -3,6 +3,21 @@ import fs from 'node:fs/promises';
+ import path from 'node:path';
+ import { fileURLToPath } from 'node:url';
+ import crypto from 'node:crypto';
++import {
++  clientIp as secClientIp,
++  rateLimit,
++  csrfMiddleware,
++  csrfCookieFromHeader,
++  issueCsrfToken,
++  pendingCookies,
++  sharedSecretMiddleware,
++  audit,
++  hardenedSecurityHeaders,
++  isLoginLocked,
++  recordLoginFailure,
++  recordLoginSuccess,
++  lockoutSecondsRemaining
++} from './security.js';
+ 
+ const __dirname = path.dirname(fileURLToPath(import.meta.url));
+ const publicDir = path.join(__dirname, 'public');
+@@ -37,7 +52,7 @@ const MIME_TYPES = {
+   '.ico': 'image/x-icon'
+ };
+ 
+-let db = { users: [], transactions: [], ads: [], settings: {} };
++let db = { users: [], transactions: [], ads: [], settings: {}, rateLog: [] };
+ let mutationQueue = Promise.resolve();
+ let sheetSyncQueue = Promise.resolve();
+ 
+@@ -71,12 +86,19 @@ function defaultRcCardPrice() {
+   return settingsNumber('rcCardPrice');
+ }
+ 
++function customRcCardPrice(user) {
++  if (!user || user.rcCardPrice == null || user.rcCardPrice === '') return null;
++  const value = Number(user.rcCardPrice);
++  return Number.isFinite(value) && value >= 1 ? Math.round(value) : null;
++}
++
++function hasCustomRcCardRate(user) {
++  return customRcCardPrice(user) != null;
++}
++
+ function userRcCardPrice(user) {
+-  const custom = user && user.rcCardPrice != null && user.rcCardPrice !== ''
+-    ? Number(user.rcCardPrice)
+-    : NaN;
+-  if (Number.isFinite(custom) && custom >= 1) return Math.round(custom);
+-  return defaultRcCardPrice();
++  const custom = customRcCardPrice(user);
++  return custom == null ? defaultRcCardPrice() : custom;
+ }
+ 
+ function priceForDownload(downloadType, user) {
+@@ -86,8 +108,7 @@ function priceForDownload(downloadType, user) {
+ 
+ function publicUser(user) {
+   const rcCard = userRcCardPrice(user);
+-  const hasCustom = user && user.rcCardPrice != null && user.rcCardPrice !== ''
+-    && Number.isFinite(Number(user.rcCardPrice)) && Number(user.rcCardPrice) >= 1;
++  const custom = customRcCardPrice(user);
+   return {
+     name: user.name,
+     email: user.email || '',
+@@ -95,7 +116,7 @@ function publicUser(user) {
+     wallet: Number(user.wallet || 0),
+     role: user.role,
+     pricePerRc: RC_PRICES.mparivahan,
+-    customRcCardPrice: hasCustom ? Math.round(Number(user.rcCardPrice)) : null,
++    customRcCardPrice: custom,
+     prices: {
+       mparivahan: RC_PRICES.mparivahan,
+       rcCard
+@@ -103,29 +124,115 @@ function publicUser(user) {
+   };
+ }
+ 
+-function securityHeaders() {
++// Admin ke "Users & rates" section ke liye extra detail (wallet, status, created date).
++function publicAdminUser(user) {
++  const custom = customRcCardPrice(user);
+   return {
+-    'X-Content-Type-Options': 'nosniff',
+-    'X-Frame-Options': 'SAMEORIGIN',
+-    'Referrer-Policy': 'strict-origin-when-cross-origin',
+-    'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+-    'Content-Security-Policy': "default-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'"
++    ...publicUser(user),
++    active: user.active !== false,
++    createdAt: user.createdAt || '',
++    lastLogin: user.lastLogin || '',
++    rateUpdatedAt: user.rcRateUpdatedAt || '',
++    rateUpdatedBy: user.rcRateUpdatedBy || '',
++    rate: userRcCardPrice(user),
++    customRate: custom,
++    hasCustomRate: custom != null
+   };
+ }
+ 
+-function sendJson(res, status, payload, extraHeaders = {}) {
++function appendRateLog(admin, user, from, to) {
++  if (!Array.isArray(db.rateLog)) db.rateLog = [];
++  db.rateLog.push({
++    id: crypto.randomUUID(),
++    time: new Date().toISOString(),
++    adminMobile: admin ? admin.mobile : '',
++    mobile: user.mobile,
++    name: user.name || '',
++    from: from == null ? null : from,
++    to: to == null ? null : to
++  });
++  if (db.rateLog.length > 300) db.rateLog = db.rateLog.slice(-300);
++}
++
++// Ek user ka RC Card rate set/clear karta hai + audit log + Sheet sync queue karta hai.
++function applyUserRate(admin, user, { price, clear }) {
++  const from = customRcCardPrice(user);
++  let to = null;
++  if (!clear) {
++    const value = Number(price);
++    if (!Number.isFinite(value) || value < 1 || value > 1000) {
++      return { ok: false, status: 422, message: 'RC rate ₹1 se ₹1000 ke beech hona chahiye.' };
++    }
++    to = Math.round(value);
++  }
++  user.rcCardPrice = to;
++  user.rcRateUpdatedAt = new Date().toISOString();
++  user.rcRateUpdatedBy = admin ? admin.mobile : '';
++  appendRateLog(admin, user, from, to);
++  queueSheetSync('user', sheetUserPayload(user));
++  return { ok: true, from, to };
++}
++
++// Naam, mobile ya email ke partial match se users dhoondta hai (admin list ke liye).
++function searchAdminUsers(query) {
++  const raw = String(query ?? '').trim().toLowerCase();
++  if (!raw) return db.users.slice();
++  const digits = normalizeMobile(raw);
++  return db.users.filter((user) => {
++    if (String(user.name || '').toLowerCase().includes(raw)) return true;
++    if (String(user.email || '').toLowerCase().includes(raw)) return true;
++    if (String(user.mobile || '').includes(raw)) return true;
++    return Boolean(digits && digits.length >= 3 && String(user.mobile || '').includes(digits));
++  });
++}
++
++function sortAdminUsers(users) {
++  return users.slice().sort((a, b) => {
++    if ((a.role === 'admin') !== (b.role === 'admin')) return a.role === 'admin' ? -1 : 1;
++    return String(b.createdAt || '').localeCompare(String(a.createdAt || ''));
++  });
++}
++
++// Mobile/email/naam teeno se user resolve karta hai; ambiguous naam par saaf message deta hai.
++function resolveAdminUserQuery(query) {
++  const raw = String(query ?? '').trim();
++  if (!raw) return { status: 422, message: 'User ka mobile number, email ya naam daalo.' };
++  const direct = findUserByQuery(raw);
++  if (direct) return { user: direct };
++  const matches = searchAdminUsers(raw);
++  if (matches.length === 1) return { user: matches[0] };
++  if (matches.length > 1) {
++    return { status: 422, message: `"${raw}" se ${matches.length} users mile. Exact mobile/email daalo ya "Users & rates" tab me sahi user choose karo.` };
++  }
++  return { status: 404, message: 'Is mobile/email/naam ka account nahi mila.' };
++}
++
++function securityHeaders(req) {
++  // Behind Render the request is HTTPS-terminated by the platform,
++  // so we can safely emit HSTS in production.
++  const isHttps = req ? (String(req.headers?.['x-forwarded-proto'] || '').toLowerCase() === 'https'
++    || req.socket?.encrypted === true) : false;
++  return hardenedSecurityHeaders(isHttps);
++}
++
++function sendJson(req, res, status, payload, extraHeaders = {}) {
+   const body = JSON.stringify(payload);
++  // Merge any pending Set-Cookie values collected by middleware
++  // (e.g. CSRF bootstrap) so they survive the final writeHead.
++  const pending = req ? pendingCookies(req) : [];
++  const cookieHeaders = pending.length ? { 'Set-Cookie': pending } : {};
+   res.writeHead(status, {
+     'Content-Type': 'application/json; charset=utf-8',
+     'Content-Length': Buffer.byteLength(body),
+-    ...securityHeaders(),
++    ...securityHeaders(req),
++    ...cookieHeaders,
+     ...extraHeaders
+   });
+   res.end(body);
+ }
+ 
+-function sendError(res, status, message, code) {
+-  return sendJson(res, status, { success: false, message, ...(code ? { code } : {}) });
++function sendError(req, res, status, message, code) {
++  return sendJson(req, res, status, { success: false, message, ...(code ? { code } : {}) });
+ }
+ 
+ async function readJson(req) {
+@@ -153,11 +260,12 @@ async function loadDatabase() {
+       users: Array.isArray(parsed.users) ? parsed.users : [],
+       transactions: Array.isArray(parsed.transactions) ? parsed.transactions : [],
+       ads: Array.isArray(parsed.ads) ? parsed.ads : [],
+-      settings: parsed.settings && typeof parsed.settings === 'object' ? parsed.settings : {}
++      settings: parsed.settings && typeof parsed.settings === 'object' ? parsed.settings : {},
++      rateLog: Array.isArray(parsed.rateLog) ? parsed.rateLog : []
+     };
+   } catch (error) {
+     if (error.code !== 'ENOENT') throw error;
+-    db = { users: [], transactions: [], ads: [], settings: {} };
++    db = { users: [], transactions: [], ads: [], settings: {}, rateLog: [] };
+     await persistDatabase();
+   }
+ }
+@@ -459,20 +567,21 @@ async function handleSignup(req, res) {
+   const email = normalizeEmail(body.email);
+   const mobile = normalizeMobile(body.mobile);
+   const password = String(body.password || '');
+-  if (name.length < 2) return sendError(res, 422, 'Apna naam enter karo.');
+-  if (!validEmail(email)) return sendError(res, 422, 'Valid email address daalo.');
+-  if (!validMobile(mobile)) return sendError(res, 422, 'Valid 10-digit mobile number daalo.');
+-  if (password.length < 6) return sendError(res, 422, 'Password minimum 6 characters ka hona chahiye.');
++  if (name.length < 2) return sendError(req, res, 422, 'Apna naam enter karo.');
++  if (!validEmail(email)) return sendError(req, res, 422, 'Valid email address daalo.');
++  if (!validMobile(mobile)) return sendError(req, res, 422, 'Valid 10-digit mobile number daalo.');
++  if (password.length < 6) return sendError(req, res, 422, 'Password minimum 6 characters ka hona chahiye.');
+ 
+   return withMutationLock(async () => {
+-    if (findUser(mobile)) return sendError(res, 409, 'Is mobile number ka account pehle se bana hua hai.');
++    if (findUser(mobile)) return sendError(req, res, 409, 'Is mobile number ka account pehle se bana hua hai.');
+     const salt = crypto.randomBytes(16).toString('hex');
+-    if (findUserByEmail(email)) return sendError(res, 409, 'Is email ka account pehle se bana hua hai.');
++    if (findUserByEmail(email)) return sendError(req, res, 409, 'Is email ka account pehle se bana hua hai.');
+     const user = { id: crypto.randomUUID(), name, email, mobile, salt, passwordHash: passwordHash(password, salt), wallet: 0, rcCardPrice: null, role: ADMIN_MOBILE && mobile === ADMIN_MOBILE ? 'admin' : 'user', createdAt: new Date().toISOString(), lastLogin: new Date().toISOString(), active: true };
+     db.users.push(user);
+     await persistDatabase();
+     queueSheetSync('user', sheetUserPayload(user));
+-    return sendJson(res, 200, { success: true, user: publicUser(user) }, { 'Set-Cookie': authCookie(user.id) });
++    audit('signup_success', { mobile, ip: secClientIp(req) });
++    return sendJson(req, res, 200, { success: true, user: publicUser(user) }, { 'Set-Cookie': authCookie(user.id) });
+   });
+ }
+ 
+@@ -490,15 +599,30 @@ async function handleLogin(req, res) {
+     if (validMobile(mobile)) user = findUser(mobile);
+     else if (validEmail(email)) user = findUserByEmail(email);
+   }
+-  if (!password) return sendError(res, 422, 'Mobile/email aur password enter karo.');
++  if (!password) return sendError(req, res, 422, 'Mobile/email aur password enter karo.');
++
++  // Brute-force lockout (per mobile + per IP).
++  const targetMobile = user ? user.mobile : (normalizeMobile(username) || 'unknown');
++  const ip = secClientIp(req);
++  const lock = isLoginLocked(targetMobile, ip);
++  if (lock) {
++    const retry = Math.ceil(lockoutSecondsRemaining(targetMobile, ip) / 1000);
++    audit('login_locked', { mobile: targetMobile, ip, reason: lock.reason, retryAfter: retry });
++    return sendError(req, res, 429, `Bahut zyada failed attempts. ${Math.ceil(retry / 60)} min baad try karo.`);
++  }
++
+   user = syncAdminRole(user);
+   if (!user || !user.active || !passwordMatches(password, user)) {
+-    return sendError(res, 401, 'Mobile number, email ya password galat hai.');
++    recordLoginFailure(targetMobile, ip);
++    audit('login_failed', { mobile: targetMobile, ip });
++    return sendError(req, res, 401, 'Mobile number, email ya password galat hai.');
+   }
++  recordLoginSuccess(targetMobile, ip);
+   user.lastLogin = new Date().toISOString();
+   await persistDatabase();
+   queueSheetSync('user', sheetUserPayload(user));
+-  return sendJson(res, 200, { success: true, user: publicUser(user) }, { 'Set-Cookie': authCookie(user.id) });
++  audit('login_success', { mobile: targetMobile, ip });
++  return sendJson(req, res, 200, { success: true, user: publicUser(user) }, { 'Set-Cookie': authCookie(user.id) });
+ }
+ 
+ async function handleForgotPassword(req, res) {
+@@ -507,14 +631,14 @@ async function handleForgotPassword(req, res) {
+   const mobile = normalizeMobile(body.mobile);
+   const newPassword = String(body.newPassword || '');
+   const confirmPassword = String(body.confirmPassword || '');
+-  if (!validEmail(email) || !validMobile(mobile)) return sendError(res, 422, 'Valid email aur 10-digit mobile number daalo.');
+-  if (newPassword.length < 6) return sendError(res, 422, 'New password minimum 6 characters ka hona chahiye.');
+-  if (newPassword !== confirmPassword) return sendError(res, 422, 'New password aur confirm password match nahi karte.');
++  if (!validEmail(email) || !validMobile(mobile)) return sendError(req, res, 422, 'Valid email aur 10-digit mobile number daalo.');
++  if (newPassword.length < 6) return sendError(req, res, 422, 'New password minimum 6 characters ka hona chahiye.');
++  if (newPassword !== confirmPassword) return sendError(req, res, 422, 'New password aur confirm password match nahi karte.');
+ 
+   return withMutationLock(async () => {
+     const user = findUser(mobile);
+     if (!user || !user.active || (user.email && user.email !== email)) {
+-      return sendError(res, 404, 'Email aur mobile se account verify nahi ho paaya.');
++      return sendError(req, res, 404, 'Email aur mobile se account verify nahi ho paaya.');
+     }
+     const salt = crypto.randomBytes(16).toString('hex');
+     user.email = email;
+@@ -523,27 +647,28 @@ async function handleForgotPassword(req, res) {
+     user.lastLogin = new Date().toISOString();
+     await persistDatabase();
+     queueSheetSync('user', sheetUserPayload(user));
+-    return sendJson(res, 200, { success: true, message: 'Password reset successful. Ab naye password se login karo.' });
++    audit('password_reset', { mobile, ip: secClientIp(req) });
++    return sendJson(req, res, 200, { success: true, message: 'Password reset successful. Ab naye password se login karo.' });
+   });
+ }
+ 
+ async function handlePurchase(req, res) {
+   const user = currentUser(req);
+-  if (!user || !user.active) return sendError(res, 401, 'Session expire ho gaya. Dobara login karo.');
++  if (!user || !user.active) return sendError(req, res, 401, 'Session expire ho gaya. Dobara login karo.');
+   const body = await readJson(req);
+   const vrn = normalizeVrn(body.vrn);
+   const downloadType = body.downloadType === 'rc-card' ? 'rc-card' : 'mparivahan';
+-  if (!validVrn(vrn)) return sendError(res, 422, 'Valid vehicle number daalo, jaise RJ14AB1234.');
++  if (!validVrn(vrn)) return sendError(req, res, 422, 'Valid vehicle number daalo, jaise RJ14AB1234.');
+ 
+   return withMutationLock(async () => {
+     const fresh = syncAdminRole(findUser(user.mobile));
+-    if (!fresh) return sendError(res, 401, 'User account nahi mila.');
++    if (!fresh) return sendError(req, res, 401, 'User account nahi mila.');
+     const price = priceForDownload(downloadType, fresh);
+     if (downloadType === 'mparivahan') {
+-      return sendJson(res, 200, { success: false, code: 'COMING_SOON', message: 'MParivahan RC format Coming Soon!', downloadType, requiredPrice: price });
++      return sendJson(req, res, 200, { success: false, code: 'COMING_SOON', message: 'MParivahan RC format Coming Soon!', downloadType, requiredPrice: price });
+     }
+     if (Number(fresh.wallet) < price) {
+-      return sendJson(res, 200, {
++      return sendJson(req, res, 200, {
+         success: false,
+         code: 'LOW_BALANCE',
+         message: `Recharge your wallet. Minimum ₹${price} balance required for this format.`,
+@@ -554,7 +679,7 @@ async function handlePurchase(req, res) {
+     }
+ 
+     const provider = await fetchProvider(vrn);
+-    if (!provider.success) return sendJson(res, 200, { success: false, message: provider.message, wallet: Number(fresh.wallet), requiredPrice: price, downloadType });
++    if (!provider.success) return sendJson(req, res, 200, { success: false, message: provider.message, wallet: Number(fresh.wallet), requiredPrice: price, downloadType });
+ 
+     fresh.wallet = Number(fresh.wallet) - price;
+     const downloadLabel = downloadType === 'rc-card' ? 'RC Card PNG download' : 'MParivahan A4 PNG download';
+@@ -562,14 +687,15 @@ async function handlePurchase(req, res) {
+     await persistDatabase();
+     queueSheetSync('user', sheetUserPayload(fresh));
+     queueSheetSync('transaction', db.transactions[db.transactions.length - 1]);
+-    return sendJson(res, 200, { success: true, data: { vrn, front: provider.images.front, back: provider.images.back, downloadType }, wallet: fresh.wallet, charged: price, requiredPrice: price });
++    audit('rc_purchase', { mobile: fresh.mobile, vrn, price, downloadType, ip: secClientIp(req) });
++    return sendJson(req, res, 200, { success: true, data: { vrn, front: provider.images.front, back: provider.images.back, downloadType }, wallet: fresh.wallet, charged: price, requiredPrice: price });
+   });
+ }
+ 
+ function requireAdmin(req, res) {
+   const user = currentUser(req);
+-  if (!user || !user.active) { sendError(res, 401, 'Session expire ho gaya.'); return null; }
+-  if (user.role !== 'admin') { sendError(res, 403, 'Admin access required.'); return null; }
++  if (!user || !user.active) { sendError(req, res, 401, 'Session expire ho gaya.'); return null; }
++  if (user.role !== 'admin') { sendError(req, res, 403, 'Admin access required.'); return null; }
+   return user;
+ }
+ 
+@@ -578,12 +704,14 @@ async function handleAdminSearch(req, res) {
+   if (!admin) return;
+   const body = await readJson(req);
+   const query = String(body.query || body.mobile || body.email || '').trim();
+-  if (!query) return sendError(res, 422, 'User mobile number ya email daalo.');
+-  const user = findUserByQuery(query);
+-  if (!user) return sendError(res, 404, 'Is mobile/email ka account nahi mila.');
+-  return sendJson(res, 200, {
++  if (!query) return sendError(req, res, 422, 'User mobile number ya email daalo.');
++  const resolved = resolveAdminUserQuery(query);
++  if (!resolved.user) return sendError(req, res, resolved.status, resolved.message);
++  const user = resolved.user;
++  return sendJson(req, res, 200, {
+     success: true,
+     user: publicUser(user),
++    adminUser: publicAdminUser(user),
+     defaultRcCardPrice: defaultRcCardPrice(),
+     transactions: userTransactions(user.mobile, 10)
+   });
+@@ -594,33 +722,116 @@ async function handleAdminSetUserRate(req, res) {
+   if (!admin) return;
+   const body = await readJson(req);
+   const query = String(body.query || body.mobile || body.email || '').trim();
+-  const priceRaw = body.price;
+   const clearCustom = body.clear === true || body.price === null || body.price === '';
+-  if (!query) return sendError(res, 422, 'User mobile number ya email daalo.');
++  if (!query) return sendError(req, res, 422, 'User mobile number ya email daalo.');
+ 
+   return withMutationLock(async () => {
+-    const user = findUserByQuery(query);
+-    if (!user) return sendError(res, 404, 'User account nahi mila.');
++    const resolved = resolveAdminUserQuery(query);
++    if (!resolved.user) return sendError(req, res, resolved.status, resolved.message);
++    const user = resolved.user;
++    const result = applyUserRate(admin, user, { price: body.price, clear: clearCustom });
++    if (!result.ok) return sendError(req, res, result.status, result.message);
++
++    await persistDatabase();
++    return sendJson(req, res, 200, {
++      success: true,
++      message: result.to == null
++        ? `${user.name} ab default global RC rate ₹${defaultRcCardPrice()} use karega.`
++        : `${user.name} ka RC Card rate ₹${result.to} set ho gaya.`,
++      user: publicUser(user),
++      adminUser: publicAdminUser(user),
++      defaultRcCardPrice: defaultRcCardPrice()
++    });
++  });
++}
++
++// Admin panel ka "Users & rates" tab: naam/mobile/email search + rate summary + rate audit log.
++async function handleAdminListUsers(req, res, searchParams) {
++  const admin = requireAdmin(req, res);
++  if (!admin) return;
++  const query = String(searchParams.get('q') || '').trim();
++  const limitRaw = Number(searchParams.get('limit'));
++  const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 300) : 100;
++  const matches = sortAdminUsers(searchAdminUsers(query));
++  const users = matches.slice(0, limit).map(publicAdminUser);
++  const customRateCount = db.users.filter(hasCustomRcCardRate).length;
++  return sendJson(req, res, 200, {
++    success: true,
++    users,
++    query,
++    matched: matches.length,
++    shown: users.length,
++    total: db.users.length,
++    activeUsers: db.users.filter((user) => user.active !== false).length,
++    customRateCount,
++    defaultRcCardPrice: defaultRcCardPrice(),
++    rateLog: (Array.isArray(db.rateLog) ? db.rateLog : []).slice(-15).reverse()
++  });
++}
++
++// Bulk rate: "all" (har normal user) ya "selected" (diye gaye mobile numbers).
++async function handleAdminBulkSetRate(req, res) {
++  const admin = requireAdmin(req, res);
++  if (!admin) return;
++  const body = await readJson(req);
++  const clearCustom = body.clear === true || body.price === null || body.price === '';
++  const scope = body.scope === 'selected' ? 'selected' : 'all';
++  if (!clearCustom) {
++    const value = Number(body.price);
++    if (!Number.isFinite(value) || value < 1 || value > 1000) {
++      return sendError(req, res, 422, 'RC rate ₹1 se ₹1000 ke beech hona chahiye.');
++    }
++  }
++  if (scope === 'all' && body.confirm !== true) {
++    return sendError(req, res, 422, 'Sabhi users par rate lagane ke liye confirm zaroori hai.');
++  }
+ 
+-    if (clearCustom) {
+-      user.rcCardPrice = null;
++  return withMutationLock(async () => {
++    let targets;
++    if (scope === 'selected') {
++      const mobiles = Array.isArray(body.mobiles) ? body.mobiles.map(normalizeMobile).filter(validMobile) : [];
++      if (!mobiles.length) return sendError(req, res, 422, 'Kam se kam ek user ka mobile number daalo.');
++      targets = db.users.filter((user) => mobiles.includes(user.mobile));
+     } else {
+-      const price = Number(priceRaw);
+-      if (!Number.isFinite(price) || price < 1 || price > 1000) {
+-        return sendError(res, 422, 'User RC rate ₹1 se ₹1000 ke beech hona chahiye.');
+-      }
+-      user.rcCardPrice = Math.round(price);
++      targets = db.users.filter((user) => user.role !== 'admin');
+     }
++    if (!targets.length) return sendError(req, res, 404, 'Koi matching user nahi mila.');
+ 
++    let updated = 0;
++    for (const user of targets) {
++      const result = applyUserRate(admin, user, { price: body.price, clear: clearCustom });
++      if (result.ok) updated += 1;
++    }
+     await persistDatabase();
+-    queueSheetSync('user', sheetUserPayload(user));
+-    return sendJson(res, 200, {
++    return sendJson(req, res, 200, {
+       success: true,
++      updated,
+       message: clearCustom
+-        ? 'User ab default global RC rate use karega.'
+-        : `User ka RC Card rate ₹${user.rcCardPrice} set ho gaya.`,
+-      user: publicUser(user),
+-      defaultRcCardPrice: defaultRcCardPrice()
++        ? `${updated} user(s) ka custom rate hata diya — ab default ₹${defaultRcCardPrice()} apply hoga.`
++        : `${updated} user(s) ka RC Card rate ₹${Math.round(Number(body.price))} set ho gaya.`
++    });
++  });
++}
++
++async function handleAdminSetUserStatus(req, res) {
++  const admin = requireAdmin(req, res);
++  if (!admin) return;
++  const body = await readJson(req);
++  const mobile = normalizeMobile(body.mobile);
++  const active = body.active !== false;
++  if (!validMobile(mobile)) return sendError(req, res, 422, 'Valid user mobile number daalo.');
++
++  return withMutationLock(async () => {
++    const user = findUser(mobile);
++    if (!user) return sendError(req, res, 404, 'User account nahi mila.');
++    if (user.mobile === admin.mobile && !active) return sendError(req, res, 422, 'Apna admin account block nahi kar sakte.');
++    user.active = active;
++    await persistDatabase();
++    queueSheetSync('user', sheetUserPayload(user));
++    return sendJson(req, res, 200, {
++      success: true,
++      user: publicAdminUser(user),
++      message: active ? `${user.name} ka account unblock ho gaya.` : `${user.name} ka account block kar diya.`
+     });
+   });
+ }
+@@ -631,18 +842,19 @@ async function handleAdminRecharge(req, res) {
+   const body = await readJson(req);
+   const mobile = normalizeMobile(body.mobile);
+   const amount = Number(body.amount);
+-  if (!validMobile(mobile)) return sendError(res, 422, 'Valid user mobile number daalo.');
+-  if (!Number.isFinite(amount) || amount <= 0 || amount > 100000) return sendError(res, 422, 'Recharge amount ₹1 se ₹100000 ke beech hona chahiye.');
++  if (!validMobile(mobile)) return sendError(req, res, 422, 'Valid user mobile number daalo.');
++  if (!Number.isFinite(amount) || amount <= 0 || amount > 100000) return sendError(req, res, 422, 'Recharge amount ₹1 se ₹100000 ke beech hona chahiye.');
+ 
+   return withMutationLock(async () => {
+     const user = findUser(mobile);
+-    if (!user) return sendError(res, 404, 'User account nahi mila.');
++    if (!user) return sendError(req, res, 404, 'User account nahi mila.');
+     user.wallet = Number(user.wallet) + amount;
+     appendTransaction(mobile, 'RECHARGE', amount, user.wallet, '', String(body.note || 'Manual admin recharge').slice(0, 120), admin.mobile);
+     await persistDatabase();
+     queueSheetSync('user', sheetUserPayload(user));
+     queueSheetSync('transaction', db.transactions[db.transactions.length - 1]);
+-    return sendJson(res, 200, { success: true, message: 'Wallet recharge successful.', user: publicUser(user) });
++    audit('admin_recharge', { adminMobile: admin.mobile, target: mobile, amount, ip: secClientIp(req) });
++    return sendJson(req, res, 200, { success: true, message: 'Wallet recharge successful.', user: publicUser(user) });
+   });
+ }
+ 
+@@ -670,7 +882,7 @@ function validAdImage(imageData) {
+ 
+ async function handleGetAds(req, res) {
+   const ads = db.ads.filter((ad) => ad.active !== false).sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt))).map(publicAd);
+-  return sendJson(res, 200, { success: true, ads });
++  return sendJson(req, res, 200, { success: true, ads });
+ }
+ 
+ const DEFAULT_SETTINGS = { usersBaseline: 200000, downloadsBaseline: 171000, rating: '4.9', rcCardPrice: 15 };
+@@ -687,7 +899,7 @@ async function handlePublicStats(req, res) {
+   const completedDownloads = db.transactions.filter((tx) => tx.type === 'RC_PURCHASE' && tx.status === 'SUCCESS').length;
+   const configuredRating = String((db.settings && db.settings.rating) || '').trim();
+   const rating = configuredRating || String(process.env.PUBLIC_RATING || '').trim() || DEFAULT_SETTINGS.rating;
+-  return sendJson(res, 200, {
++  return sendJson(req, res, 200, {
+     success: true,
+     users: activeUsers + settingsNumber('usersBaseline'),
+     downloads: completedDownloads + settingsNumber('downloadsBaseline'),
+@@ -771,7 +983,7 @@ async function handleAdminStats(req, res, searchParams) {
+   const from = validDay.test(fromRaw) ? fromRaw : '';
+   const to = validDay.test(toRaw) ? toRaw : '';
+   const stats = computeAdminStats(from, to);
+-  return sendJson(res, 200, {
++  return sendJson(req, res, 200, {
+     success: true,
+     stats,
+     settings: {
+@@ -789,13 +1001,13 @@ async function handleAdminUpdateRating(req, res) {
+   const body = await readJson(req);
+   const rating = String(body.rating ?? '').trim();
+   if (rating && !/^[0-5](?:\.\d)?$/.test(rating)) {
+-    return sendError(res, 422, 'Rating 0 se 5 ke beech ek decimal ke saath daalo, jaise 4.8.');
++    return sendError(req, res, 422, 'Rating 0 se 5 ke beech ek decimal ke saath daalo, jaise 4.8.');
+   }
+   db.settings = db.settings || {};
+   db.settings.rating = rating;
+   await persistDatabase();
+   queueSheetSync('settings', { rating });
+-  return sendJson(res, 200, { success: true, rating });
++  return sendJson(req, res, 200, { success: true, rating });
+ }
+ 
+ async function handleAdminUpdateBaseline(req, res) {
+@@ -805,17 +1017,17 @@ async function handleAdminUpdateBaseline(req, res) {
+   const usersBaseline = Number(body.usersBaseline);
+   const downloadsBaseline = Number(body.downloadsBaseline);
+   if (!Number.isFinite(usersBaseline) || usersBaseline < 0 || usersBaseline > 100_000_000) {
+-    return sendError(res, 422, 'Users baseline 0 se 10 crore ke beech ek valid number hona chahiye.');
++    return sendError(req, res, 422, 'Users baseline 0 se 10 crore ke beech ek valid number hona chahiye.');
+   }
+   if (!Number.isFinite(downloadsBaseline) || downloadsBaseline < 0 || downloadsBaseline > 100_000_000) {
+-    return sendError(res, 422, 'RC downloads baseline 0 se 10 crore ke beech ek valid number hona chahiye.');
++    return sendError(req, res, 422, 'RC downloads baseline 0 se 10 crore ke beech ek valid number hona chahiye.');
+   }
+   db.settings = db.settings || {};
+   db.settings.usersBaseline = usersBaseline;
+   db.settings.downloadsBaseline = downloadsBaseline;
+   await persistDatabase();
+   queueSheetSync('settings', { usersBaseline, downloadsBaseline });
+-  return sendJson(res, 200, { success: true, usersBaseline, downloadsBaseline });
++  return sendJson(req, res, 200, { success: true, usersBaseline, downloadsBaseline });
+ }
+ 
+ async function handleAdminUpdateRcPrice(req, res) {
+@@ -824,13 +1036,13 @@ async function handleAdminUpdateRcPrice(req, res) {
+   const body = await readJson(req);
+   const price = Number(body.price);
+   if (!Number.isFinite(price) || price < 1 || price > 1000) {
+-    return sendError(res, 422, 'RC Card rate ₹1 se ₹1000 ke beech hona chahiye.');
++    return sendError(req, res, 422, 'RC Card rate ₹1 se ₹1000 ke beech hona chahiye.');
+   }
+   db.settings = db.settings || {};
+   db.settings.rcCardPrice = Math.round(price);
+   await persistDatabase();
+   queueSheetSync('settings', { rcCardPrice: db.settings.rcCardPrice });
+-  return sendJson(res, 200, {
++  return sendJson(req, res, 200, {
+     success: true,
+     rcCardPrice: db.settings.rcCardPrice,
+     message: 'Default RC Card rate update ho gaya. Jis user ka custom rate set nahi hai, woh ab ye rate use karega.'
+@@ -840,7 +1052,7 @@ async function handleAdminUpdateRcPrice(req, res) {
+ async function handleAdminGetAds(req, res) {
+   const admin = requireAdmin(req, res);
+   if (!admin) return;
+-  return sendJson(res, 200, { success: true, ads: db.ads.slice().reverse().map(publicAd) });
++  return sendJson(req, res, 200, { success: true, ads: db.ads.slice().reverse().map(publicAd) });
+ }
+ 
+ async function handleAdminAddAd(req, res) {
+@@ -849,13 +1061,13 @@ async function handleAdminAddAd(req, res) {
+   const body = await readJson(req);
+   const title = String(body.title || 'InstantRCcard offer').trim().slice(0, 120);
+   const imageData = String(body.imageData || '');
+-  if (!validAdImage(imageData)) return sendError(res, 422, 'PNG, JPG, WEBP ya GIF image upload karo. Image size 40 KB se kam rakho.');
++  if (!validAdImage(imageData)) return sendError(req, res, 422, 'PNG, JPG, WEBP ya GIF image upload karo. Image size 40 KB se kam rakho.');
+   const now = new Date().toISOString();
+   const ad = { id: crypto.randomUUID(), title, imageData, active: true, createdAt: now, updatedAt: now };
+   db.ads.push(ad);
+   await persistDatabase();
+   queueSheetSync('ad', sheetAdPayload(ad));
+-  return sendJson(res, 200, { success: true, ad: publicAd(ad) });
++  return sendJson(req, res, 200, { success: true, ad: publicAd(ad) });
+ }
+ 
+ async function handleAdminDeleteAd(req, res, adId) {
+@@ -863,22 +1075,22 @@ async function handleAdminDeleteAd(req, res, adId) {
+   if (!admin) return;
+   const before = db.ads.length;
+   db.ads = db.ads.filter((ad) => String(ad.id) !== String(adId));
+-  if (db.ads.length === before) return sendError(res, 404, 'Advertisement nahi mila.');
++  if (db.ads.length === before) return sendError(req, res, 404, 'Advertisement nahi mila.');
+   await persistDatabase();
+   queueSheetSync('adDelete', { id: String(adId) });
+-  return sendJson(res, 200, { success: true, message: 'Advertisement remove ho gaya.' });
++  return sendJson(req, res, 200, { success: true, message: 'Advertisement remove ho gaya.' });
+ }
+ 
+ async function handleAdminToggleAd(req, res, adId) {
+   const admin = requireAdmin(req, res);
+   if (!admin) return;
+   const ad = db.ads.find((item) => String(item.id) === String(adId));
+-  if (!ad) return sendError(res, 404, 'Advertisement nahi mila.');
++  if (!ad) return sendError(req, res, 404, 'Advertisement nahi mila.');
+   ad.active = ad.active === false;
+   ad.updatedAt = new Date().toISOString();
+   await persistDatabase();
+   queueSheetSync('ad', sheetAdPayload(ad));
+-  return sendJson(res, 200, { success: true, ad: publicAd(ad) });
++  return sendJson(req, res, 200, { success: true, ad: publicAd(ad) });
+ }
+ 
+ async function serveStatic(req, res, pathname) {
+@@ -891,45 +1103,118 @@ async function serveStatic(req, res, pathname) {
+     staticRoot = __dirname;
+   }
+   const candidate = path.normalize(path.join(staticRoot, decodeURIComponent(requested)));
+-  if (!candidate.startsWith(staticRoot)) return sendError(res, 403, 'Forbidden');
++  if (!candidate.startsWith(staticRoot)) return sendError(req, res, 403, 'Forbidden');
+   try {
+     const stat = await fs.stat(candidate);
+     if (!stat.isFile()) throw new Error('not file');
+     const content = await fs.readFile(candidate);
+     const extension = path.extname(candidate).toLowerCase();
+-    res.writeHead(200, { 'Content-Type': MIME_TYPES[extension] || 'application/octet-stream', 'Content-Length': content.length, 'Cache-Control': extension === '.html' ? 'no-cache' : 'public, max-age=3600', ...securityHeaders() });
++    const pending = pendingCookies(req);
++    const cookieHeaders = pending.length ? { 'Set-Cookie': pending } : {};
++    res.writeHead(200, { 'Content-Type': MIME_TYPES[extension] || 'application/octet-stream', 'Content-Length': content.length, 'Cache-Control': extension === '.html' ? 'no-cache' : 'public, max-age=3600', ...securityHeaders(req), ...cookieHeaders });
+     return res.end(content);
+   } catch {
+-    return sendError(res, 404, 'Not found');
++    return sendError(req, res, 404, 'Not found');
+   }
+ }
+ 
++// ---------- Per-route rate limiters (PR #3 hardening) ----------
++
++const strict = process.env.ENABLE_STRICT_RATE_LIMITS === '1';
++const rl = {
++  global: rateLimit({ route: 'global', limit: strict ? 240 : 600, windowMs: 60_000 }),
++  auth:  rateLimit({ route: 'auth',  limit: strict ?  10 : 30, windowMs: 60_000 }),
++  rc:    rateLimit({ route: 'rc',    limit: strict ?   3 : 10, windowMs: 60_000 }),
++  admin: rateLimit({ route: 'admin', limit: strict ?  30 : 120, windowMs: 60_000 }),
++  publicStats: rateLimit({ route: 'stats', limit: strict ? 60 : 240, windowMs: 60_000 }),
++  ads: rateLimit({ route: 'ads', limit: strict ? 60 : 240, windowMs: 60_000 })
++};
++
++function shortLog(req, status) {
++  const ip = secClientIp(req);
++  const p = String(req.url || '').slice(0, 80);
++  console.log(`[${new Date().toISOString()}] ${ip} ${req.method} ${p} -> ${status}`);
++}
++
+ const server = http.createServer(async (req, res) => {
+   try {
+     const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+     const pathname = url.pathname;
++
++    // Block obvious malicious paths before any heavy work.
++    if (/(\.\.|%2e%2e)/i.test(pathname)) return sendError(req, res, 400, 'Bad path');
++
++    const isApi = pathname.startsWith('/api/');
++    const isUnsafe = !['GET', 'HEAD', 'OPTIONS'].includes(req.method || 'GET');
++
++    // Optional pre-shared client-secret gate for /api/* requests.
++    if (isApi) {
++      await new Promise((r) => sharedSecretMiddleware(req, res, r));
++      if (res.writableEnded) return;
++    }
++
++    // Per-route rate limiting.
++    if (isApi) {
++      let limiter = rl.global;
++      if (pathname.startsWith('/api/auth/')) limiter = rl.auth;
++      else if (pathname.startsWith('/api/rc/')) limiter = rl.rc;
++      else if (pathname.startsWith('/api/admin/')) limiter = rl.admin;
++      else if (pathname === '/api/public/stats') limiter = rl.publicStats;
++      else if (pathname === '/api/ads') limiter = rl.ads;
++      await new Promise((r) => limiter(req, res, r));
++      if (res.writableEnded) return;
++    }
++
++    // CSRF on unsafe API methods (GETs are exempt so static assets still load).
++    if (isApi && isUnsafe) {
++      await new Promise((r) => csrfMiddleware(req, res, r));
++      if (res.writableEnded) {
++        audit('csrf_block', { ip: secClientIp(req), path: pathname });
++        return;
++      }
++    }
++
+     if (req.method === 'GET' && pathname === '/api/health') {
+       const sheetSyncConfigured = Boolean(SHEET_WEBHOOK_URL && SHEET_SYNC_SECRET);
+-      return sendJson(res, 200, { success: true, service: 'InstantRCcard', providerConfigured: Boolean(RC_API_TOKEN), adminConfigured: Boolean(ADMIN_MOBILE), sheetSyncConfigured, storage: sheetSyncConfigured ? 'json+google-sheet' : 'json' });
++      shortLog(req, 200);
++      return sendJson(req, res, 200, { success: true, service: 'InstantRCcard', providerConfigured: Boolean(RC_API_TOKEN), adminConfigured: Boolean(ADMIN_MOBILE), sheetSyncConfigured, storage: sheetSyncConfigured ? 'json+google-sheet' : 'json' });
++    }
++
++    // CSRF bootstrap endpoint — sets the cookie + returns the token.
++    if (req.method === 'GET' && pathname === '/api/auth/csrf') {
++      const cookieToken = csrfCookieFromHeader(req);
++      let token = cookieToken;
++      if (!token) {
++        const issued = issueCsrfToken(res);
++        token = issued.token;
++        req._pendingCookies = req._pendingCookies || [];
++        req._pendingCookies.push(issued.cookie);
++        res.setHeader('X-CSRF-Token', token);
++      }
++      shortLog(req, 200);
++      return sendJson(req, res, 200, { success: true, csrfToken: token });
+     }
+     if (req.method === 'GET' && pathname === '/api/auth/session') {
+       const user = currentUser(req);
+-      return sendJson(res, 200, user ? { success: true, user: publicUser(user) } : { success: false, message: 'Not logged in' });
++      return sendJson(req, res, 200, user ? { success: true, user: publicUser(user) } : { success: false, message: 'Not logged in' });
+     }
+     if (req.method === 'POST' && pathname === '/api/auth/signup') return await handleSignup(req, res);
+     if (req.method === 'POST' && pathname === '/api/auth/login') return await handleLogin(req, res);
+     if (req.method === 'POST' && pathname === '/api/auth/forgot-password') return await handleForgotPassword(req, res);
+-    if (req.method === 'POST' && pathname === '/api/auth/logout') return sendJson(res, 200, { success: true }, { 'Set-Cookie': clearAuthCookie() });
++    if (req.method === 'POST' && pathname === '/api/auth/logout') return sendJson(req, res, 200, { success: true }, { 'Set-Cookie': clearAuthCookie() });
+     if (req.method === 'GET' && pathname === '/api/ads') return await handleGetAds(req, res);
+     if (req.method === 'GET' && pathname === '/api/public/stats') return await handlePublicStats(req, res);
+     if (req.method === 'GET' && pathname === '/api/account/transactions') {
+       const user = currentUser(req);
+-      if (!user) return sendError(res, 401, 'Session expire ho gaya.');
+-      return sendJson(res, 200, { success: true, transactions: userTransactions(user.mobile, 30) });
++      if (!user) return sendError(req, res, 401, 'Session expire ho gaya.');
++      return sendJson(req, res, 200, { success: true, transactions: userTransactions(user.mobile, 30) });
+     }
+     if (req.method === 'POST' && pathname === '/api/rc/purchase') return await handlePurchase(req, res);
+     if (req.method === 'POST' && pathname === '/api/admin/users/search') return await handleAdminSearch(req, res);
++    if (req.method === 'GET' && pathname === '/api/admin/users') return await handleAdminListUsers(req, res, url.searchParams);
+     if (req.method === 'POST' && pathname === '/api/admin/users/set-rate') return await handleAdminSetUserRate(req, res);
++    if (req.method === 'POST' && pathname === '/api/admin/users/bulk-rate') return await handleAdminBulkSetRate(req, res);
++    if (req.method === 'POST' && pathname === '/api/admin/users/status') return await handleAdminSetUserStatus(req, res);
+     if (req.method === 'POST' && pathname === '/api/admin/recharge') return await handleAdminRecharge(req, res);
+     if (req.method === 'GET' && pathname === '/api/admin/ads') return await handleAdminGetAds(req, res);
+     if (req.method === 'POST' && pathname === '/api/admin/ads') return await handleAdminAddAd(req, res);
+@@ -943,23 +1228,38 @@ const server = http.createServer(async (req, res) => {
+     if (req.method === 'GET' && pathname === '/api/admin/transactions') {
+       const admin = requireAdmin(req, res);
+       if (!admin) return;
+-      return sendJson(res, 200, { success: true, transactions: db.transactions.slice(-50).reverse() });
++      return sendJson(req, res, 200, { success: true, transactions: db.transactions.slice(-50).reverse() });
+     }
+     if (req.method === 'GET') return await serveStatic(req, res, pathname);
+-    return sendError(res, 405, 'Method not allowed');
++    return sendError(req, res, 405, 'Method not allowed');
+   } catch (error) {
+     console.error(error.message);
+-    return sendError(res, error.status || 500, error.message || 'Unexpected server error');
++    return sendError(req, res, error.status || 500, error.message || 'Unexpected server error');
+   }
+ });
+ 
+ await loadDatabase();
+ await restoreFromSheet();
++
++// Refuse to boot in production if critical secrets are missing/weak.
++if (process.env.NODE_ENV === 'production') {
++  const missing = [];
++  if (!RC_API_TOKEN) missing.push('RC_API_TOKEN');
++  if (!process.env.SESSION_SECRET) missing.push('SESSION_SECRET');
++  if (!ADMIN_MOBILE) missing.push('ADMIN_MOBILE');
++  if (missing.length) {
++    console.error(`FATAL: missing required env vars: ${missing.join(', ')}`);
++    process.exit(1);
++  }
++}
++
+ server.listen(PORT, '0.0.0.0', () => {
+   console.log(`InstantRCcard running on http://0.0.0.0:${PORT}`);
+   console.log(`RC provider: ${RC_API_URL}`);
+   console.log(`Provider token: ${RC_API_TOKEN ? 'configured' : 'missing'}`);
+   console.log(`Admin mobile: ${ADMIN_MOBILE ? 'configured' : 'missing'}`);
++  console.log(`Strict rate limits: ${process.env.ENABLE_STRICT_RATE_LIMITS === '1' ? 'ON' : 'OFF'}`);
++  console.log(`Client shared-secret gate: ${process.env.CLIENT_SHARED_SECRET ? 'ENABLED' : 'disabled'}`);
+ });
+ 
+ process.on('SIGTERM', () => server.close(() => process.exit(0)));
+diff --git a/sw.js b/sw.js
+index da8f6e1..a48b8e3 100644
+--- a/sw.js
++++ b/sw.js
+@@ -1,4 +1,4 @@
+-const CACHE = 'instant-rccard-shell-v5';
++const CACHE = 'instant-rccard-shell-v6';
+ const SHELL = ['/', '/index.html', '/app.js', '/manifest.webmanifest', '/icon-192.png', '/icon-512.png', '/whatsapp.png'];
+ 
+ self.addEventListener('install', (event) => {
