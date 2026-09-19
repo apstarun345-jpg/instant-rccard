@@ -2,6 +2,22 @@
 
 A blue-and-white Node website for secure RC front-and-back downloads.
 
+## Files (sab code alag-alag files me)
+
+| File | Kaam |
+| --- | --- |
+| `server.js` | Node backend — static files, auth, wallet, admin, RC provider call, JSON storage |
+| `index.html` | Sirf HTML markup (koi inline CSS/JS nahi) |
+| `styles.css` | Poora blue & white design + responsive rules |
+| `app.js` | Poora frontend JavaScript |
+| `sw.js` | PWA service worker |
+| `manifest.webmanifest` | PWA install settings |
+| `icon-192.png`, `icon-512.png`, `whatsapp.png` | Icons |
+| `package.json` | `npm start` script |
+| `.env.example` | Saari environment settings ka sample |
+
+Details ke liye `FILES.md` dekhiye.
+
 ## Included
 
 - Installable PWA from Chrome/Android browser without Play Store
@@ -37,7 +53,7 @@ Open:
 http://localhost:4173
 ```
 
-The browser should use the website through the Node server. Do not double-click `public/index.html`; a static file has no secure backend and cannot handle accounts, wallet deduction or the provider token.
+The browser should use the website through the Node server. Do not double-click `index.html`; a static file has no secure backend and cannot handle accounts, wallet deduction or the provider token.
 
 ## Install as an app
 
@@ -65,6 +81,6 @@ Open the HTTPS website in Chrome. Use the install icon in the address bar or cho
 
 ## Storage and production
 
-The direct version stores users, transactions and local ad data in `data/instant-rccard.json`. On a host without a persistent disk, configure the private Apps Script mirror and deploy the updated `apps-script/Code.gs`; the Node service restores accounts, wallets, transactions and ads from the private Sheet snapshot on startup. Keep `SESSION_SECRET` fixed in Render so an existing session cookie remains valid across restarts.
+The direct version stores users, transactions and local ad data in `data/instant-rccard.json`. On a host without a persistent disk, configure the private Apps Script mirror (`apps-script/Code.gs`, is zip me shamil nahi hai — Sheet side par banaiye ya pichle version se copy kijiye); the Node service restores accounts, wallets, transactions and ads from the private Sheet snapshot on startup. Keep `SESSION_SECRET` fixed in Render so an existing session cookie remains valid across restarts.
 
 Set `ADMIN_MOBILE` before creating the admin account. The account created with that mobile number receives the admin role. Set `SHEET_WEBHOOK_URL` to the Apps Script `/exec` URL and use the same `SHEET_SYNC_SECRET` in Node and Apps Script. If the provider token has been shared publicly, rotate it before production use.
