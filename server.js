@@ -37,7 +37,7 @@ const MIME_TYPES = {
   '.ico': 'image/x-icon'
 };
 
-let db = { users: [], transactions: [], ads: [], settings: {} };
+let db = { users: [], transactions: [], ads: [], settings: {}, rateLog: [] };
 let mutationQueue = Promise.resolve();
 let sheetSyncQueue = Promise.resolve();
 
@@ -71,12 +71,19 @@ function defaultRcCardPrice() {
   return settingsNumber('rcCardPrice');
 }
 
+function customRcCardPrice(user) {
+  if (!user || user.rcCardPrice == null || user.rcCardPrice === '') return null;
+  const value = Number(user.rcCardPrice);
+  return Number.isFinite(value) && value >= 1 ? Math.round(value) : null;
+}
+
+function hasCustomRcCardRate(user) {
+  return customRcCardPrice(user) != null;
+}
+
 function userRcCardPrice(user) {
-  const custom = user && user.rcCardPrice != null && user.rcCardPrice !== ''
-    ? Number(user.rcCardPrice)
-    : NaN;
-  if (Number.isFinite(custom) && custom >= 1) return Math.round(custom);
-  return defaultRcCardPrice();
+  const custom = customRcCardPrice(user);
+  return custom == null ? defaultRcCardPrice() : custom;
 }
 
 function priceForDownload(downloadType, user) {
@@ -86,8 +93,7 @@ function priceForDownload(downloadType, user) {
 
 function publicUser(user) {
   const rcCard = userRcCardPrice(user);
-  const hasCustom = user && user.rcCardPrice != null && user.rcCardPrice !== ''
-    && Number.isFinite(Number(user.rcCardPrice)) && Number(user.rcCardPrice) >= 1;
+  const custom = customRcCardPrice(user);
   return {
     name: user.name,
     email: user.email || '',
@@ -95,12 +101,95 @@ function publicUser(user) {
     wallet: Number(user.wallet || 0),
     role: user.role,
     pricePerRc: RC_PRICES.mparivahan,
-    customRcCardPrice: hasCustom ? Math.round(Number(user.rcCardPrice)) : null,
+    customRcCardPrice: custom,
     prices: {
       mparivahan: RC_PRICES.mparivahan,
       rcCard
     }
   };
+}
+
+// Admin ke "Users & rates" section ke liye extra detail (wallet, status, created date).
+function publicAdminUser(user) {
+  const custom = customRcCardPrice(user);
+  return {
+    ...publicUser(user),
+    active: user.active !== false,
+    createdAt: user.createdAt || '',
+    lastLogin: user.lastLogin || '',
+    rateUpdatedAt: user.rcRateUpdatedAt || '',
+    rateUpdatedBy: user.rcRateUpdatedBy || '',
+    rate: userRcCardPrice(user),
+    customRate: custom,
+    hasCustomRate: custom != null
+  };
+}
+
+function appendRateLog(admin, user, from, to) {
+  if (!Array.isArray(db.rateLog)) db.rateLog = [];
+  db.rateLog.push({
+    id: crypto.randomUUID(),
+    time: new Date().toISOString(),
+    adminMobile: admin ? admin.mobile : '',
+    mobile: user.mobile,
+    name: user.name || '',
+    from: from == null ? null : from,
+    to: to == null ? null : to
+  });
+  if (db.rateLog.length > 300) db.rateLog = db.rateLog.slice(-300);
+}
+
+// Ek user ka RC Card rate set/clear karta hai + audit log + Sheet sync queue karta hai.
+function applyUserRate(admin, user, { price, clear }) {
+  const from = customRcCardPrice(user);
+  let to = null;
+  if (!clear) {
+    const value = Number(price);
+    if (!Number.isFinite(value) || value < 1 || value > 1000) {
+      return { ok: false, status: 422, message: 'RC rate ₹1 se ₹1000 ke beech hona chahiye.' };
+    }
+    to = Math.round(value);
+  }
+  user.rcCardPrice = to;
+  user.rcRateUpdatedAt = new Date().toISOString();
+  user.rcRateUpdatedBy = admin ? admin.mobile : '';
+  appendRateLog(admin, user, from, to);
+  queueSheetSync('user', sheetUserPayload(user));
+  return { ok: true, from, to };
+}
+
+// Naam, mobile ya email ke partial match se users dhoondta hai (admin list ke liye).
+function searchAdminUsers(query) {
+  const raw = String(query ?? '').trim().toLowerCase();
+  if (!raw) return db.users.slice();
+  const digits = normalizeMobile(raw);
+  return db.users.filter((user) => {
+    if (String(user.name || '').toLowerCase().includes(raw)) return true;
+    if (String(user.email || '').toLowerCase().includes(raw)) return true;
+    if (String(user.mobile || '').includes(raw)) return true;
+    return Boolean(digits && digits.length >= 3 && String(user.mobile || '').includes(digits));
+  });
+}
+
+function sortAdminUsers(users) {
+  return users.slice().sort((a, b) => {
+    if ((a.role === 'admin') !== (b.role === 'admin')) return a.role === 'admin' ? -1 : 1;
+    return String(b.createdAt || '').localeCompare(String(a.createdAt || ''));
+  });
+}
+
+// Mobile/email/naam teeno se user resolve karta hai; ambiguous naam par saaf message deta hai.
+function resolveAdminUserQuery(query) {
+  const raw = String(query ?? '').trim();
+  if (!raw) return { status: 422, message: 'User ka mobile number, email ya naam daalo.' };
+  const direct = findUserByQuery(raw);
+  if (direct) return { user: direct };
+  const matches = searchAdminUsers(raw);
+  if (matches.length === 1) return { user: matches[0] };
+  if (matches.length > 1) {
+    return { status: 422, message: `"${raw}" se ${matches.length} users mile. Exact mobile/email daalo ya "Users & rates" tab me sahi user choose karo.` };
+  }
+  return { status: 404, message: 'Is mobile/email/naam ka account nahi mila.' };
 }
 
 function securityHeaders() {
@@ -153,11 +242,12 @@ async function loadDatabase() {
       users: Array.isArray(parsed.users) ? parsed.users : [],
       transactions: Array.isArray(parsed.transactions) ? parsed.transactions : [],
       ads: Array.isArray(parsed.ads) ? parsed.ads : [],
-      settings: parsed.settings && typeof parsed.settings === 'object' ? parsed.settings : {}
+      settings: parsed.settings && typeof parsed.settings === 'object' ? parsed.settings : {},
+      rateLog: Array.isArray(parsed.rateLog) ? parsed.rateLog : []
     };
   } catch (error) {
     if (error.code !== 'ENOENT') throw error;
-    db = { users: [], transactions: [], ads: [], settings: {} };
+    db = { users: [], transactions: [], ads: [], settings: {}, rateLog: [] };
     await persistDatabase();
   }
 }
@@ -579,11 +669,13 @@ async function handleAdminSearch(req, res) {
   const body = await readJson(req);
   const query = String(body.query || body.mobile || body.email || '').trim();
   if (!query) return sendError(res, 422, 'User mobile number ya email daalo.');
-  const user = findUserByQuery(query);
-  if (!user) return sendError(res, 404, 'Is mobile/email ka account nahi mila.');
+  const resolved = resolveAdminUserQuery(query);
+  if (!resolved.user) return sendError(res, resolved.status, resolved.message);
+  const user = resolved.user;
   return sendJson(res, 200, {
     success: true,
     user: publicUser(user),
+    adminUser: publicAdminUser(user),
     defaultRcCardPrice: defaultRcCardPrice(),
     transactions: userTransactions(user.mobile, 10)
   });
@@ -594,33 +686,116 @@ async function handleAdminSetUserRate(req, res) {
   if (!admin) return;
   const body = await readJson(req);
   const query = String(body.query || body.mobile || body.email || '').trim();
-  const priceRaw = body.price;
   const clearCustom = body.clear === true || body.price === null || body.price === '';
   if (!query) return sendError(res, 422, 'User mobile number ya email daalo.');
 
   return withMutationLock(async () => {
-    const user = findUserByQuery(query);
-    if (!user) return sendError(res, 404, 'User account nahi mila.');
+    const resolved = resolveAdminUserQuery(query);
+    if (!resolved.user) return sendError(res, resolved.status, resolved.message);
+    const user = resolved.user;
+    const result = applyUserRate(admin, user, { price: body.price, clear: clearCustom });
+    if (!result.ok) return sendError(res, result.status, result.message);
 
-    if (clearCustom) {
-      user.rcCardPrice = null;
-    } else {
-      const price = Number(priceRaw);
-      if (!Number.isFinite(price) || price < 1 || price > 1000) {
-        return sendError(res, 422, 'User RC rate ₹1 se ₹1000 ke beech hona chahiye.');
-      }
-      user.rcCardPrice = Math.round(price);
+    await persistDatabase();
+    return sendJson(res, 200, {
+      success: true,
+      message: result.to == null
+        ? `${user.name} ab default global RC rate ₹${defaultRcCardPrice()} use karega.`
+        : `${user.name} ka RC Card rate ₹${result.to} set ho gaya.`,
+      user: publicUser(user),
+      adminUser: publicAdminUser(user),
+      defaultRcCardPrice: defaultRcCardPrice()
+    });
+  });
+}
+
+// Admin panel ka "Users & rates" tab: naam/mobile/email search + rate summary + rate audit log.
+async function handleAdminListUsers(req, res, searchParams) {
+  const admin = requireAdmin(req, res);
+  if (!admin) return;
+  const query = String(searchParams.get('q') || '').trim();
+  const limitRaw = Number(searchParams.get('limit'));
+  const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 300) : 100;
+  const matches = sortAdminUsers(searchAdminUsers(query));
+  const users = matches.slice(0, limit).map(publicAdminUser);
+  const customRateCount = db.users.filter(hasCustomRcCardRate).length;
+  return sendJson(res, 200, {
+    success: true,
+    users,
+    query,
+    matched: matches.length,
+    shown: users.length,
+    total: db.users.length,
+    activeUsers: db.users.filter((user) => user.active !== false).length,
+    customRateCount,
+    defaultRcCardPrice: defaultRcCardPrice(),
+    rateLog: (Array.isArray(db.rateLog) ? db.rateLog : []).slice(-15).reverse()
+  });
+}
+
+// Bulk rate: "all" (har normal user) ya "selected" (diye gaye mobile numbers).
+async function handleAdminBulkSetRate(req, res) {
+  const admin = requireAdmin(req, res);
+  if (!admin) return;
+  const body = await readJson(req);
+  const clearCustom = body.clear === true || body.price === null || body.price === '';
+  const scope = body.scope === 'selected' ? 'selected' : 'all';
+  if (!clearCustom) {
+    const value = Number(body.price);
+    if (!Number.isFinite(value) || value < 1 || value > 1000) {
+      return sendError(res, 422, 'RC rate ₹1 se ₹1000 ke beech hona chahiye.');
     }
+  }
+  if (scope === 'all' && body.confirm !== true) {
+    return sendError(res, 422, 'Sabhi users par rate lagane ke liye confirm zaroori hai.');
+  }
 
+  return withMutationLock(async () => {
+    let targets;
+    if (scope === 'selected') {
+      const mobiles = Array.isArray(body.mobiles) ? body.mobiles.map(normalizeMobile).filter(validMobile) : [];
+      if (!mobiles.length) return sendError(res, 422, 'Kam se kam ek user ka mobile number daalo.');
+      targets = db.users.filter((user) => mobiles.includes(user.mobile));
+    } else {
+      targets = db.users.filter((user) => user.role !== 'admin');
+    }
+    if (!targets.length) return sendError(res, 404, 'Koi matching user nahi mila.');
+
+    let updated = 0;
+    for (const user of targets) {
+      const result = applyUserRate(admin, user, { price: body.price, clear: clearCustom });
+      if (result.ok) updated += 1;
+    }
+    await persistDatabase();
+    return sendJson(res, 200, {
+      success: true,
+      updated,
+      message: clearCustom
+        ? `${updated} user(s) ka custom rate hata diya — ab default ₹${defaultRcCardPrice()} apply hoga.`
+        : `${updated} user(s) ka RC Card rate ₹${Math.round(Number(body.price))} set ho gaya.`
+    });
+  });
+}
+
+async function handleAdminSetUserStatus(req, res) {
+  const admin = requireAdmin(req, res);
+  if (!admin) return;
+  const body = await readJson(req);
+  const mobile = normalizeMobile(body.mobile);
+  const active = body.active !== false;
+  if (!validMobile(mobile)) return sendError(res, 422, 'Valid user mobile number daalo.');
+
+  return withMutationLock(async () => {
+    const user = findUser(mobile);
+    if (!user) return sendError(res, 404, 'User account nahi mila.');
+    if (user.mobile === admin.mobile && !active) return sendError(res, 422, 'Apna admin account block nahi kar sakte.');
+    user.active = active;
     await persistDatabase();
     queueSheetSync('user', sheetUserPayload(user));
     return sendJson(res, 200, {
       success: true,
-      message: clearCustom
-        ? 'User ab default global RC rate use karega.'
-        : `User ka RC Card rate ₹${user.rcCardPrice} set ho gaya.`,
-      user: publicUser(user),
-      defaultRcCardPrice: defaultRcCardPrice()
+      user: publicAdminUser(user),
+      message: active ? `${user.name} ka account unblock ho gaya.` : `${user.name} ka account block kar diya.`
     });
   });
 }
@@ -929,7 +1104,10 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'POST' && pathname === '/api/rc/purchase') return await handlePurchase(req, res);
     if (req.method === 'POST' && pathname === '/api/admin/users/search') return await handleAdminSearch(req, res);
+    if (req.method === 'GET' && pathname === '/api/admin/users') return await handleAdminListUsers(req, res, url.searchParams);
     if (req.method === 'POST' && pathname === '/api/admin/users/set-rate') return await handleAdminSetUserRate(req, res);
+    if (req.method === 'POST' && pathname === '/api/admin/users/bulk-rate') return await handleAdminBulkSetRate(req, res);
+    if (req.method === 'POST' && pathname === '/api/admin/users/status') return await handleAdminSetUserStatus(req, res);
     if (req.method === 'POST' && pathname === '/api/admin/recharge') return await handleAdminRecharge(req, res);
     if (req.method === 'GET' && pathname === '/api/admin/ads') return await handleAdminGetAds(req, res);
     if (req.method === 'POST' && pathname === '/api/admin/ads') return await handleAdminAddAd(req, res);
