@@ -378,8 +378,13 @@
     .admin-user-result { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-top: 16px; padding: 12px; border: 1px solid #deebfc; border-radius: 12px; background: white; }
     .admin-user-result h4 { margin: 0 0 4px; color: var(--blue-950); font-size: 12px; }
     .admin-user-result p { margin: 0; color: #90a0b7; font-size: 9px; }
+    .admin-user-meta { margin-top: 3px !important; }
     .admin-result-balance { color: var(--blue); font-size: 20px; font-weight: 800; }
     .admin-result-balance small { display: block; color: #97a8be; font-size: 8px; font-weight: 500; text-align: right; }
+    .admin-user-rate-tools { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; margin-top: 14px; padding: 12px; border: 1px solid #deebfc; border-radius: 12px; background: #f8fbff; }
+    .admin-user-rate-tools label { display: block; margin-bottom: 6px; color: #70819c; font-size: 10px; font-weight: 800; }
+    .admin-user-rate-tools input { width: 120px; height: 40px; padding: 0 10px; border: 1px solid #dfe8f5; border-radius: 9px; color: var(--ink); background: white; font-size: 12px; }
+    .admin-user-rate-tools small { flex: 1 1 180px; color: #8b9ab0; font-size: 10px; line-height: 1.45; }
     .admin-tx { margin-top: 18px; padding-top: 15px; border-top: 1px solid #e8f0fc; }
     .admin-tx h4 { margin: 0 0 10px; color: #647792; font-size: 11px; }
     .table-wrap { overflow-x: auto; }
@@ -499,6 +504,8 @@
       .ad-viewport { width: 100%; }
       .admin-user-result { align-items: flex-start; flex-direction: column; }
       .admin-result-balance small { text-align: left; }
+      .admin-user-rate-tools { flex-direction: column; align-items: stretch; }
+      .admin-user-rate-tools input, .admin-user-rate-tools .small-blue { width: 100%; }
       .auth-shell { width: calc(100% - 30px); }
       .trust-stats { grid-template-columns: 1fr 1fr; gap: 7px; }
       .trust-stat { border-right: 0; padding: 8px 6px; }
@@ -540,13 +547,12 @@
         <div id="login-copy"><h2>Welcome back 👋</h2><p>Apne InstantRCcard account me login karo.</p></div>
         <div id="signup-copy" hidden><h2>Account banao ✨</h2><p>Mobile number se apna wallet account create karo.</p></div>
         <form class="auth-form" id="login-form">
-          <div class="field"><label>Email address</label><input id="login-email" type="email" placeholder="you@example.com" autocomplete="email" /></div>
-          <div class="field"><label>Mobile number</label><div class="phone-input"><span>+91</span><input id="login-mobile" type="tel" inputmode="numeric" maxlength="10" placeholder="9876543210" autocomplete="tel" /></div></div>
+          <div class="field"><label>Mobile number ya Email</label><input id="login-username" type="text" placeholder="9876543210 ya you@example.com" autocomplete="username" /></div>
           <div class="field password-field"><label>Password</label><div class="password-wrap"><input id="login-password" type="password" placeholder="Apna password daalo" autocomplete="current-password" /><button class="password-toggle" data-toggle-password="login-password" type="button">Show</button></div></div>
           <div class="auth-error" id="login-error"></div>
           <button class="blue-button" type="submit" id="login-button">Login karo <span>→</span></button>
           <button class="forgot-link" id="open-forgot" type="button">Forgot password?</button>
-          <p class="form-footnote">Account nahi hai? Upar <b>Create account</b> select karo.</p>
+          <p class="form-footnote">Username me mobile number <b>ya</b> email dono me se koi ek daal sakte ho.</p>
           <button class="install-button" id="install-auth-button" type="button" hidden>＋ Install InstantRCcard app</button>
         </form>
         <form class="auth-form" id="signup-form" hidden>
@@ -620,9 +626,9 @@
           <small>Homepage par yahi baseline + live count "Lakh+" format me dikhega (jaise 2 Lakh+, 1.71 Lakh+).</small>
         </div>
         <div class="admin-rating-row">
-          <div><label>RC Card download rate (₹)</label><input id="admin-rc-price-input" type="number" min="1" max="1000" step="1" placeholder="15" /></div>
-          <button class="blue-button small-blue" id="admin-rc-price-save" type="button">Save rate</button>
-          <small>Default ₹15 hai. Change karte hi ye rate site par har jagah (price note, wallet, download charge) turant show hoga.</small>
+          <div><label>Default RC Card rate (₹)</label><input id="admin-rc-price-input" type="number" min="1" max="1000" step="1" placeholder="15" /></div>
+          <button class="blue-button small-blue" id="admin-rc-price-save" type="button">Save default</button>
+          <small>Ye global default rate hai. Jis user ka custom rate set nahi hai, unke liye yahi charge hoga. User-wise rate neeche Wallet control se set karo.</small>
         </div>
       </section>
       <section class="ad-ticker" id="ad-ticker" hidden aria-label="Current offers">
@@ -647,8 +653,22 @@
             </aside>
             <div class="admin-content">
               <div id="admin-wallet-section">
-                <div class="admin-tools"><div><label>User mobile number</label><input id="admin-search-mobile" type="tel" inputmode="numeric" maxlength="10" placeholder="9876543210" /></div><button class="blue-button small-blue" id="admin-search-button" type="button">Find user</button><div><label>Recharge amount ₹</label><input id="admin-amount" type="number" min="1" step="1" placeholder="100" /></div><button class="blue-button small-blue" id="admin-recharge-button" type="button" disabled>Recharge</button></div>
-                <div class="admin-user-result" id="admin-user-result" hidden><div><h4 id="admin-user-name">User</h4><p id="admin-user-mobile">+91 —</p></div><div class="admin-result-balance" id="admin-user-balance">₹0<small>current wallet</small></div></div>
+                <div class="admin-tools"><div><label>User mobile ya email</label><input id="admin-search-mobile" type="text" placeholder="9876543210 ya user@email.com" autocomplete="off" /></div><button class="blue-button small-blue" id="admin-search-button" type="button">Find user</button><div><label>Recharge amount ₹</label><input id="admin-amount" type="number" min="1" step="1" placeholder="100" /></div><button class="blue-button small-blue" id="admin-recharge-button" type="button" disabled>Recharge</button></div>
+                <div class="admin-user-result" id="admin-user-result" hidden>
+                  <div>
+                    <h4 id="admin-user-name">User</h4>
+                    <p id="admin-user-mobile">+91 —</p>
+                    <p id="admin-user-email" class="admin-user-meta">Email —</p>
+                    <p id="admin-user-rate-label" class="admin-user-meta">RC rate —</p>
+                  </div>
+                  <div class="admin-result-balance" id="admin-user-balance">₹0<small>current wallet</small></div>
+                </div>
+                <div class="admin-user-rate-tools" id="admin-user-rate-tools" hidden>
+                  <div><label>Is user ka RC Card rate ₹</label><input id="admin-user-rate-input" type="number" min="1" max="1000" step="1" placeholder="15" /></div>
+                  <button class="blue-button small-blue" id="admin-user-rate-save" type="button">Set user rate</button>
+                  <button class="ghost-button small-blue" id="admin-user-rate-clear" type="button">Use default</button>
+                  <small id="admin-user-rate-help">Is user ke liye alag rate set karo. Download par yahi rate dikhega aur wallet se yahi deduct hoga.</small>
+                </div>
                 <div class="admin-tx"><h4>Latest platform transactions</h4><div class="table-wrap"><table class="admin-table"><thead><tr><th>TIME</th><th>MOBILE</th><th>TYPE</th><th>AMOUNT</th><th>VRN</th></tr></thead><tbody id="admin-tx-body"><tr><td colspan="5">No transactions yet.</td></tr></tbody></table></div></div>
               </div>
               <div id="admin-ads-section" hidden>
