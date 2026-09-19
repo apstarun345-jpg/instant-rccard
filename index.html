@@ -665,6 +665,34 @@
     .transaction-copy b { font-size: 12px; }
     .transaction-copy small { font-size: 10px; }
     .empty-list { font-size: 11px; }
+
+    /* Rounded, card-like sticky greeting for a softer first impression. */
+    .welcome-line {
+      margin: -12px 0 22px;
+      padding: 16px 18px 16px 24px;
+      border: 1px solid rgba(211, 225, 245, .95);
+      border-radius: 21px;
+      background: linear-gradient(110deg, rgba(255,255,255,.98), rgba(246,250,255,.94));
+      box-shadow: 0 13px 28px rgba(36, 76, 143, .08);
+      overflow: hidden;
+    }
+    .welcome-line::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 4px;
+      border-radius: 21px 0 0 21px;
+      background: linear-gradient(180deg, #63a0ff, #2c64d4);
+    }
+    .welcome-line > div:first-child { padding-left: 7px; }
+    .welcome-line h1 { margin-top: 5px; }
+
+    @media (max-width: 650px) {
+      .welcome-line { padding: 13px 14px 14px 19px; }
+      .welcome-line > div:first-child { padding-left: 5px; }
+    }
   </style>
 </head>
 <body>
