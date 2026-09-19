@@ -17,9 +17,6 @@ A blue-and-white Node website for secure RC front-and-back downloads.
 - `Fetching RC Card` loading popup while the provider image is being fetched
 - Horizontal public offer/festival advertisement ticker
 - Admin-only user search, wallet recharge and advertisement upload/remove/hide controls
-- Admin **Users & rates** tab: naam/mobile/email search, per-user RC Card rate, bulk rate apply, block/unblock and CSV export
-- Per-user RC rate audit log (purana rate → naya rate, kaun admin ne badla)
-- Service worker update notice so a new deploy is never stuck behind an old cached page
 - Server-side RC provider token
 - JSON storage as a local fallback/cache
 - Optional Google Sheet mirror for accounts, wallet/RC transactions and ads
@@ -59,29 +56,12 @@ Open the HTTPS website in Chrome. Use the install icon in the address bar or cho
 - `GET /api/public/stats`
 - `POST /api/rc/purchase`
 - `POST /api/admin/users/search`
-- `GET /api/admin/users?q=name|mobile|email` (user list + rate summary + rate log)
-- `POST /api/admin/users/set-rate` (per-user RC Card rate set/clear)
-- `POST /api/admin/users/bulk-rate` (sabhi users par ek rate, `confirm: true` zaroori)
-- `POST /api/admin/users/status` (account block/unblock)
 - `POST /api/admin/recharge`
 - `GET /api/admin/transactions`
 - `GET /api/admin/ads`
 - `POST /api/admin/ads`
 - `POST /api/admin/ads/:id` to show/hide
 - `DELETE /api/admin/ads/:id`
-
-## User-wise RC rate (admin)
-
-Admin panel me **Users & rates** tab kholo (top nav ke **User rates** button se bhi seedha khulta hai):
-
-1. Search box me user ka naam, mobile ya email daalo (ya **Show all**).
-2. User row ke `RC RATE ₹` box me naya rate likho aur **Set rate** dabao.
-3. **Default** button us user ka custom rate hata deta hai aur global default rate wapas lag jaata hai.
-4. Ek hi rate sabhi users par lagane ke liye **Sabhi users par apply karo** use karo — button dobara click karne par hi confirm hota hai, aur admin account chhoot jaata hai.
-5. `Block` / `Unblock` se account disable/enable hota hai; blocked user login nahi kar sakta.
-6. **CSV download** current list (rate ke saath) export karta hai.
-
-Rate change hone par us user ke download popup, wallet alert aur account panel me wahi rate dikhta hai, aur wallet se wahi amount deduct hota hai. Har change audit log me time, admin aur purana/naya rate ke saath record hota hai. Global default rate **Admin KPI dashboard → Default RC Card rate** se set karo; custom rate wale users par default ka asar nahi padta.
 
 ## Storage and production
 
