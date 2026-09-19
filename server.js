@@ -576,20 +576,33 @@ async function handleSignup(req, res) {
 
 async function handleLogin(req, res) {
   const body = await readJson(req);
-  const email = normalizeEmail(body.email);
-  const mobile = normalizeMobile(body.mobile);
+  const identifier = String(body.identifier || body.username || body.login || '').trim();
+  const legacyEmail = normalizeEmail(body.email);
+  const legacyMobile = normalizeMobile(body.mobile);
   const password = String(body.password || '');
-  if (!validEmail(email) || !validMobile(mobile) || !password) {
-    return sendError(res, 422, 'Registered email, valid mobile number aur password enter karo.');
+  if (!password || (!identifier && !validEmail(legacyEmail) && !validMobile(legacyMobile))) {
+    return sendError(res, 422, 'Email ya 10-digit mobile number, aur password enter karo.');
   }
-  const user = syncAdminRole(findUser(mobile));
+
+  let user = null;
+  if (identifier) {
+    if (identifier.includes('@')) {
+      const email = normalizeEmail(identifier);
+      if (validEmail(email)) user = findUserByEmail(email);
+    } else {
+      const mobile = normalizeMobile(identifier);
+      if (validMobile(mobile)) user = findUser(mobile);
+    }
+  } else if (validMobile(legacyMobile)) {
+    user = findUser(legacyMobile);
+    if (user && validEmail(legacyEmail) && normalizeEmail(user.email) !== legacyEmail) user = null;
+  } else if (validEmail(legacyEmail)) {
+    user = findUserByEmail(legacyEmail);
+  }
+
+  user = syncAdminRole(user);
   if (!user || !user.active || !passwordMatches(password, user)) {
-    return sendError(res, 401, 'Email, mobile number ya password galat hai.');
-  }
-  // Purane valid accounts me email blank ho sakta hai; dono credentials ke saath pehli login par email save ho jayega.
-  if (!normalizeEmail(user.email)) user.email = email;
-  if (normalizeEmail(user.email) !== email) {
-    return sendError(res, 401, 'Email, mobile number ya password galat hai.');
+    return sendError(res, 401, 'Email/mobile number ya password galat hai.');
   }
   user.lastLogin = new Date().toISOString();
   await persistDatabase();

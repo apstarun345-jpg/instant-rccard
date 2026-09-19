@@ -2,12 +2,12 @@
 
 A blue-and-white Node website for secure RC front-and-back downloads.
 
-> Final package note: this source was reconciled against the latest GitHub main upload available on 19 September 2026 and the newer deployed KPI, user-rate and admin build. The latest email+mobile login and simplified logout controls are retained; the newer admin functionality is not discarded.
+> Final package note: this source was reconciled against the latest GitHub main upload available on 19 September 2026 and the newer deployed KPI, user-rate and admin build. The latest email/mobile login option, welcome flow and user-menu/logout controls are retained; the newer admin functionality is not discarded.
 
 ## Included
 
 - Installable PWA from Chrome/Android browser without Play Store
-- Email + mobile + password signup/login (dono details required; SMS/OTP nahi)
+- Email ya mobile number + password login; signup me email + mobile required (SMS/OTP nahi)
 - Forgot password with email + mobile verification, new password and confirmation show/hide controls
 - Cookie-based login that survives browser refreshes
 - Durable Google Sheet account restore after Render restarts/redeploys when the Sheet mirror is configured

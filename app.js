@@ -4,6 +4,9 @@
     var $ = function (selector) { return document.querySelector(selector); };
     var $$ = function (selector) { return Array.prototype.slice.call(document.querySelectorAll(selector)); };
     var installPrompt = null;
+    var roboTimer = null;
+    var roboMessages = [];
+    var roboMessageIndex = 0;
 
     function appIsInstalled() {
       return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
@@ -55,7 +58,7 @@
       var url = '';
       var options = { credentials: 'same-origin', headers: { 'Accept': 'application/json' } };
       if (name === 'signup') { url = '/api/auth/signup'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ name: args[0], email: args[1], mobile: args[2], password: args[3] }); }
-      else if (name === 'login') { url = '/api/auth/login'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ email: args[0], mobile: args[1], password: args[2] }); }
+      else if (name === 'login') { url = '/api/auth/login'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ identifier: args[0], password: args[1] }); }
       else if (name === 'forgotPassword') { url = '/api/auth/forgot-password'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ email: args[0], mobile: args[1], newPassword: args[2], confirmPassword: args[3] }); }
       else if (name === 'logout') { url = '/api/auth/logout'; options.method = 'POST'; }
       else if (name === 'getMe') { url = '/api/auth/session'; }
@@ -111,6 +114,55 @@
       item.innerHTML = '<span class="toast-icon">' + (type === 'success' ? '✓' : type === 'error' ? '!' : '✦') + '</span><span><strong>' + escapeHtml(title) + '</strong><p>' + escapeHtml(message) + '</p></span>';
       $('#toast-stack').appendChild(item);
       setTimeout(function () { item.classList.add('hide'); setTimeout(function () { item.remove(); }, 260); }, 4200);
+    }
+
+    function showWelcomePopup(user) {
+      var modal = $('#welcome-back-modal');
+      if (!modal) return;
+      $('#welcome-back-name').textContent = String(user && user.name || 'User').split(' ')[0];
+      modal.hidden = false;
+      setTimeout(function () { if ($('#welcome-back-continue')) $('#welcome-back-continue').focus(); }, 40);
+    }
+
+    function closeWelcomePopup() {
+      var modal = $('#welcome-back-modal');
+      if (modal) modal.hidden = true;
+    }
+
+    function setRoboMessage(text) {
+      var bubble = $('#robo-message');
+      if (!bubble) return;
+      bubble.classList.remove('robo-message-show');
+      void bubble.offsetWidth;
+      bubble.textContent = text;
+      bubble.classList.add('robo-message-show');
+    }
+
+    function stopRoboAssistant() {
+      if (roboTimer) window.clearTimeout(roboTimer);
+      roboTimer = null;
+      roboMessages = [];
+      roboMessageIndex = 0;
+      var helper = $('#robo-helper');
+      if (helper) helper.hidden = true;
+    }
+
+    function startRoboAssistant(user) {
+      stopRoboAssistant();
+      if (!user) return;
+      var name = String(user.name || 'there').trim().split(' ')[0] || 'there';
+      roboMessages = ['Hello', name + ' 👋', 'How can I help you?', 'RC Card download ke liye ready hoon.'];
+      var helper = $('#robo-helper');
+      if (!helper) return;
+      helper.hidden = false;
+      setRoboMessage(roboMessages[0]);
+      function nextMessage() {
+        if (!state.user || !roboMessages.length) return;
+        roboMessageIndex = (roboMessageIndex + 1) % roboMessages.length;
+        setRoboMessage(roboMessages[roboMessageIndex]);
+        roboTimer = window.setTimeout(nextMessage, 3300);
+      }
+      roboTimer = window.setTimeout(nextMessage, 2500);
     }
 
     function setDownloadStatus(title, text, type) {
@@ -233,11 +285,16 @@
       var initials = String(user.name || 'U').trim().charAt(0).toUpperCase();
       $('#avatar').textContent = initials;
       $('#user-name').textContent = user.name;
+      if ($('#dropdown-avatar')) $('#dropdown-avatar').textContent = initials;
+      if ($('#dropdown-name')) $('#dropdown-name').textContent = user.name;
+      if ($('#dropdown-mobile')) $('#dropdown-mobile').textContent = '+91 ' + user.mobile;
+      if ($('#dropdown-email')) $('#dropdown-email').textContent = user.email || 'Email not set';
 
       $('#welcome-title').textContent = 'Hello, ' + user.name.split(' ')[0] + '.';
       $('#account-name').textContent = user.name;
       $('#account-mobile').textContent = '+91 ' + user.mobile;
       if ($('#account-email')) $('#account-email').textContent = user.email || 'Email not set';
+      startRoboAssistant(user);
       $('#admin-nav').hidden = user.role !== 'admin';
       if ($('#admin-rates-nav')) $('#admin-rates-nav').hidden = user.role !== 'admin';
       $('#admin-card').hidden = user.role !== 'admin';
@@ -259,6 +316,7 @@
       var value = Number(amount || 0);
       $('#wallet-amount').textContent = formatMoney(value);
       $('#balance-large').textContent = formatMoney(value);
+      if ($('#dropdown-wallet')) $('#dropdown-wallet').textContent = formatMoney(value) + ' wallet balance';
 
       if (state.user) state.user.wallet = value;
     }
@@ -267,6 +325,9 @@
       $('#session-loading').hidden = true;
       if ($('#wallet-alert')) $('#wallet-alert').hidden = true;
       if ($('#download-status')) $('#download-status').hidden = true;
+      closeWelcomePopup();
+      stopRoboAssistant();
+      if (typeof closeUserDropdown === 'function') closeUserDropdown();
       state.token = '';
       state.user = null;
       $('#auth-view').hidden = false;
@@ -1114,21 +1175,22 @@
     });
     $('#login-form').addEventListener('submit', async function (event) {
       event.preventDefault();
-      var email = $('#login-email').value.trim().toLowerCase();
-      var mobile = normalizeMobile($('#login-mobile').value);
+      var identifier = String($('#login-identifier').value || '').trim();
       var password = $('#login-password').value;
       $('#login-error').textContent = '';
-      if (!validEmail(email) || !validMobile(mobile) || !password) {
-        $('#login-error').textContent = 'Registered email, valid mobile number aur password enter karo.';
+      var normalizedIdentifier = identifier.includes('@') ? identifier.toLowerCase() : normalizeMobile(identifier);
+      if ((!validEmail(normalizedIdentifier) && !validMobile(normalizedIdentifier)) || !password) {
+        $('#login-error').textContent = 'Valid email ya 10-digit mobile number, aur password enter karo.';
         return;
       }
-      $('#login-email').value = email;
-      $('#login-mobile').value = mobile;
+      $('#login-identifier').value = normalizedIdentifier;
       var button = $('#login-button'); setButtonLoading(button, true, 'Login karo <span>→</span>');
       try {
-        var response = await callServer('login', [email, mobile, password]);
+        var response = await callServer('login', [normalizedIdentifier, password]);
         if (!response.success) { $('#login-error').textContent = response.message; return; }
-        showApp(response.user); toast('Welcome back', 'Aapka account login ho gaya.', 'success');
+        showApp(response.user);
+        showWelcomePopup(response.user);
+        toast('Welcome back', 'Aapka account login ho gaya.', 'success');
       } catch (error) { $('#login-error').textContent = error.message; }
       finally { setButtonLoading(button, false, 'Login karo <span>→</span>'); }
     });
@@ -1142,7 +1204,7 @@
       try {
         var response = await callServer('signup', [name, email, mobile, password]);
         if (!response.success) { $('#signup-error').textContent = response.message; return; }
-        showApp(response.user); toast('Account created', 'Admin recharge ke baad RC download kar sakte ho.', 'success');
+        showApp(response.user); showWelcomePopup(response.user); toast('Account created', 'Admin recharge ke baad RC download kar sakte ho.', 'success');
       } catch (error) { $('#signup-error').textContent = error.message; }
       finally { setButtonLoading(button, false, 'Account banao <span>→</span>'); }
     });
@@ -1160,8 +1222,7 @@
       try {
         var response = await callServer('forgotPassword', [email, mobile, newPassword, confirmPassword]);
         if (!response.success) { $('#forgot-error').textContent = response.message; return; }
-        if ($('#login-email')) $('#login-email').value = email;
-        if ($('#login-mobile')) $('#login-mobile').value = mobile;
+        if ($('#login-identifier')) $('#login-identifier').value = email;
         $('#login-password').value = '';
         setAuthMode('login');
         toast('Password updated', 'Ab naye password se login karo.', 'success');
@@ -1189,7 +1250,53 @@
     $('#install-auth-button').addEventListener('click', installApp);
     $('#install-dashboard-button').addEventListener('click', installApp);
     updateInstallButtons();
-    $('#logout-button').addEventListener('click', async function () { try { await callServer('logout', []); } catch (error) {} clearSession(); toast('Logged out', 'Aapka session close ho gaya.', 'success'); });
+
+    function closeUserDropdown() {
+      var dropdown = $('#user-dropdown');
+      var button = $('#user-menu-button');
+      if (!dropdown || !button) return;
+      button.setAttribute('aria-expanded', 'false');
+      button.classList.remove('open');
+      dropdown.classList.remove('open');
+      window.setTimeout(function () { if (!dropdown.classList.contains('open')) dropdown.hidden = true; }, 120);
+    }
+
+    function toggleUserDropdown() {
+      var dropdown = $('#user-dropdown');
+      var button = $('#user-menu-button');
+      if (!dropdown || !button) return;
+      var isOpen = dropdown.classList.contains('open');
+      if (isOpen) { closeUserDropdown(); return; }
+      dropdown.hidden = false;
+      window.requestAnimationFrame(function () {
+        dropdown.classList.add('open');
+        button.classList.add('open');
+        button.setAttribute('aria-expanded', 'true');
+      });
+    }
+
+    $('#user-menu-button').addEventListener('click', function (event) { event.stopPropagation(); toggleUserDropdown(); });
+    document.addEventListener('click', function (event) {
+      var wrap = $('#user-menu-wrap');
+      if (wrap && !wrap.contains(event.target)) closeUserDropdown();
+    });
+    document.addEventListener('keydown', function (event) {
+      if (event.key === 'Escape') closeUserDropdown();
+    });
+    $('#logout-button').addEventListener('click', async function () {
+      closeUserDropdown();
+      try { await callServer('logout', []); } catch (error) {}
+      clearSession();
+      toast('Logged out', 'Aapka session close ho gaya.', 'success');
+    });
+    $('#close-welcome-back').addEventListener('click', closeWelcomePopup);
+    $('#welcome-back-continue').addEventListener('click', function () {
+      closeWelcomePopup();
+      var target = $('#app');
+      if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+    $('#welcome-back-modal').addEventListener('click', function (event) { if (event.target === $('#welcome-back-modal')) closeWelcomePopup(); });
+    $('#robo-button').addEventListener('click', function () { if (state.user) showWelcomePopup(state.user); });
     $('#refresh-transactions').addEventListener('click', loadTransactions);
     $('#admin-search-button').addEventListener('click', findAdminUser);
     $('#admin-search-mobile').addEventListener('keydown', function (event) {
