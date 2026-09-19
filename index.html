@@ -265,6 +265,7 @@
     .topup-payment-qr { display: grid; justify-items: center; gap: 6px; margin: 0 0 14px; padding: 10px; border: 1px solid #dfe8f7; border-radius: 13px; background: #fbfdff; }
     .topup-payment-qr span { color: #7890b1; font-size: 9px; font-weight: 850; letter-spacing: .08em; }
     .topup-payment-qr img { width: 138px; height: 138px; object-fit: contain; border-radius: 8px; background: #fff; }
+    .topup-payment-qr small { color: #8798b1; font-size: 10px; text-align: center; }
     .topup-balance { display: flex; align-items: center; justify-content: space-between; margin: 0 0 14px; padding: 11px 12px; border: 1px solid #dfeafa; border-radius: 11px; color: #7b8da9; background: #f7faff; font-size: 11px; }
     .topup-balance b { color: var(--blue); font-size: 17px; }
     .wallet-modal-note { display: block; margin-top: 10px; color: #8d9bb0; font-size: 10px; line-height: 1.45; text-align: center; }
@@ -855,7 +856,7 @@
         <div class="ad-viewport"><div class="ad-track" id="ad-track"></div></div>
       </section>
       <section class="download-hero" id="app">
-        <div class="hero-content"><div class="section-label">QUICK RC DOWNLOAD</div><h2>Gadi number dalo.</h2><p>Vehicle number submit karte hi clear RC Card PDF ready karke turant download kar denge.</p><form class="vrn-form" id="rc-form"><input id="vrn-input" type="text" maxlength="16" autocapitalize="characters" autocomplete="off" placeholder="RJ14AB1234" /><button id="rc-button" type="submit"><span id="rc-button-label">Download RC PDF</span><span>↗</span></button></form><p class="hero-hint">Example: RJ14AB1234 • RC Card PDF direct download • <button class="format-picker-link" id="choose-format-button" type="button">MParivahan RC / RC Card options</button></p><div class="download-status" id="download-status" role="status" hidden><span class="status-icon" id="download-status-icon">✓</span><span><b id="download-status-title">Download ready</b><small id="download-status-text"></small></span><button id="close-download-status" type="button" aria-label="Close status">×</button></div></div>
+        <div class="hero-content"><div class="section-label">QUICK RC DOWNLOAD</div><h2>Gadi number dalo.</h2><p>Vehicle number enter karke Download RC par click karein. Phir RC Card ya MParivahan RC option choose karein.</p><form class="vrn-form" id="rc-form"><input id="vrn-input" type="text" maxlength="16" autocapitalize="characters" autocomplete="off" placeholder="RJ14AB1234" /><button id="rc-button" type="submit"><span id="rc-button-label">Download RC</span><span>↗</span></button></form><p class="hero-hint">Example: RJ14AB1234 • RC Card PDF reference layout me • MParivahan RC Coming Soon</p><div class="download-status" id="download-status" role="status" hidden><span class="status-icon" id="download-status-icon">✓</span><span><b id="download-status-title">Download ready</b><small id="download-status-text"></small></span><button id="close-download-status" type="button" aria-label="Close status">×</button></div></div>
         <div class="hero-card-art" aria-hidden="true"><div class="hero-rc back"></div><div class="hero-rc"><div class="mini-top"><span>🇮🇳 INDIA RC</span><b>RC</b></div><div class="mini-main"><div class="mini-lines"><i></i><i></i><i></i></div><div><small>REGISTRATION NO.</small><strong>RJ 14 AB 1234</strong></div></div><div class="mini-bottom"><span>SMART CARD</span><span>VALID</span></div></div></div>
       </section>
       <div class="wallet-alert" id="wallet-alert" role="alert" hidden><span class="wallet-alert-icon">!</span><span><b>Recharge your wallet</b><small id="wallet-alert-text">RC Card download ke liye ₹15 wallet balance chahiye.</small></span><button id="close-wallet-alert" type="button" aria-label="Close alert">×</button></div>
@@ -971,8 +972,8 @@
       <h2 id="format-title">RC format choose karo</h2>
       <p>Vehicle number ke liye aapka preferred download format select karein.</p>
       <div class="format-options">
-        <button class="format-option coming-soon" data-download-format="mparivahan" type="button"><span class="format-icon">▤</span><span><b>MParivahan RC <i>Coming Soon!</i></b><small>A4 page layout · abhi service start nahi hui</small></span><span class="format-arrow">•</span></button>
         <button class="format-option rc-card" data-download-format="rc-card" type="button"><span class="format-icon">▣</span><span><b>RC Card <i id="format-option-price">₹15</i></b><small>A4 reference layout · front left · back right</small></span><span class="format-arrow">→</span></button>
+        <button class="format-option coming-soon" data-download-format="mparivahan" type="button"><span class="format-icon">▤</span><span><b>MParivahan RC <i>₹10 · Coming Soon!</i></b><small>A4 page layout · service abhi start nahi hui</small></span><span class="format-arrow">•</span></button>
       </div>
     </div>
   </div>
@@ -981,11 +982,11 @@
       <button class="format-close" id="close-wallet-topup" type="button" aria-label="Close wallet topup">×</button>
       <div class="section-label">WALLET TOPUP</div>
       <h2 id="wallet-topup-title">Wallet recharge karna hai?</h2>
-      <p>Wallet topup ke liye configured WhatsApp support par message bheja jayega. Payment QR yahin bhi show hoga, agar Main Admin ne update kiya hai. Jitna wallet topup chahiye, woh amount enter karein.</p>
-      <div class="topup-payment-qr" id="topup-payment-qr-box" hidden><span>PAYMENT QR</span><img id="topup-payment-qr" alt="Payment QR" /></div>
+      <p>RC Wallet me recharge karne ke liye amount enter karein. Phir diye gaye QR par payment karke payment ka screenshot lein. Uske baad WhatsApp topup request par click karke screenshot aur payment receipt WhatsApp par bhej dein.</p>
+      <div class="topup-payment-qr" id="topup-payment-qr-box"><span>PAYMENT QR</span><img id="topup-payment-qr" alt="Payment QR" hidden /><small id="topup-payment-qr-empty">Payment QR Main Admin settings se update hote hi yahan show hoga.</small></div>
       <div class="topup-balance"><span>Current wallet</span><b id="topup-current-balance">₹0</b></div>
       <div class="field"><label>Topup amount ₹</label><input id="topup-amount" type="number" min="1" step="1" inputmode="decimal" placeholder="100" /></div>
-      <button class="blue-button" id="topup-whatsapp-button" type="button">WhatsApp par topup request bhejo <span>↗</span></button>
+      <button class="blue-button" id="topup-whatsapp-button" type="button">WhatsApp topup request par screenshot bhejo <span>↗</span></button>
       <small class="wallet-modal-note">QR yahin show hoga ya WhatsApp message me link milega. Payment verify hone ke baad admin wallet recharge karega.</small>
     </div>
   </div>

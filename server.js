@@ -1067,7 +1067,7 @@ async function handleGetAds(req, res) {
 }
 
 async function handlePublicSupportSettings(req, res) {
-  return sendJson(res, 200, { success: true, support: supportSettingsPayload(req) });
+  return sendJson(res, 200, { success: true, support: supportSettingsPayload(req) }, { 'Cache-Control': 'no-store' });
 }
 
 async function handlePaymentQr(req, res) {

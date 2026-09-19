@@ -260,6 +260,7 @@
     }
 
     function openWalletTopup() {
+      loadSupportSettings();
       var current = state.user ? Number(state.user.wallet || 0) : 0;
       $('#topup-current-balance').textContent = formatMoney(current);
       $('#topup-amount').value = '';
@@ -284,9 +285,9 @@
         return;
       }
       var qrLine = state.supportPaymentQrUrl
-        ? ' Payment QR: ' + state.supportPaymentQrUrl
-        : ' Kripya payment QR bhej dijiye.';
-      var message = 'Hello InstantRCcard support. Mujhe wallet topup karna hai. Amount: ₹' + amount + '.' + qrLine;
+        ? ' Payment QR link: ' + state.supportPaymentQrUrl
+        : ' Kripya diye gaye payment QR par payment karke QR ka screenshot bhej dijiye.';
+      var message = 'Hello InstantRCcard support. RC Wallet me recharge ke liye amount: ₹' + amount + '. Maine diye gaye QR par payment karke payment screenshot aur receipt WhatsApp par bhejni hai.' + qrLine;
       var whatsappUrl = 'https://wa.me/91' + state.supportWhatsapp + '?text=' + encodeURIComponent(message);
       closeWalletTopup();
       toast('WhatsApp open ho raha hai', 'Wallet topup ke liye WhatsApp par redirect kiya ja raha hai.', 'success');
@@ -597,10 +598,13 @@
       });
       var qrBox = $('#topup-payment-qr-box');
       var qrImage = $('#topup-payment-qr');
+      var qrEmpty = $('#topup-payment-qr-empty');
       if (qrBox && qrImage) {
         var qrSource = state.supportPaymentQr || state.supportPaymentQrUrl;
         qrImage.src = qrSource || '';
-        qrBox.hidden = !qrSource;
+        qrImage.hidden = !qrSource;
+        if (qrEmpty) qrEmpty.hidden = Boolean(qrSource);
+        qrBox.hidden = false;
       }
     }
 
@@ -989,11 +993,6 @@
       document.body.style.overflow = 'hidden';
     }
 
-    function startDirectRcDownload() {
-      if (!prepareVehicleNumber()) return;
-      purchaseAndDownload('rc-card');
-    }
-
     function closeDownloadOptions() {
       $('#download-options-modal').hidden = true;
       document.body.style.overflow = '';
@@ -1048,7 +1047,8 @@
           ? await makeCardPdf(response.data.front, response.data.back)
           : await makeA4Png(response.data.front, response.data.back);
         updateWallet(response.wallet);
-        await loadTransactions();
+        // File download ko transaction-list refresh se block nahi karte; history background me refresh hoti rahe.
+        loadTransactions();
         var label = downloadType === 'rc-card' ? 'RC-Card' : 'MParivahan-RC';
         var extension = downloadType === 'rc-card' ? 'pdf' : 'png';
         var fileName = response.data.vrn + '-' + label + '.' + extension;
@@ -1757,8 +1757,7 @@
       finally { setButtonLoading(button, false, 'Set new password <span>→</span>'); }
     });
 
-    $('#rc-form').addEventListener('submit', function (event) { event.preventDefault(); startDirectRcDownload(); });
-    $('#choose-format-button').addEventListener('click', showDownloadOptions);
+    $('#rc-form').addEventListener('submit', function (event) { event.preventDefault(); showDownloadOptions(); });
     $('#close-format-modal').addEventListener('click', closeDownloadOptions);
     $('#download-options-modal').addEventListener('click', function (event) { if (event.target === $('#download-options-modal')) closeDownloadOptions(); });
     $('#wallet-top-trigger').addEventListener('click', openWalletTopup);
@@ -1897,7 +1896,7 @@
 
     async function boot() {
       loadPublicPricing();
-      loadSupportSettings();
+      await loadSupportSettings();
       try {
         var response = await callServer('getMe', []);
         if (response.success) showApp(response.user); else clearSession();
