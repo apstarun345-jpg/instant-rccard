@@ -762,7 +762,7 @@
       });
     }
 
-    async function makeCardPng(frontValue, backValue) {
+    async function renderCardCanvas(frontValue, backValue) {
       var frontSource = safeImage(frontValue);
       var backSource = safeImage(backValue);
       if (!frontSource || !backSource) throw new Error('Front/back RC image valid nahi hai.');
@@ -771,10 +771,9 @@
       var back = loadedImages[1];
       var dpi = 300;
       var mm = function (value) { return Math.round(value * dpi / 25.4); };
-      // RC Card output is exactly two standard card faces, stacked without an A4-sized canvas.
+      // Compact RC Card: front aur back ek hi clear canvas par, bina A4 whitespace.
       var pageWidth = mm(85.6);
       var cardHeight = mm(54);
-      var gap = 0;
       var canvas = document.createElement('canvas');
       canvas.width = pageWidth;
       canvas.height = cardHeight * 2;
@@ -791,12 +790,66 @@
         context.drawImage(image, Math.round((pageWidth - width) / 2), y + Math.round((cardHeight - height) / 2), width, height);
       }
       drawCard(front, 0);
-      drawCard(back, cardHeight + gap);
-      return await new Promise(function (resolve, reject) {
+      drawCard(back, cardHeight);
+      return canvas;
+    }
+
+    function canvasBlob(canvas, type, quality) {
+      return new Promise(function (resolve, reject) {
         canvas.toBlob(function (blob) {
-          if (blob) resolve(blob); else reject(new Error('PNG create nahi ho paayi.'));
-        }, 'image/png');
+          if (blob) resolve(blob); else reject(new Error('RC file create nahi ho paayi.'));
+        }, type, quality);
       });
+    }
+
+    async function makeCardPng(frontValue, backValue) {
+      return canvasBlob(await renderCardCanvas(frontValue, backValue), 'image/png');
+    }
+
+    function textBytes(value) {
+      return new TextEncoder().encode(value);
+    }
+
+    function makePdfFromCanvas(canvas) {
+      var dataUrl = canvas.toDataURL('image/jpeg', .98);
+      var encoded = dataUrl.slice(dataUrl.indexOf(',') + 1);
+      var binary = atob(encoded);
+      var imageBytes = new Uint8Array(binary.length);
+      for (var i = 0; i < binary.length; i += 1) imageBytes[i] = binary.charCodeAt(i);
+
+      var pageWidth = 85.6 / 25.4 * 72;
+      var pageHeight = 54 / 25.4 * 72 * 2;
+      var content = 'q\n' + pageWidth.toFixed(2) + ' 0 0 ' + pageHeight.toFixed(2) + ' 0 0 cm\n/Im0 Do\nQ\n';
+      var chunks = [];
+      var offsets = [0];
+      var byteLength = 0;
+      function push(bytes) { chunks.push(bytes); byteLength += bytes.length; }
+      function object(number, parts) {
+        offsets[number] = byteLength;
+        push(textBytes(number + ' 0 obj\n'));
+        parts.forEach(push);
+        push(textBytes('\nendobj\n'));
+      }
+
+      push(new Uint8Array([37, 80, 68, 70, 45, 49, 46, 52, 10, 37, 255, 255, 255, 255, 10]));
+      object(1, [textBytes('<< /Type /Catalog /Pages 2 0 R >>')]);
+      object(2, [textBytes('<< /Type /Pages /Kids [3 0 R] /Count 1 >>')]);
+      object(3, [textBytes('<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ' + pageWidth.toFixed(2) + ' ' + pageHeight.toFixed(2) + '] /Resources << /XObject << /Im0 5 0 R >> >> /Contents 4 0 R >>')]);
+      object(4, [textBytes('<< /Length ' + textBytes(content).length + ' >>\nstream\n'), textBytes(content), textBytes('endstream')]);
+      object(5, [textBytes('<< /Type /XObject /Subtype /Image /Width ' + canvas.width + ' /Height ' + canvas.height + ' /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ' + imageBytes.length + ' >>\nstream\n'), imageBytes, textBytes('\nendstream')]);
+
+      var xrefOffset = byteLength;
+      var xref = 'xref\n0 6\n0000000000 65535 f \n';
+      for (var objectNumber = 1; objectNumber <= 5; objectNumber += 1) {
+        xref += String(offsets[objectNumber]).padStart(10, '0') + ' 00000 n \n';
+      }
+      xref += 'trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n' + xrefOffset + '\n%%EOF';
+      push(textBytes(xref));
+      return new Blob(chunks, { type: 'application/pdf' });
+    }
+
+    async function makeCardPdf(frontValue, backValue) {
+      return makePdfFromCanvas(await renderCardCanvas(frontValue, backValue));
     }
 
     function downloadData(blob, fileName) {
@@ -810,17 +863,28 @@
       setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
     }
 
-    function showDownloadOptions() {
+    function prepareVehicleNumber() {
       var input = $('#vrn-input');
       var vrn = normalizeVrn(input.value);
       input.value = vrn;
       if (!validVrn(vrn)) {
         input.classList.remove('shake'); void input.offsetWidth; input.classList.add('shake');
-        toast('Vehicle number check karo', 'Example format: RJ14AB1234', 'error'); return;
+        toast('Vehicle number check karo', 'Example format: RJ14AB1234', 'error');
+        return '';
       }
       state.pendingVrn = vrn;
+      return vrn;
+    }
+
+    function showDownloadOptions() {
+      if (!prepareVehicleNumber()) return;
       $('#download-options-modal').hidden = false;
       document.body.style.overflow = 'hidden';
+    }
+
+    function startDirectRcDownload() {
+      if (!prepareVehicleNumber()) return;
+      purchaseAndDownload('rc-card');
     }
 
     function closeDownloadOptions() {
@@ -874,14 +938,16 @@
           return;
         }
         var combined = downloadType === 'rc-card'
-          ? await makeCardPng(response.data.front, response.data.back)
+          ? await makeCardPdf(response.data.front, response.data.back)
           : await makeA4Png(response.data.front, response.data.back);
         updateWallet(response.wallet);
         await loadTransactions();
         var label = downloadType === 'rc-card' ? 'RC-Card' : 'MParivahan-RC';
-        downloadData(combined, response.data.vrn + '-' + label + '.png');
-        setDownloadStatus('PNG download started ✓', response.data.vrn + '-' + label + '.png save ho rahi hai.', 'success');
-        toast('Instant download ready', response.data.vrn + ' ki selected RC PNG download ho rahi hai.', 'success');
+        var extension = downloadType === 'rc-card' ? 'pdf' : 'png';
+        var fileName = response.data.vrn + '-' + label + '.' + extension;
+        downloadData(combined, fileName);
+        setDownloadStatus((extension === 'pdf' ? 'PDF' : 'PNG') + ' download started ✓', fileName + ' save ho rahi hai.', 'success');
+        toast('Instant download ready', response.data.vrn + ' ki clear RC file download ho rahi hai.', 'success');
         $('#vrn-input').value = '';
         state.pendingVrn = '';
       } catch (error) {
@@ -890,7 +956,7 @@
       } finally {
         setFetchingOverlay(false);
         state.busy = false;
-        setButtonLoading(button, false, 'Download RC <span>↗</span>');
+        setButtonLoading(button, false, 'Download RC PDF <span>↗</span>');
       }
     }
 
@@ -1550,7 +1616,8 @@
       finally { setButtonLoading(button, false, 'Set new password <span>→</span>'); }
     });
 
-    $('#rc-form').addEventListener('submit', function (event) { event.preventDefault(); showDownloadOptions(); });
+    $('#rc-form').addEventListener('submit', function (event) { event.preventDefault(); startDirectRcDownload(); });
+    $('#choose-format-button').addEventListener('click', showDownloadOptions);
     $('#close-format-modal').addEventListener('click', closeDownloadOptions);
     $('#download-options-modal').addEventListener('click', function (event) { if (event.target === $('#download-options-modal')) closeDownloadOptions(); });
     $('#wallet-top-trigger').addEventListener('click', openWalletTopup);

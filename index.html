@@ -215,6 +215,8 @@
     .vrn-form button:hover { background: #edf5ff; }
     .vrn-form button:disabled { cursor: wait; opacity: .65; }
     .hero-hint { margin: 9px 0 0; color: rgba(255,255,255,.62); font-size: 10px; font-weight: 600; }
+    .format-picker-link { border: 0; padding: 0; color: #d3e4ff; background: transparent; font: inherit; font-weight: 800; text-decoration: underline; text-underline-offset: 2px; }
+    .format-picker-link:hover { color: #fff; }
     .download-status { display: flex; align-items: center; gap: 9px; max-width: 560px; margin-top: 12px; padding: 9px 11px; border: 1px solid rgba(255,255,255,.18); border-radius: 11px; color: #e8f1ff; background: rgba(255,255,255,.10); }
     .download-status .status-icon { display: grid; place-items: center; width: 23px; height: 23px; flex: 0 0 auto; border-radius: 7px; color: #1b5bda; background: #fff; font-size: 12px; font-weight: 900; }
     .download-status b, .download-status small { display: block; }
@@ -724,7 +726,7 @@
         </a>
         <div class="eyebrow">FAST RC GATEWAY • BLUE &amp; SECURE</div>
         <h1>Apni RC,<br /><em>instant card.</em></h1>
-        <p>Login karo, wallet recharge karwao aur vehicle number dalte hi front + back RC ek hi PNG me download karo.</p>
+        <p>Login karo, wallet recharge karwao aur vehicle number dalte hi front + back RC ek hi clear PDF me download karo.</p>
         <div class="benefit-list"><span><b>✓</b> RC Card <span id="auth-benefit-price">₹15</span></span><span><b>•</b> MParivahan Coming Soon</span><span><b>✓</b> Front + back combined</span><span><b>✓</b> Email + mobile account</span></div>
         <div class="auth-visual" aria-hidden="true">
           <div class="visual-card back"></div>
@@ -733,7 +735,7 @@
             <div class="card-main"><div class="qr"><span></span><span></span><span></span><span></span></div><div><small>REGISTRATION NUMBER</small><b>RJ 14 AB 1234</b><p>Digital RC card image</p></div></div>
             <div class="card-bottom"><span>TRANSPORT DEPARTMENT</span><i>VALID</i></div>
           </div>
-          <div class="float-note note-one"><b>⚡</b><span><strong>Instant download</strong><small>Ek click, one PNG</small></span></div>
+          <div class="float-note note-one"><b>⚡</b><span><strong>Instant download</strong><small>Ek click, clear PDF</small></span></div>
           <div class="float-note note-two"><b>✓</b><span><strong>Wallet protected</strong><small>RC Card <span id="auth-float-price">₹15</span> · MParivahan soon</small></span></div>
         </div>
       </div>
@@ -791,7 +793,7 @@
     </header>
 
     <main class="dashboard" id="dashboard" hidden>
-      <div class="welcome-line"><div><div class="section-label">INSTANT RCCARD DESK</div><h1 id="welcome-title">RC download karo.</h1><p id="welcome-subtitle">Vehicle number dalo aur compact RC Card PNG seedha download karo.</p></div><div class="price-note"><b id="price-note-amount">₹15</b><span>RC Card download<br />MParivahan Coming Soon</span></div></div>
+      <div class="welcome-line"><div><div class="section-label">INSTANT RCCARD DESK</div><h1 id="welcome-title">RC download karo.</h1><p id="welcome-subtitle">Vehicle number dalo aur clear compact RC Card PDF seedha download karo.</p></div><div class="price-note"><b id="price-note-amount">₹15</b><span>RC Card download<br />MParivahan Coming Soon</span></div></div>
       <section class="admin-kpi-section" id="admin-kpi-section" hidden>
         <div class="admin-kpi-heading"><div><div class="section-label" id="admin-kpi-role-label">MAIN ADMIN · LIVE OVERVIEW</div><h2 id="admin-kpi-title">Admin KPI dashboard</h2><p id="admin-kpi-description">Users, topup aur RC download ka real-time overview.</p></div><span class="admin-tag" id="admin-kpi-scope-tag">ALL PLATFORM</span></div>
         <div class="admin-kpi-filters">
@@ -838,7 +840,7 @@
         <div class="ad-viewport"><div class="ad-track" id="ad-track"></div></div>
       </section>
       <section class="download-hero" id="app">
-        <div class="hero-content"><div class="section-label">QUICK RC DOWNLOAD</div><h2>Gadi number dalo.</h2><p>Front aur back images ko aapke selected format me combine karke seedha PNG download kar denge.</p><form class="vrn-form" id="rc-form"><input id="vrn-input" type="text" maxlength="16" autocapitalize="characters" autocomplete="off" placeholder="RJ14AB1234" /><button id="rc-button" type="submit"><span id="rc-button-label">Download RC</span><span>↗</span></button></form><p class="hero-hint">Example: RJ14AB1234 • Format choose karein • Selected format ka charge hi successful download par deduct hoga.</p><div class="download-status" id="download-status" role="status" hidden><span class="status-icon" id="download-status-icon">✓</span><span><b id="download-status-title">Download ready</b><small id="download-status-text"></small></span><button id="close-download-status" type="button" aria-label="Close status">×</button></div></div>
+        <div class="hero-content"><div class="section-label">QUICK RC DOWNLOAD</div><h2>Gadi number dalo.</h2><p>Vehicle number submit karte hi clear RC Card PDF ready karke turant download kar denge.</p><form class="vrn-form" id="rc-form"><input id="vrn-input" type="text" maxlength="16" autocapitalize="characters" autocomplete="off" placeholder="RJ14AB1234" /><button id="rc-button" type="submit"><span id="rc-button-label">Download RC PDF</span><span>↗</span></button></form><p class="hero-hint">Example: RJ14AB1234 • RC Card PDF direct download • <button class="format-picker-link" id="choose-format-button" type="button">MParivahan RC / RC Card options</button></p><div class="download-status" id="download-status" role="status" hidden><span class="status-icon" id="download-status-icon">✓</span><span><b id="download-status-title">Download ready</b><small id="download-status-text"></small></span><button id="close-download-status" type="button" aria-label="Close status">×</button></div></div>
         <div class="hero-card-art" aria-hidden="true"><div class="hero-rc back"></div><div class="hero-rc"><div class="mini-top"><span>🇮🇳 INDIA RC</span><b>RC</b></div><div class="mini-main"><div class="mini-lines"><i></i><i></i><i></i></div><div><small>REGISTRATION NO.</small><strong>RJ 14 AB 1234</strong></div></div><div class="mini-bottom"><span>SMART CARD</span><span>VALID</span></div></div></div>
       </section>
       <div class="wallet-alert" id="wallet-alert" role="alert" hidden><span class="wallet-alert-icon">!</span><span><b>Recharge your wallet</b><small id="wallet-alert-text">RC Card download ke liye ₹15 wallet balance chahiye.</small></span><button id="close-wallet-alert" type="button" aria-label="Close alert">×</button></div>
@@ -955,7 +957,7 @@
       <p>Vehicle number ke liye aapka preferred download format select karein.</p>
       <div class="format-options">
         <button class="format-option coming-soon" data-download-format="mparivahan" type="button"><span class="format-icon">▤</span><span><b>MParivahan RC <i>Coming Soon!</i></b><small>A4 page layout · abhi service start nahi hui</small></span><span class="format-arrow">•</span></button>
-        <button class="format-option rc-card" data-download-format="rc-card" type="button"><span class="format-icon">▣</span><span><b>RC Card <i id="format-option-price">₹15</i></b><small>Compact card layout · front upar · back neeche</small></span><span class="format-arrow">→</span></button>
+        <button class="format-option rc-card" data-download-format="rc-card" type="button"><span class="format-icon">▣</span><span><b>RC Card <i id="format-option-price">₹15</i></b><small>Clear PDF · front upar · back neeche</small></span><span class="format-arrow">→</span></button>
       </div>
     </div>
   </div>
