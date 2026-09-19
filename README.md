@@ -27,6 +27,7 @@ A blue-and-white Node website for secure RC front-and-back downloads.
 - Frozen `Hello, <name>` robot greeting with independent animation plus WhatsApp/email help choices
 - Admin **Users & rates** tab: naam/mobile/email search, per-user RC Card rate, bulk rate apply, block/unblock and CSV export
 - Per-user RC rate audit log (purana rate → naya rate, kaun admin ne badla)
+- Custom user rates remain preserved through admin-access changes, default-rate changes, wallet/status updates and Google Sheet restore
 - Service worker update notice so a new deploy is never stuck behind an old cached page
 - Server-side RC provider token
 - JSON storage as a local fallback/cache

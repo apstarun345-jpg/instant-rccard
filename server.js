@@ -557,26 +557,44 @@ async function restoreFromSheet() {
 
     // Google Sheet is the durable source when it contains account records.
     // Keep a local database if the sheet is empty/unavailable during first setup.
-    if (accounts.length || !db.users.length) db.users = accounts.map((account) => {
-      const customPrice = Number(account.rcCardPrice);
-      return {
-        id: String(account.userId || account.id || `sheet-${account.mobile}`),
-        name: String(account.name || ''),
-        email: normalizeEmail(account.email),
-        mobile: normalizeMobile(account.mobile),
-        salt: String(account.salt || ''),
-        passwordHash: String(account.passwordHash || ''),
-        wallet: Number(account.wallet || 0),
-        rcCardPrice: Number.isFinite(customPrice) && customPrice >= 1 ? Math.round(customPrice) : null,
-        rcRateUpdatedAt: account.rcRateUpdatedAt || '',
-        rcRateUpdatedBy: account.rcRateUpdatedBy || '',
-        role: account.role === 'admin' ? 'admin' : 'user',
-        adminPermissions: account.role === 'admin' ? normalizedAdminPermissions(account.adminPermissions, account.adminPermissions == null) : {}, 
-        createdAt: account.createdAt || new Date().toISOString(),
-        lastLogin: account.lastLogin || account.createdAt || new Date().toISOString(),
-        active: account.active !== false && String(account.active).toLowerCase() !== 'false'
-      };
-    });
+    if (accounts.length || !db.users.length) {
+      const localUsersByKey = new Map(db.users.map((user) => [String(user.id || user.mobile), user]));
+      db.users = accounts.map((account) => {
+        const accountKey = String(account.userId || account.id || account.mobile || '');
+        const localUser = localUsersByKey.get(accountKey) || db.users.find((user) => user.mobile === normalizeMobile(account.mobile));
+        const customPrice = Number(account.rcCardPrice);
+        const hasSheetRate = Number.isFinite(customPrice) && customPrice >= 1;
+        const rateUpdatedAt = account.rcRateUpdatedAt || '';
+        // An older Sheet row may not have the custom-rate columns yet. Do not
+        // erase a valid local custom rate during an unrelated restore/update.
+        // A non-empty rcRateUpdatedAt with a blank rate means the custom rate
+        // was intentionally cleared, so default should win in that case.
+        const preservedLocalRate = !hasSheetRate && !rateUpdatedAt && localUser ? customRcCardPrice(localUser) : null;
+        const effectiveRate = hasSheetRate ? Math.round(customPrice) : preservedLocalRate;
+        return {
+          id: accountKey || `sheet-${account.mobile}`,
+          name: String(account.name || ''),
+          email: normalizeEmail(account.email),
+          mobile: normalizeMobile(account.mobile),
+          salt: String(account.salt || ''),
+          passwordHash: String(account.passwordHash || ''),
+          wallet: Number(account.wallet || 0),
+          rcCardPrice: effectiveRate,
+          rcRateUpdatedAt: rateUpdatedAt || (preservedLocalRate != null && localUser ? localUser.rcRateUpdatedAt || '' : ''),
+          rcRateUpdatedBy: account.rcRateUpdatedBy || (preservedLocalRate != null && localUser ? localUser.rcRateUpdatedBy || '' : ''),
+          role: account.role === 'admin' ? 'admin' : 'user',
+          adminPermissions: account.role === 'admin' ? normalizedAdminPermissions(account.adminPermissions, account.adminPermissions == null) : {}, 
+          createdAt: account.createdAt || new Date().toISOString(),
+          lastLogin: account.lastLogin || account.createdAt || new Date().toISOString(),
+          active: account.active !== false && String(account.active).toLowerCase() !== 'false'
+        };
+      });
+      // Repair an old/missing Sheet rate column asynchronously once the local
+      // custom value has been preserved, so future restarts remain durable.
+      db.users.forEach((user) => {
+        if (customRcCardPrice(user) != null) queueSheetSync('user', sheetUserPayload(user));
+      });
+    }
     if (transactions.length || !db.transactions.length) db.transactions = transactions;
     if (snapshot.settings && typeof snapshot.settings === 'object') db.settings = { ...db.settings, ...snapshot.settings };
     if (Array.isArray(snapshot.rateLog)) db.rateLog = snapshot.rateLog.slice(-300);
