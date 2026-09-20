@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import crypto from 'node:crypto';
+import webpush from 'web-push';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(__dirname, 'public');
@@ -28,7 +29,19 @@ const MAX_AD_BYTES = 40_000;
 const MAX_PAYMENT_QR_BYTES = 1_500_000;
 const UPSTREAM_TIMEOUT_MS = 20_000;
 const SHEET_SYNC_TIMEOUT_MS = 60_000;
-const BUILD_VERSION = 'wallet-direct-v6';
+const BUILD_VERSION = 'wallet-direct-v7-notifications';
+const WEB_PUSH_VAPID_PUBLIC_KEY = process.env.WEB_PUSH_VAPID_PUBLIC_KEY || '';
+const WEB_PUSH_VAPID_PRIVATE_KEY = process.env.WEB_PUSH_VAPID_PRIVATE_KEY || '';
+const WEB_PUSH_SUBJECT = process.env.WEB_PUSH_SUBJECT || 'mailto:admin@example.com';
+let webPushReady = false;
+try {
+  if (WEB_PUSH_VAPID_PUBLIC_KEY && WEB_PUSH_VAPID_PRIVATE_KEY) {
+    webpush.setVapidDetails(WEB_PUSH_SUBJECT, WEB_PUSH_VAPID_PUBLIC_KEY, WEB_PUSH_VAPID_PRIVATE_KEY);
+    webPushReady = true;
+  }
+} catch (error) {
+  console.warn('Web Push disabled:', error.message);
+}
 const RC_CACHE_TTL_MS = 10 * 60 * 1000;
 const RC_CACHE_MAX_ENTRIES = 24;
 const providerCache = new Map();
@@ -47,11 +60,12 @@ const MIME_TYPES = {
   '.ico': 'image/x-icon'
 };
 
-let db = { users: [], transactions: [], ads: [], settings: {}, rateLog: [], topupRequests: [] };
+let db = { users: [], transactions: [], ads: [], settings: {}, rateLog: [], topupRequests: [], notifications: [], pushSubscriptions: [] };
 let mutationQueue = Promise.resolve();
 let sheetSyncQueue = Promise.resolve();
 let sheetSyncFailures = [];
 let restoreState = { status: 'not-started', users: 0, transactions: 0, rcDownloads: 0, sheetAccounts: 0, sheetTransactions: 0, completedAt: '', error: '' };
+const MAX_STORED_NOTIFICATIONS = 3000;
 
 function normalizeMobile(value) {
   let digits = String(value ?? '').replace(/\D/g, '');
@@ -346,11 +360,13 @@ async function loadDatabase() {
       ads: Array.isArray(parsed.ads) ? parsed.ads : [],
       settings: parsed.settings && typeof parsed.settings === 'object' ? parsed.settings : {},
       rateLog: Array.isArray(parsed.rateLog) ? parsed.rateLog : [],
-      topupRequests: Array.isArray(parsed.topupRequests) ? parsed.topupRequests : []
+      topupRequests: Array.isArray(parsed.topupRequests) ? parsed.topupRequests : [],
+      notifications: Array.isArray(parsed.notifications) ? parsed.notifications : [],
+      pushSubscriptions: Array.isArray(parsed.pushSubscriptions) ? parsed.pushSubscriptions : []
     };
   } catch (error) {
     if (error.code !== 'ENOENT') throw error;
-    db = { users: [], transactions: [], ads: [], settings: {}, rateLog: [], topupRequests: [] };
+    db = { users: [], transactions: [], ads: [], settings: {}, rateLog: [], topupRequests: [], notifications: [], pushSubscriptions: [] };
     await persistDatabase();
   }
 }
@@ -610,6 +626,7 @@ function sheetAdPayload(ad) {
 function publicTopupRequest(request) {
   return {
     id: String(request.id || ''),
+    clientReference: String(request.clientReference || ''),
     mobile: String(request.mobile || ''),
     name: String(request.name || ''),
     email: String(request.email || ''),
@@ -623,6 +640,78 @@ function publicTopupRequest(request) {
     decidedBy: request.decidedBy || '',
     rejectReason: request.rejectReason || ''
   };
+}
+
+function publicNotification(notification) {
+  return {
+    id: String(notification.id || ''),
+    type: String(notification.type || 'activity'),
+    title: String(notification.title || 'InstantRCcard'),
+    body: String(notification.body || ''),
+    data: notification.data && typeof notification.data === 'object' ? notification.data : {},
+    createdAt: notification.createdAt || '',
+    read: notification.read === true
+  };
+}
+
+function queueNotificationsForUsers(users, event) {
+  const recipients = Array.from(new Map((users || []).filter(Boolean).map((user) => [String(user.id), user])).values());
+  if (!recipients.length) return;
+  void withMutationLock(async () => {
+    if (!Array.isArray(db.notifications)) db.notifications = [];
+    const now = new Date().toISOString();
+    const created = recipients.map((user) => ({
+      id: crypto.randomUUID(),
+      recipientUserId: user.id,
+      type: String(event.type || 'activity'),
+      title: String(event.title || 'InstantRCcard activity').slice(0, 120),
+      body: String(event.body || '').slice(0, 500),
+      data: event.data && typeof event.data === 'object' ? event.data : {},
+      createdAt: now,
+      read: false
+    }));
+    db.notifications.push(...created);
+    if (db.notifications.length > MAX_STORED_NOTIFICATIONS) db.notifications = db.notifications.slice(-MAX_STORED_NOTIFICATIONS);
+    await persistDatabase();
+    if (SHEET_WEBHOOK_URL && SHEET_SYNC_SECRET) {
+      await Promise.all(created.map((notification) => queueSheetSync('notification', notification).catch((error) => {
+        const index = sheetSyncFailures.indexOf(error);
+        if (index >= 0) sheetSyncFailures.splice(index, 1);
+        console.warn('Notification Sheet sync pending:', error.message);
+      })));
+    }
+    if (!webPushReady || !Array.isArray(db.pushSubscriptions)) return;
+    const recipientIds = new Set(recipients.map((user) => String(user.id)));
+    const subscriptions = db.pushSubscriptions.filter((item) => recipientIds.has(String(item.userId || '')));
+    const pushPayload = {
+      title: String(event.title || 'InstantRCcard activity'),
+      body: String(event.body || ''),
+      icon: '/icon-192.png',
+      badge: '/icon-192.png',
+      tag: String(event.type || 'instant-rccard'),
+      data: { ...(event.data || {}), url: '/' }
+    };
+    subscriptions.forEach((item) => {
+      void webpush.sendNotification(item.subscription, JSON.stringify(pushPayload)).catch((error) => {
+        if (error && (error.statusCode === 404 || error.statusCode === 410)) {
+          db.pushSubscriptions = db.pushSubscriptions.filter((saved) => saved.endpoint !== item.endpoint);
+          void persistDatabase();
+          queueSheetSync('pushSubscriptionDelete', { endpoint: item.endpoint, userId: item.userId });
+        } else {
+          console.warn('Web Push delivery failed:', error.message);
+        }
+      });
+    });
+  });
+}
+
+function notifyUserActivity(user, event) {
+  if (user) queueNotificationsForUsers([user], event);
+}
+
+function notifyAdminsForActivity(permission, event) {
+  const admins = db.users.filter((user) => user.role === 'admin' && hasAdminPermission(user, permission));
+  queueNotificationsForUsers(admins, event);
 }
 
 function sheetTopupRequestPayload(request) {
@@ -859,6 +948,8 @@ async function restoreFromSheet() {
     const transactions = Array.isArray(snapshot.transactions) ? snapshot.transactions : [];
     const ads = Array.isArray(snapshot.ads) ? snapshot.ads : [];
     const topupRequests = Array.isArray(snapshot.topupRequests) ? snapshot.topupRequests : [];
+    const sheetNotifications = Array.isArray(snapshot.notifications) ? snapshot.notifications.slice(-MAX_STORED_NOTIFICATIONS) : [];
+    const sheetPushSubscriptions = Array.isArray(snapshot.pushSubscriptions) ? snapshot.pushSubscriptions : [];
     const sheetRateLog = Array.isArray(snapshot.rateLog) ? snapshot.rateLog.slice(-300) : [];
     const localRateLog = Array.isArray(db.rateLog) ? db.rateLog : [];
     const rateLogById = new Map();
@@ -981,6 +1072,16 @@ async function restoreFromSheet() {
       const durableIds = new Set(topupRequests.map((request) => String(request.id || '')).filter(Boolean));
       db.topupRequests = topupRequests.concat(localRequests.filter((request) => !durableIds.has(String(request.id || ''))));
     }
+    if (sheetNotifications.length || !db.notifications.length) {
+      const localNotifications = Array.isArray(db.notifications) ? db.notifications.slice() : [];
+      const durableIds = new Set(sheetNotifications.map((item) => String(item.id || '')).filter(Boolean));
+      db.notifications = sheetNotifications.concat(localNotifications.filter((item) => !durableIds.has(String(item.id || '')))).slice(-MAX_STORED_NOTIFICATIONS);
+    }
+    if (sheetPushSubscriptions.length || !db.pushSubscriptions.length) {
+      const localSubscriptions = Array.isArray(db.pushSubscriptions) ? db.pushSubscriptions.slice() : [];
+      const durableEndpoints = new Set(sheetPushSubscriptions.map((item) => String(item.endpoint || '')).filter(Boolean));
+      db.pushSubscriptions = sheetPushSubscriptions.concat(localSubscriptions.filter((item) => !durableEndpoints.has(String(item.endpoint || ''))));
+    }
     if (snapshot.settings && typeof snapshot.settings === 'object') db.settings = { ...db.settings, ...snapshot.settings };
     if (durableRateLog.length || !db.rateLog.length) db.rateLog = durableRateLog;
     if (ads.length || !db.ads.length) db.ads = ads.map((ad) => ({
@@ -1029,6 +1130,12 @@ async function handleSignup(req, res) {
     const user = { id: crypto.randomUUID(), shortId: nextShortId('u', db.users, 'shortId'), username: name, name, email, mobile, salt, passwordHash: passwordHash(password, salt), wallet: 0, rcCardPrice: null, role: isOwner ? 'admin' : 'user', adminPermissions: isOwner ? { ...FULL_ADMIN_PERMISSIONS } : {}, createdAt: new Date().toISOString(), lastLogin: new Date().toISOString(), active: true };
     db.users.push(user);
     await persistDatabase();
+    notifyAdminsForActivity('kpi', {
+      type: 'new-user',
+      title: 'New user signup',
+      body: `${user.name} (+91 ${user.mobile}) ne account create kiya.`,
+      data: { mobile: user.mobile, userId: user.id }
+    });
     queueSheetSync('user', sheetUserPayload(user));
     await flushSheetSync();
     return sendJson(res, 200, { success: true, user: publicUser(user) }, { 'Set-Cookie': authCookie(user.id) });
@@ -1098,6 +1205,105 @@ async function handleForgotPassword(req, res) {
   });
 }
 
+function validPushSubscription(value) {
+  return Boolean(value && typeof value.endpoint === 'string' && value.endpoint.length >= 20 && value.endpoint.length <= 2000 && value.keys && typeof value.keys.p256dh === 'string' && typeof value.keys.auth === 'string');
+}
+
+async function handleNotificationPublicKey(req, res) {
+  return sendJson(res, 200, { success: true, enabled: webPushReady, publicKey: webPushReady ? WEB_PUSH_VAPID_PUBLIC_KEY : '' });
+}
+
+async function handleNotificationList(req, res) {
+  const user = currentUser(req);
+  if (!user || !user.active) return sendError(res, 401, 'Session expire ho gaya.');
+  const notifications = (Array.isArray(db.notifications) ? db.notifications : [])
+    .filter((item) => String(item.recipientUserId) === String(user.id))
+    .slice(-100)
+    .reverse()
+    .map(publicNotification);
+  return sendJson(res, 200, { success: true, enabled: webPushReady, notifications, unread: notifications.filter((item) => !item.read).length });
+}
+
+async function handleNotificationSubscribe(req, res) {
+  const user = currentUser(req);
+  if (!user || !user.active) return sendError(res, 401, 'Session expire ho gaya.');
+  const body = await readJson(req);
+  const subscription = body.subscription || body;
+  if (!validPushSubscription(subscription)) return sendError(res, 422, 'Notification subscription valid nahi hai.');
+  return withMutationLock(async () => {
+    if (!Array.isArray(db.pushSubscriptions)) db.pushSubscriptions = [];
+    const endpoint = String(subscription.endpoint);
+    const record = {
+      userId: user.id,
+      mobile: user.mobile,
+      endpoint,
+      subscription: {
+        endpoint,
+        expirationTime: subscription.expirationTime || null,
+        keys: { p256dh: String(subscription.keys.p256dh), auth: String(subscription.keys.auth) }
+      },
+      updatedAt: new Date().toISOString()
+    };
+    const index = db.pushSubscriptions.findIndex((item) => item.endpoint === endpoint);
+    if (index >= 0) db.pushSubscriptions[index] = record;
+    else db.pushSubscriptions.push(record);
+    await persistDatabase();
+    try {
+      await queueSheetSync('pushSubscription', record);
+      await flushSheetSync();
+    } catch (error) {
+      const index = sheetSyncFailures.indexOf(error);
+      if (index >= 0) sheetSyncFailures.splice(index, 1);
+      console.warn('Push subscription Sheet sync pending:', error.message);
+    }
+    return sendJson(res, 200, { success: true, enabled: webPushReady, message: webPushReady ? 'Notifications on ho gaye.' : 'In-app notifications on hain; Web Push keys abhi configure nahi hain.' });
+  });
+}
+
+async function handleNotificationUnsubscribe(req, res) {
+  const user = currentUser(req);
+  if (!user || !user.active) return sendError(res, 401, 'Session expire ho gaya.');
+  const body = await readJson(req);
+  const endpoint = String(body.endpoint || body.subscription?.endpoint || '');
+  return withMutationLock(async () => {
+    if (Array.isArray(db.pushSubscriptions) && endpoint) {
+      db.pushSubscriptions = db.pushSubscriptions.filter((item) => !(item.endpoint === endpoint && String(item.userId) === String(user.id)));
+      await persistDatabase();
+      try {
+        await queueSheetSync('pushSubscriptionDelete', { endpoint, userId: user.id });
+        await flushSheetSync();
+      } catch (error) {
+        const index = sheetSyncFailures.indexOf(error);
+        if (index >= 0) sheetSyncFailures.splice(index, 1);
+        console.warn('Push unsubscribe Sheet sync pending:', error.message);
+      }
+    }
+    return sendJson(res, 200, { success: true });
+  });
+}
+
+async function handleNotificationRead(req, res) {
+  const user = currentUser(req);
+  if (!user || !user.active) return sendError(res, 401, 'Session expire ho gaya.');
+  const body = await readJson(req);
+  const ids = Array.isArray(body.ids) ? new Set(body.ids.map(String)) : null;
+  return withMutationLock(async () => {
+    const changed = [];
+    (Array.isArray(db.notifications) ? db.notifications : []).forEach((item) => {
+      if (String(item.recipientUserId) !== String(user.id)) return;
+      if ((!ids || ids.has(String(item.id))) && item.read !== true) { item.read = true; changed.push(item); }
+    });
+    await persistDatabase();
+    const syncs = changed.map((item) => queueSheetSync('notification', item).catch((error) => {
+      const index = sheetSyncFailures.indexOf(error);
+      if (index >= 0) sheetSyncFailures.splice(index, 1);
+      console.warn('Notification read Sheet sync pending:', error.message);
+    }));
+    try { await Promise.all(syncs); await flushSheetSync(); } catch (error) { console.warn('Notification read Sheet sync pending:', error.message); }
+    return sendJson(res, 200, { success: true });
+  });
+}
+
 async function handlePurchase(req, res) {
   const user = currentUser(req);
   if (!user || !user.active) return sendError(res, 401, 'Session expire ho gaya. Dobara login karo.');
@@ -1134,6 +1340,18 @@ async function handlePurchase(req, res) {
     queueSheetSync('user', sheetUserPayload(fresh));
     queueSheetSync('transaction', sheetTransactionPayload(db.transactions[db.transactions.length - 1]));
     await flushSheetSync();
+    notifyUserActivity(fresh, {
+      type: 'rc-download',
+      title: 'RC download complete',
+      body: `${vrn} ka RC Card download ho gaya. ₹${price} wallet se deduct hua. Balance ₹${fresh.wallet}.`,
+      data: { vrn, amount: price, wallet: fresh.wallet }
+    });
+    notifyAdminsForActivity('transactions', {
+      type: 'rc-download',
+      title: 'User ne RC download kiya',
+      body: `${fresh.name} (+91 ${fresh.mobile}) ne ${vrn} ka RC Card download kiya.`,
+      data: { mobile: fresh.mobile, vrn, amount: price }
+    });
     return sendJson(res, 200, { success: true, data: { vrn, front: provider.images.front, back: provider.images.back, downloadType }, wallet: fresh.wallet, charged: price, requiredPrice: price });
   });
 }
@@ -1163,8 +1381,17 @@ async function createTopupRequestRecord(user, amount, options = {}) {
   const fresh = syncAdminRole(findUser(user.mobile));
   if (!fresh || !fresh.active) return { error: { status: 401, message: 'User account nahi mila.' } };
   if (!Array.isArray(db.topupRequests)) db.topupRequests = [];
-  const pending = db.topupRequests.find((request) => request.mobile === fresh.mobile && request.status === 'PENDING');
+  const clientReference = String(options.clientReference || '').trim().slice(0, 80);
+  const referenced = clientReference
+    ? db.topupRequests.find((request) => request.mobile === fresh.mobile && request.clientReference === clientReference)
+    : null;
+  const pending = referenced || db.topupRequests.find((request) => request.mobile === fresh.mobile && request.status === 'PENDING');
   if (pending) {
+    if (clientReference && !pending.clientReference) {
+      pending.clientReference = clientReference;
+      pending.updatedAt = new Date().toISOString();
+      await persistDatabase();
+    }
     // A previous redirect attempt may have persisted locally before a slow
     // Sheet sync failed. Re-sync that same durable request; never create a
     // second pending request for the same user.
@@ -1181,6 +1408,7 @@ async function createTopupRequestRecord(user, amount, options = {}) {
   const now = new Date().toISOString();
   const request = {
     id: crypto.randomUUID(),
+    clientReference,
     userId: fresh.id,
     userShortId: fresh.shortId || '',
     mobile: fresh.mobile,
@@ -1199,6 +1427,12 @@ async function createTopupRequestRecord(user, amount, options = {}) {
   };
   db.topupRequests.push(request);
   await persistDatabase();
+  notifyAdminsForActivity('recharge', {
+    type: 'topup-request',
+    title: 'New wallet top-up request',
+    body: `${fresh.name} (+91 ${fresh.mobile}) ne ₹${request.amountRequested} top-up request bheji hai.`,
+    data: { mobile: fresh.mobile, amount: request.amountRequested, requestId: request.id }
+  });
   const operation = queueSheetSync('topupRequest', sheetTopupRequestPayload(request));
   const tracked = trackTopupSheetSync(request, operation);
   if (options.waitForSheet === false) {
@@ -1257,13 +1491,15 @@ async function handleWalletTopupWhatsapp(req, res) {
   if (!Number.isFinite(amount) || amount < 1 || amount > 100000) {
     return sendError(res, 422, 'Topup amount ₹1 se ₹100000 ke beech hona chahiye.');
   }
-  const result = await withMutationLock(() => createTopupRequestRecord(user, amount, { waitForSheet: false }));
+  const clientReference = String(body.clientReference || '').trim().slice(0, 80);
+  const result = await withMutationLock(() => createTopupRequestRecord(user, amount, { waitForSheet: false, clientReference }));
   if (result.error) return sendError(res, result.error.status, result.error.message);
   const request = result.request;
   const support = supportSettingsPayload(req);
   const qrLink = support.paymentQrUrl || (support.paymentQr ? `${String(req.headers['x-forwarded-proto'] || 'https').split(',')[0].trim()}://${req.headers.host}/api/payment-qr` : '');
   const qrLine = qrLink ? ` Payment QR link: ${qrLink}.` : ' App me dikhaye gaye payment QR par payment karein.';
-  const message = `Hello InstantRCcard support. Payment done. RC wallet payment request ID: ${request.id}. Amount: ₹${request.amountRequested}. User mobile: +91 ${request.mobile}. Payment instructions: app me diye gaye QR par payment karke screenshot aur receipt isi chat me bhej raha/rahi hoon.${qrLine}`;
+  const paymentReference = request.clientReference || request.id;
+  const message = `Hello InstantRCcard support. Payment done. RC wallet payment request ID: ${request.id}. Payment reference: ${paymentReference}. Amount: ₹${request.amountRequested}. User mobile: +91 ${request.mobile}. Payment instructions: app me diye gaye QR par payment karke screenshot aur receipt isi chat me bhej raha/rahi hoon.${qrLine}`;
   const whatsappUrl = `https://wa.me/91${whatsapp}?text=${encodeURIComponent(message)}`;
   res.writeHead(303, { Location: whatsappUrl, 'Cache-Control': 'no-store', ...securityHeaders() });
   return res.end();
@@ -1303,6 +1539,12 @@ async function handleAdminResolveTopupRequest(req, res, requestId) {
       await persistDatabase();
       queueSheetSync('topupRequest', sheetTopupRequestPayload(request));
       await flushSheetSync();
+      notifyUserActivity(findUser(request.mobile), {
+        type: 'topup-rejected',
+        title: 'Wallet top-up rejected',
+        body: `Aapka ₹${request.amountRequested} wallet top-up reject ho gaya. ${request.rejectReason}`,
+        data: { amount: request.amountRequested, requestId: request.id }
+      });
       return sendJson(res, 200, { success: true, request: publicTopupRequest(request), message: 'Wallet payment request reject ho gayi.' });
     }
 
@@ -1325,6 +1567,12 @@ async function handleAdminResolveTopupRequest(req, res, requestId) {
     queueSheetSync('user', sheetUserPayload(user));
     queueSheetSync('transaction', sheetTransactionPayload(db.transactions[db.transactions.length - 1]));
     await flushSheetSync();
+    notifyUserActivity(user, {
+      type: 'wallet-credit',
+      title: 'Wallet balance added',
+      body: `₹${Math.round(amount)} aapke wallet me add ho gaye. New balance ₹${user.wallet}.`,
+      data: { amount: Math.round(amount), wallet: user.wallet, requestId: request.id }
+    });
     return sendJson(res, 200, { success: true, request: publicTopupRequest(request), user: publicUser(user), message: `₹${Math.round(amount)} wallet me add ho gaye.` });
   });
 }
@@ -1536,6 +1784,18 @@ async function handleAdminRecharge(req, res) {
     queueSheetSync('user', sheetUserPayload(user));
     queueSheetSync('transaction', sheetTransactionPayload(db.transactions[db.transactions.length - 1]));
     await flushSheetSync();
+    notifyUserActivity(user, {
+      type: 'wallet-credit',
+      title: 'Wallet balance added',
+      body: `Admin ne ₹${Math.round(amount)} aapke wallet me add kiye. New balance ₹${user.wallet}.`,
+      data: { amount: Math.round(amount), wallet: user.wallet }
+    });
+    notifyAdminsForActivity('recharge', {
+      type: 'wallet-recharge',
+      title: 'Wallet recharge complete',
+      body: `${user.name} (+91 ${user.mobile}) ke wallet me ₹${Math.round(amount)} add kiye gaye.`,
+      data: { mobile: user.mobile, amount: Math.round(amount), wallet: user.wallet }
+    });
     return sendJson(res, 200, { success: true, message: 'Wallet recharge successful.', user: publicUser(user) });
   });
 }
@@ -2039,6 +2299,7 @@ const server = http.createServer(async (req, res) => {
         build: BUILD_VERSION,
         providerConfigured: Boolean(RC_API_TOKEN),
         adminConfigured: Boolean(ADMIN_MOBILE),
+        webPushConfigured: webPushReady,
         sheetSyncConfigured,
         storage: sheetSyncConfigured ? 'json+google-sheet' : 'json',
         durableStore: sheetSyncConfigured ? 'google-sheet-mirror' : 'local-json-only',
@@ -2064,6 +2325,11 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && pathname === '/api/auth/logout') return sendJson(res, 200, { success: true }, { 'Set-Cookie': clearAuthCookie() });
     if (req.method === 'GET' && pathname === '/api/ads') return await handleGetAds(req, res);
     if (req.method === 'GET' && pathname === '/api/support-settings') return await handlePublicSupportSettings(req, res);
+    if (req.method === 'GET' && pathname === '/api/notifications/public-key') return await handleNotificationPublicKey(req, res);
+    if (req.method === 'GET' && pathname === '/api/notifications') return await handleNotificationList(req, res);
+    if (req.method === 'POST' && pathname === '/api/notifications/subscribe') return await handleNotificationSubscribe(req, res);
+    if (req.method === 'POST' && pathname === '/api/notifications/unsubscribe') return await handleNotificationUnsubscribe(req, res);
+    if (req.method === 'POST' && pathname === '/api/notifications/read') return await handleNotificationRead(req, res);
     if (req.method === 'GET' && pathname === '/api/payment-qr') return await handlePaymentQr(req, res);
     if (req.method === 'GET' && pathname === '/api/public/stats') return await handlePublicStats(req, res);
     if (req.method === 'GET' && pathname === '/api/account/transactions') {

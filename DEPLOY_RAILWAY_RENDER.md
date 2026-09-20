@@ -28,6 +28,18 @@ SUPPORT_WHATSAPP=your-support-mobile
 
 `SHEET_WEBHOOK_URL` and `SHEET_SYNC_SECRET` are required for durable production storage. The local JSON file is only a fallback/cache and must not be the only source of truth. The updated Apps Script performs a one-time-safe recovery migration from older `Users` and `Transactions` sheets into `Web_Accounts`, `Web_Users` and `Web_Transactions`, so do not create duplicate accounts while recovering.
 
+## Notifications
+
+The app includes notification polling, in-app alerts and background Web Push for installed Android/laptop apps. Generate VAPID keys once with `npx web-push generate-vapid-keys`, then set these Railway/Render variables:
+
+```text
+WEB_PUSH_VAPID_PUBLIC_KEY=...
+WEB_PUSH_VAPID_PRIVATE_KEY=...
+WEB_PUSH_SUBJECT=mailto:your-admin-email@example.com
+```
+
+Each admin/user must open the installed app on each device, open the account menu and tap **Enable notifications** once. Main Admin and Assistant Admins receive events allowed by their permissions: new user, top-up request and RC download/recharge activity. A user receives their own wallet-credit and RC-download alerts. Without VAPID keys, in-app polling alerts still work while the app is open, but background OS notifications cannot be delivered.
+
 ## Railway
 
 1. Create a new Railway service from the extracted package or its Git repository.
@@ -38,6 +50,7 @@ SUPPORT_WHATSAPP=your-support-mobile
    - `sheetSyncConfigured: true`
    - `storage: "json+google-sheet"`
    - `durableStore: "google-sheet-mirror"`
+   - `webPushConfigured: true` after the three Web Push variables are saved (it is intentionally false until then)
 
 ## Render
 

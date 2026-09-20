@@ -9,5 +9,8 @@
   "type": "module",
   "scripts": {
     "start": "node --env-file-if-exists=.env server.js"
+  },
+  "dependencies": {
+    "web-push": "^3.6.7"
   }
 }

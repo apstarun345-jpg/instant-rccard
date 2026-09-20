@@ -1,5 +1,5 @@
 
-    var state = { token: '', user: null, selectedAdminMobile: '', selectedAdminQuery: '', defaultRcCardPrice: 15, pendingVrn: '', busy: false, adminUsersQuery: '', adminAccessQuery: '', bulkConfirm: false, supportWhatsapp: '', supportPaymentQr: '', supportPaymentQrUrl: '', pendingTopupAmount: 0, adminKpiDetail: '', adminLiveBusy: false };
+    var state = { token: '', user: null, selectedAdminMobile: '', selectedAdminQuery: '', defaultRcCardPrice: 15, pendingVrn: '', busy: false, adminUsersQuery: '', adminAccessQuery: '', bulkConfirm: false, supportWhatsapp: '', supportPaymentQr: '', supportPaymentQrUrl: '', pendingTopupAmount: 0, adminKpiDetail: '', adminLiveBusy: false, notificationIds: {}, notifications: [], notificationUnread: 0, notificationPollTimer: null, notificationInitialised: false };
     var DOWNLOAD_PRICES = { mparivahan: 10, 'rc-card': 15 };
     var $ = function (selector) { return document.querySelector(selector); };
     var $$ = function (selector) { return Array.prototype.slice.call(document.querySelectorAll(selector)); };
@@ -74,6 +74,11 @@
       else if (name === 'getMyTransactions') { url = '/api/account/transactions'; }
       else if (name === 'getAds') { url = '/api/ads'; }
       else if (name === 'getSupportSettings') { url = '/api/support-settings'; }
+      else if (name === 'getNotificationPublicKey') { url = '/api/notifications/public-key'; }
+      else if (name === 'getNotifications') { url = '/api/notifications'; }
+      else if (name === 'subscribeNotifications') { url = '/api/notifications/subscribe'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ subscription: args[0] }); }
+      else if (name === 'unsubscribeNotifications') { url = '/api/notifications/unsubscribe'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ endpoint: args[0] || '' }); }
+      else if (name === 'readNotifications') { url = '/api/notifications/read'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ ids: args[0] || [] }); }
       else if (name === 'getStats') { url = '/api/public/stats'; }
       else if (name === 'adminFindUser') { url = '/api/admin/users/search'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ query: args[0] }); }
       else if (name === 'adminSetUserRate') { url = '/api/admin/users/set-rate'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ query: args[0], price: args[1], clear: args[2] === true }); }
@@ -323,6 +328,46 @@
       $('#topup-payment-step').hidden = false;
     }
 
+    function openWhatsAppWithFallback(nativeUrl, fallbackUrl) {
+      var switchedAway = false;
+      var finished = false;
+      var fallbackTimer = null;
+      var cleanup = function () {
+        if (finished) return;
+        finished = true;
+        if (fallbackTimer) window.clearTimeout(fallbackTimer);
+        document.removeEventListener('visibilitychange', onVisibilityChange);
+        window.removeEventListener('pagehide', onPageHide);
+      };
+      var onVisibilityChange = function () {
+        if (document.visibilityState === 'hidden') {
+          switchedAway = true;
+          cleanup();
+        }
+      };
+      var onPageHide = function () {
+        switchedAway = true;
+        cleanup();
+      };
+      document.addEventListener('visibilitychange', onVisibilityChange);
+      window.addEventListener('pagehide', onPageHide);
+      fallbackTimer = window.setTimeout(function () {
+        if (!switchedAway && !document.hidden) {
+          cleanup();
+          window.location.assign(fallbackUrl);
+        }
+      }, 1400);
+      try {
+        // Android installed PWAs need the native scheme first. If WhatsApp is
+        // missing or the browser blocks the scheme, visibility stays visible
+        // and the configured HTTPS wa.me URL is used after the short timeout.
+        window.location.assign(nativeUrl);
+      } catch (error) {
+        cleanup();
+        window.location.assign(fallbackUrl);
+      }
+    }
+
     function redirectToWalletTopupWhatsapp() {
       var amount = Number(state.pendingTopupAmount || $('#topup-amount').value);
       if (!Number.isFinite(amount) || amount < 1 || amount > 100000) {
@@ -336,12 +381,10 @@
       }
       var button = $('#topup-whatsapp-button');
       setButtonLoading(button, true, 'WhatsApp open ho raha hai…');
+      var clientReference = 'PAY-' + Date.now().toString(36).toUpperCase();
 
-      // Submit the durable request in a hidden iframe, while navigating the
-      // visible page directly to the admin-configured WhatsApp number. This
-      // prevents a slow Google Sheet response from trapping the user on
-      // "Please wait"; the server persists the request and retries Sheet sync
-      // through its pending outbox independently.
+      // Keep this hidden form: the server creates the durable, idempotent
+      // request and its pending Sheet outbox without bouncing the visible PWA.
       var frameName = 'topup-submit-' + Date.now();
       var frame = document.createElement('iframe');
       frame.name = frameName;
@@ -353,20 +396,25 @@
       form.action = '/api/wallet/topup-whatsapp';
       form.target = frameName;
       form.style.display = 'none';
-      var field = document.createElement('input');
-      field.type = 'hidden';
-      field.name = 'amount';
-      field.value = String(Math.round(amount));
-      form.appendChild(field);
+      var amountField = document.createElement('input');
+      amountField.type = 'hidden';
+      amountField.name = 'amount';
+      amountField.value = String(Math.round(amount));
+      form.appendChild(amountField);
+      var referenceField = document.createElement('input');
+      referenceField.type = 'hidden';
+      referenceField.name = 'clientReference';
+      referenceField.value = clientReference;
+      form.appendChild(referenceField);
       document.body.appendChild(form);
       form.submit();
 
-      var clientReference = 'PAY-' + Date.now().toString(36).toUpperCase();
+      var phone = '91' + state.supportWhatsapp;
       var message = 'Hello InstantRCcard support. Payment done. Amount: ₹' + Math.round(amount) + '. User mobile: +91 ' + (state.user && state.user.mobile ? state.user.mobile : '') + '. App payment reference: ' + clientReference + '. Payment screenshot aur receipt isi chat me bhej raha/rahi hoon.';
-      var whatsappUrl = 'https://wa.me/91' + state.supportWhatsapp + '?text=' + encodeURIComponent(message);
-      window.setTimeout(function () {
-        window.location.assign(whatsappUrl);
-      }, 1200);
+      var encodedMessage = encodeURIComponent(message);
+      var nativeUrl = 'whatsapp://send?phone=' + phone + '&text=' + encodedMessage;
+      var fallbackUrl = 'https://wa.me/' + phone + '?text=' + encodedMessage;
+      openWhatsAppWithFallback(nativeUrl, fallbackUrl);
     }
 
     function setAuthMode(mode) {
@@ -530,6 +578,7 @@
       $('#account-mobile').textContent = '+91 ' + user.mobile;
       if ($('#account-email')) $('#account-email').textContent = user.email || 'Email not set';
       startRoboAssistant(user);
+      startNotificationPolling();
       if ($('#admin-transactions-title')) $('#admin-transactions-title').textContent = isMainAdminUser(user) ? 'Latest platform transactions' : 'Your recharge transactions';
       applyAdminAccessUi(user);
       applyRcPrice(priceForDownload('rc-card'));
@@ -564,6 +613,7 @@
       if ($('#download-status')) $('#download-status').hidden = true;
       closeWelcomePopup();
       stopRoboAssistant();
+      stopNotificationPolling();
       stopAdminLiveUpdates();
       if (typeof closeUserDropdown === 'function') closeUserDropdown();
       state.token = '';
@@ -699,6 +749,160 @@
         var result = await callServer('getSupportSettings', []);
         if (result.success) applySupportSettings(result.support);
       } catch (error) { /* support configuration is non-critical */ }
+    }
+
+    function urlBase64ToUint8Array(value) {
+      var padding = '='.repeat((4 - value.length % 4) % 4);
+      var base64 = (value + padding).replace(/-/g, '+').replace(/_/g, '/');
+      var raw = window.atob(base64);
+      var output = new Uint8Array(raw.length);
+      for (var i = 0; i < raw.length; i += 1) output[i] = raw.charCodeAt(i);
+      return output;
+    }
+
+    function setNotificationButton(label) {
+      var button = $('#enable-notifications');
+      if (button) button.textContent = label;
+    }
+
+    function renderNotificationList() {
+      var list = $('#notification-list');
+      if (!list) return;
+      if (!state.notifications.length) {
+        list.innerHTML = '<div class="notification-empty">No notifications yet.</div>';
+        return;
+      }
+      list.innerHTML = state.notifications.map(function (item) {
+        var unreadClass = item.read ? '' : ' unread';
+        return '<button class="notification-item' + unreadClass + '" type="button" data-notification-id="' + escapeHtml(item.id) + '"><b>' + escapeHtml(item.title || 'InstantRCcard activity') + '</b><small>' + escapeHtml(item.body || '') + '</small><time>' + escapeHtml(formatDate(item.createdAt)) + '</time></button>';
+      }).join('');
+      Array.prototype.slice.call(list.querySelectorAll('[data-notification-id]')).forEach(function (item) {
+        item.addEventListener('click', function () { markNotificationsRead([item.dataset.notificationId]); });
+      });
+    }
+
+    function updateNotificationUnread() {
+      var unread = state.notifications.filter(function (item) { return !item.read; }).length;
+      state.notificationUnread = unread;
+      var badge = $('#notification-unread-badge');
+      if (badge) {
+        badge.hidden = unread < 1;
+        badge.textContent = unread > 99 ? '99+' : String(unread);
+      }
+      var label = $('#notification-unread-label');
+      if (label) label.textContent = unread ? unread + ' unread alert' + (unread === 1 ? '' : 's') : 'No unread alerts';
+    }
+
+    function setNotificationItems(items) {
+      state.notifications = Array.isArray(items) ? items.slice() : [];
+      updateNotificationUnread();
+      renderNotificationList();
+    }
+
+    async function markNotificationsRead(ids) {
+      var wanted = (ids || []).filter(Boolean);
+      if (!wanted.length) return;
+      try { await callServer('readNotifications', [wanted]); } catch (error) { return; }
+      state.notifications.forEach(function (item) {
+        if (wanted.indexOf(item.id) !== -1) item.read = true;
+      });
+      updateNotificationUnread();
+      renderNotificationList();
+    }
+
+    function toggleNotificationPanel() {
+      var panel = $('#notifications-panel');
+      if (!panel) return;
+      var open = !panel.hidden;
+      if (open) {
+        panel.hidden = true;
+        return;
+      }
+      closeUserDropdown();
+      panel.hidden = false;
+      renderNotificationList();
+    }
+
+    async function syncNotifications(initial) {
+      if (!state.user) return;
+      try {
+        var result = await callServer('getNotifications', []);
+        if (!result.success) return;
+        var items = Array.isArray(result.notifications) ? result.notifications : [];
+        var firstLoad = initial || !state.notificationInitialised;
+        var freshItems = [];
+        items.forEach(function (item) {
+          if (!state.notificationIds[item.id]) {
+            state.notificationIds[item.id] = true;
+            if (!firstLoad) freshItems.push(item);
+          }
+        });
+        state.notificationInitialised = true;
+        setNotificationItems(items);
+        freshItems.forEach(function (item) {
+          toast(item.title || 'New activity', item.body || '', 'info');
+          if (!result.enabled && 'Notification' in window && Notification.permission === 'granted') {
+            try { new Notification(item.title || 'InstantRCcard activity', { body: item.body || '', icon: '/icon-192.png' }); } catch (error) {}
+          }
+        });
+      } catch (error) {}
+    }
+
+    function startNotificationPolling() {
+      if (state.notificationPollTimer) clearInterval(state.notificationPollTimer);
+      state.notificationIds = {};
+      state.notifications = [];
+      state.notificationUnread = 0;
+      state.notificationInitialised = false;
+      updateNotificationUnread();
+      renderNotificationList();
+      syncNotifications(true);
+      state.notificationPollTimer = window.setInterval(function () { syncNotifications(false); }, 20_000);
+      if ('Notification' in window && Notification.permission === 'granted') setNotificationButton('✓ App alerts ready');
+    }
+
+    function stopNotificationPolling() {
+      if (state.notificationPollTimer) clearInterval(state.notificationPollTimer);
+      state.notificationPollTimer = null;
+      state.notificationIds = {};
+      state.notifications = [];
+      state.notificationUnread = 0;
+      state.notificationInitialised = false;
+      var panel = $('#notifications-panel');
+      if (panel) panel.hidden = true;
+      updateNotificationUnread();
+      renderNotificationList();
+    }
+
+    async function enableNotifications() {
+      if (!state.user) return;
+      if (!('Notification' in window) || !('serviceWorker' in navigator) || !('PushManager' in window)) {
+        toast('Notifications unavailable', 'Is device/browser me push notifications support nahi hai.', 'error');
+        return;
+      }
+      try {
+        var permission = Notification.permission;
+        if (permission !== 'granted') permission = await Notification.requestPermission();
+        if (permission !== 'granted') {
+          toast('Permission required', 'Browser settings me notifications allow karo.', 'error');
+          return;
+        }
+        var keyResult = await callServer('getNotificationPublicKey', []);
+        var registration = await navigator.serviceWorker.ready;
+        if (!keyResult.enabled || !keyResult.publicKey) {
+          setNotificationButton('✓ App alerts on');
+          toast('App alerts on', 'App open hone par notification history aur alerts milengi. Background push ke liye Web Push keys configure karein.', 'info');
+          return;
+        }
+        var subscription = await registration.pushManager.getSubscription();
+        if (!subscription) subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(keyResult.publicKey) });
+        var saved = await callServer('subscribeNotifications', [subscription.toJSON()]);
+        if (!saved.success) throw new Error(saved.message || 'Notification subscription failed');
+        setNotificationButton('✓ Background alerts on');
+        toast('Notifications on', 'Is device par admin/user activity alerts milenge.', 'success');
+      } catch (error) {
+        toast('Notification setup failed', error.message || 'Browser settings check karo.', 'error');
+      }
     }
 
     async function loadAdminAds() {
@@ -2114,12 +2318,29 @@
     }
 
     $('#user-menu-button').addEventListener('click', function (event) { event.stopPropagation(); toggleUserDropdown(); });
+    if ($('#open-notifications')) $('#open-notifications').addEventListener('click', function (event) {
+      event.stopPropagation();
+      toggleNotificationPanel();
+    });
+    if ($('#mark-notifications-read')) $('#mark-notifications-read').addEventListener('click', function (event) {
+      event.stopPropagation();
+      markNotificationsRead(state.notifications.filter(function (item) { return !item.read; }).map(function (item) { return item.id; }));
+    });
     document.addEventListener('click', function (event) {
       var wrap = $('#user-menu-wrap');
-      if (wrap && !wrap.contains(event.target)) closeUserDropdown();
+      if (wrap && !wrap.contains(event.target)) {
+        closeUserDropdown();
+        if ($('#notifications-panel')) $('#notifications-panel').hidden = true;
+      }
     });
     document.addEventListener('keydown', function (event) {
-      if (event.key === 'Escape') closeUserDropdown();
+      if (event.key === 'Escape') {
+        closeUserDropdown();
+        if ($('#notifications-panel')) $('#notifications-panel').hidden = true;
+      }
+    });
+    if ($('#enable-notifications')) $('#enable-notifications').addEventListener('click', function () {
+      enableNotifications();
     });
     $('#logout-button').addEventListener('click', async function () {
       closeUserDropdown();

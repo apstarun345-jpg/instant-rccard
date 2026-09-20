@@ -44,6 +44,8 @@ See `DEPLOY_RAILWAY_RENDER.md` inside the final ZIP for step-by-step deployment 
 - Per-user RC rate audit log (purana rate → naya rate, kaun admin ne badla)
 - Custom user rates remain preserved through admin-access changes, default-rate changes, wallet/status updates and Google Sheet restore
 - Main Admin can configure the WhatsApp support number and payment QR from the settings panel; wallet/help links use the configured number
+- Android installed-PWA wallet flow tries `whatsapp://send` first, detects whether WhatsApp opened, then falls back to the configured HTTPS `wa.me` link; the hidden durable top-up request remains idempotent with amount, mobile and payment reference
+- In-app notification history, unread state and toast alerts for users and permitted admins, plus background Web Push for every separately subscribed Android/laptop device when VAPID keys are configured
 - Service worker update notice so a new deploy is never stuck behind an old cached page
 - Server-side RC provider token
 - JSON storage as a local fallback/cache
@@ -79,6 +81,11 @@ Open the HTTPS website in Chrome. Use the install icon in the address bar or cho
 - `POST /api/auth/forgot-password`
 - `GET /api/auth/session`
 - `POST /api/auth/logout`
+- `GET /api/notifications/public-key`
+- `GET /api/notifications`
+- `POST /api/notifications/subscribe`
+- `POST /api/notifications/unsubscribe`
+- `POST /api/notifications/read`
 - `GET /api/account/transactions`
 - `GET /api/ads`
 - `GET /api/public/stats`
@@ -112,9 +119,13 @@ Rate change hone par us user ke download popup, wallet alert aur account panel m
 
 ## Wallet payment requests
 
-User wallet modal me pehle amount enter karta hai, phir payment QR aur exact amount dekhkar **Payment done - send to WhatsApp** choose karta hai. Server WhatsApp redirect se pehle stable `PENDING` request ID banata hai. WhatsApp text me request ID, amount, user mobile, payment instructions aur public QR link hota hai.
+User wallet modal me pehle amount enter karta hai, phir payment QR aur exact amount dekhkar **Payment done - send to WhatsApp** choose karta hai. Android installed PWA pehle native WhatsApp deep link try karta hai aur app unavailable hone par configured HTTPS `wa.me` fallback use karta hai. Hidden form server par stable `PENDING` request ID aur client payment reference banata/preserve karta hai; same user ke duplicate clicks ek hi pending request ko re-sync karte hain. WhatsApp text me request ID, payment reference, amount, user mobile, payment instructions aur public QR link hota hai.
 
 Wallet Control me Main Admin aur sirf `recharge` permission wale Assistant Admin ko **RC wallet payment requests** queue milti hai. Approve se pehle credited amount edit kiya ja sakta hai; approval request ko ek hi baar `APPROVED` karta hai, exact edited amount ka ek `RECHARGE` transaction append karta hai aur user wallet update karta hai. Reject wallet ko credit nahi karta. Request status, wallet, user aur transaction Google Sheet mirror me persist hote hain. Google Sheet display IDs compact hain: users `u1`, `u2` aur transactions `T1`, `T2`; original internal UUIDs safe restore ke liye internal columns me retained hain.
+
+## Notifications
+
+Background delivery is opt-in per installed app/device. Generate a VAPID pair with `npx web-push generate-vapid-keys`, configure `WEB_PUSH_VAPID_PUBLIC_KEY`, `WEB_PUSH_VAPID_PRIVATE_KEY` and `WEB_PUSH_SUBJECT` on Railway/Render, then have each phone/laptop account open the account menu and choose **Enable notifications**. The server stores notification history in the durable local/Sheet-backed state and sends Web Push to every saved subscription for that recipient. Admin delivery is filtered by the same `kpi`, `recharge` and `transactions` permission scopes used by the admin UI. In-app polling/toasts still work without VAPID keys while the app is open; background OS delivery is not active until keys are configured and the device subscription is accepted.
 
 ## Storage and production
 
