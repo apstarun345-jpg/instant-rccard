@@ -1450,6 +1450,23 @@ function computeAdminStats(fromDay, toDay, viewer) {
   const monthRcDownloads = rcDownloads.filter((tx) => monthKey(tx.time) === monthNowKey).length;
   const lastMonthRcDownloads = rcDownloads.filter((tx) => monthKey(tx.time) === lastMonthKey).length;
 
+  const walletRequestSource = hasAdminPermission(viewer, 'recharge')
+    ? (Array.isArray(db.topupRequests) ? db.topupRequests : [])
+    : [];
+  const walletRequestsInRange = fromDay && toDay
+    ? walletRequestSource.filter((request) => {
+      const key = dayKey(request.createdAt);
+      return key >= fromDay && key <= toDay;
+    })
+    : walletRequestSource;
+  const walletRequests = {
+    total: walletRequestsInRange.length,
+    pending: walletRequestsInRange.filter((request) => request.status === 'PENDING').length,
+    approved: walletRequestsInRange.filter((request) => request.status === 'APPROVED').length,
+    rejected: walletRequestsInRange.filter((request) => request.status === 'REJECTED').length,
+    approvedAmount: sumAmount(walletRequestsInRange.filter((request) => request.status === 'APPROVED').map((request) => ({ amount: request.amountApproved || 0 })))
+  };
+
   let range = null;
   if (fromDay && toDay) {
     const inRange = (tx) => {
@@ -1492,6 +1509,7 @@ function computeAdminStats(fromDay, toDay, viewer) {
     todayRcDownloads,
     monthRcDownloads,
     lastMonthRcDownloads,
+    walletRequests,
     range,
     adminActivity: buildAdminActivity(topups, todayKey, monthNowKey, lastMonthKey, range, viewer)
   };
@@ -1518,6 +1536,66 @@ async function handleAdminStats(req, res, searchParams) {
       paymentQr: validPaymentQr(db.settings?.paymentQr) ? db.settings.paymentQr : ''
     } : null
   });
+}
+
+async function handleAdminKpiDetails(req, res, searchParams) {
+  const admin = requireAdmin(req, res, 'kpi');
+  if (!admin) return;
+  const type = String(searchParams.get('type') || 'wallet-requests');
+  const fromRaw = String(searchParams.get('from') || '');
+  const toRaw = String(searchParams.get('to') || '');
+  const validDay = /^\d{4}-\d{2}-\d{2}$/;
+  const from = validDay.test(fromRaw) ? fromRaw : '';
+  const to = validDay.test(toRaw) ? toRaw : '';
+  const ownerView = isMainAdmin(admin);
+  const now = new Date();
+  const todayKey = dayKey(now);
+  const monthNowKey = todayKey.slice(0, 7);
+  const [year, month] = monthNowKey.split('-').map(Number);
+  const lastMonthKey = new Date(Date.UTC(year, month - 2, 1)).toISOString().slice(0, 7);
+  const inRange = (value) => {
+    const key = dayKey(value);
+    if (from && to) return key >= from && key <= to;
+    if (type === 'today-topup' || type === 'today-rc') return key === todayKey;
+    if (type === 'month-topup' || type === 'month-rc') return key.slice(0, 7) === monthNowKey;
+    if (type === 'last-month-topup' || type === 'last-rc') return key.slice(0, 7) === lastMonthKey;
+    return true;
+  };
+  const allTopups = db.transactions.filter((tx) => tx.type === 'RECHARGE');
+  const topups = (ownerView ? allTopups : allTopups.filter((tx) => tx.adminMobile === admin.mobile)).filter((tx) => inRange(tx.time));
+  const allRcDownloads = db.transactions.filter((tx) => tx.type === 'RC_PURCHASE' && tx.status === 'SUCCESS');
+  const rcDownloads = (ownerView ? allRcDownloads : allRcDownloads.filter((tx) => tx.adminMobile === admin.mobile)).filter((tx) => inRange(tx.time));
+  const scopedUserMobiles = new Set(allTopups.filter((tx) => ownerView || tx.adminMobile === admin.mobile).map((tx) => String(tx.mobile || '')).filter(Boolean));
+  const scopedUsers = (ownerView
+    ? db.users.filter((user) => user.role !== 'admin')
+    : db.users.filter((user) => user.role !== 'admin' && scopedUserMobiles.has(user.mobile)))
+    .filter((user) => inRange(user.createdAt));
+  const requestSource = hasAdminPermission(admin, 'recharge') ? (Array.isArray(db.topupRequests) ? db.topupRequests : []) : [];
+  const requests = requestSource.filter((request) => inRange(request.createdAt)).slice(-150).reverse().map(publicTopupRequest);
+  let items = [];
+  let title = 'KPI details';
+  if (type === 'users' || type === 'active-users') {
+    title = type === 'active-users' ? 'Active users details' : 'Total users details';
+    items = scopedUsers.filter((user) => type !== 'active-users' || user.active !== false).map((user) => ({
+      name: user.name || 'User', mobile: user.mobile, email: user.email || '', wallet: Number(user.wallet || 0),
+      status: user.active === false ? 'BLOCKED' : 'ACTIVE', role: user.role, createdAt: user.createdAt
+    }));
+  } else if (type === 'wallet-requests') {
+    title = 'RC wallet payment requests';
+    items = requests;
+  } else if (type.indexOf('rc-') === 0) {
+    title = 'RC download details';
+    items = rcDownloads.slice().reverse().map((tx) => ({
+      time: tx.time, mobile: tx.mobile, amount: Number(tx.amount || 0), vrn: tx.vrn || '', status: tx.status || 'SUCCESS', note: tx.note || ''
+    }));
+  } else {
+    title = 'Wallet topup details';
+    items = topups.slice().reverse().map((tx) => ({
+      time: tx.time, mobile: tx.mobile, amount: Number(tx.amount || 0), balanceAfter: Number(tx.balanceAfter || 0),
+      adminMobile: tx.adminMobile || '', note: tx.note || '', status: tx.status || 'SUCCESS'
+    }));
+  }
+  return sendJson(res, 200, { success: true, type, title, from, to, items });
 }
 
 async function handleAdminUpdateRating(req, res) {
@@ -1721,6 +1799,7 @@ const server = http.createServer(async (req, res) => {
     if (adRoute && req.method === 'DELETE') return await handleAdminDeleteAd(req, res, decodeURIComponent(adRoute[1]));
     if (adRoute && req.method === 'POST') return await handleAdminToggleAd(req, res, decodeURIComponent(adRoute[1]));
     if (req.method === 'GET' && pathname === '/api/admin/stats') return await handleAdminStats(req, res, url.searchParams);
+    if (req.method === 'GET' && pathname === '/api/admin/stats/details') return await handleAdminKpiDetails(req, res, url.searchParams);
     if (req.method === 'POST' && pathname === '/api/admin/settings/rating') return await handleAdminUpdateRating(req, res);
     if (req.method === 'POST' && pathname === '/api/admin/settings/baseline') return await handleAdminUpdateBaseline(req, res);
     if (req.method === 'POST' && pathname === '/api/admin/settings/rc-price') return await handleAdminUpdateRcPrice(req, res);

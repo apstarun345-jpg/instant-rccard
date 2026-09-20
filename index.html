@@ -511,6 +511,26 @@
     .admin-kpi-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
     .admin-kpi-card { position: relative; overflow: hidden; padding: 15px 16px; border-radius: 16px; color: #fff; box-shadow: 0 14px 26px rgba(31,55,120,.16); transition: transform .2s; }
     .admin-kpi-card:hover { transform: translateY(-2px); }
+    .admin-kpi-card.clickable { cursor: pointer; }
+    .admin-kpi-card.clickable:focus-visible { outline: 3px solid rgba(37,99,235,.3); outline-offset: 3px; }
+    .kpi-c9 { background: linear-gradient(135deg, #ef5da8, #b21f68); }
+    .admin-kpi-detail-panel { display: grid; gap: 11px; margin-top: 15px; padding: 15px; border: 1px solid #dce6f7; border-radius: 16px; background: rgba(255,255,255,.88); box-shadow: 0 8px 22px rgba(34,70,135,.07); }
+    .admin-kpi-detail-panel[hidden] { display: none; }
+    .admin-kpi-detail-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .admin-kpi-detail-heading h3 { margin: 0; color: var(--blue-950); font-size: 14px; }
+    .admin-kpi-detail-heading small { display: block; margin-top: 3px; color: #8b9ab0; font-size: 9px; }
+    .admin-kpi-detail-close { border: 0; padding: 5px 8px; border-radius: 7px; color: #6e82a2; background: #eef4ff; font-size: 10px; font-weight: 800; }
+    .admin-kpi-detail-list { display: grid; gap: 8px; max-height: 360px; overflow: auto; }
+    .admin-kpi-detail-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 11px; border: 1px solid #e4ebf7; border-radius: 10px; background: #fff; }
+    .admin-kpi-detail-row b, .admin-kpi-detail-row small { display: block; }
+    .admin-kpi-detail-row b { overflow: hidden; color: var(--blue-950); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+    .admin-kpi-detail-row small { margin-top: 3px; color: #8494ac; font-size: 9px; line-height: 1.4; }
+    .admin-kpi-detail-value { color: var(--blue); font-size: 13px; font-weight: 850; text-align: right; }
+    .admin-kpi-detail-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 7px; }
+    .admin-kpi-detail-actions button { min-height: 27px; padding: 0 8px; border: 0; border-radius: 7px; font-size: 9px; font-weight: 850; }
+    .admin-kpi-detail-actions .approve { color: #fff; background: #198754; }
+    .admin-kpi-detail-actions .reject { color: #a0444c; background: #ffeaec; }
+    @media (max-width: 620px) { .admin-kpi-detail-row { grid-template-columns: 1fr; } .admin-kpi-detail-value { text-align: left; } }
     .admin-kpi-card::after { content: ""; position: absolute; right: -26px; top: -26px; width: 90px; height: 90px; border-radius: 50%; background: rgba(255,255,255,.16); }
     .admin-kpi-card .kpi-icon { display: inline-grid; place-items: center; width: 26px; height: 26px; margin-bottom: 9px; border-radius: 8px; background: rgba(255,255,255,.22); font-size: 13px; font-weight: 800; }
     .admin-kpi-card small { position: relative; display: block; color: rgba(255,255,255,.86); font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; }
@@ -839,16 +859,21 @@
           <button class="ghost-button small-blue" id="admin-stats-reset" type="button">Reset</button>
         </div>
         <div class="admin-kpi-grid" id="admin-kpi-grid">
-          <div class="admin-kpi-card kpi-c1" id="kpi-card-total-users"><span class="kpi-icon">◉</span><small id="kpi-total-users-label">Total users</small><b id="kpi-total-users">0</b></div>
-          <div class="admin-kpi-card kpi-c2" id="kpi-card-active-users"><span class="kpi-icon">⚡</span><small id="kpi-active-users-label">Active users</small><b id="kpi-active-users">0</b></div>
-          <div class="admin-kpi-card kpi-c3"><span class="kpi-icon">₹</span><small id="kpi-today-topup-label">Today topup</small><b id="kpi-today-topup">₹0</b></div>
-          <div class="admin-kpi-card kpi-c4"><span class="kpi-icon">▦</span><small id="kpi-month-topup-label">This month topup</small><b id="kpi-month-topup">₹0</b></div>
-          <div class="admin-kpi-card kpi-c5"><span class="kpi-icon">↺</span><small id="kpi-last-month-topup-label">Last month topup</small><b id="kpi-last-month-topup">₹0</b></div>
-          <div class="admin-kpi-card kpi-c6" id="kpi-card-today-rc"><span class="kpi-icon">⬇</span><small>Today RC downloaded</small><b id="kpi-today-rc">0</b></div>
-          <div class="admin-kpi-card kpi-c7" id="kpi-card-month-rc"><span class="kpi-icon">▤</span><small>This month RC downloaded</small><b id="kpi-month-rc">0</b></div>
-          <div class="admin-kpi-card kpi-c8" id="kpi-card-last-rc"><span class="kpi-icon">↺</span><small>Last month RC downloaded</small><b id="kpi-last-month-rc">0</b></div>
-          <div class="admin-kpi-card kpi-c4" id="kpi-card-all-time-topup"><span class="kpi-icon">★</span><small id="kpi-all-time-topup-label">All-time topup</small><b id="kpi-all-time-topup">₹0</b></div>
-          <div class="admin-kpi-card kpi-range" id="admin-kpi-range" hidden><span class="kpi-icon">★</span><small id="kpi-range-label">Selected range</small><b id="kpi-range-topup">₹0</b><span class="kpi-sub" id="kpi-range-rc">0 RC downloads</span></div>
+          <div class="admin-kpi-card kpi-c1 clickable" id="kpi-card-total-users" data-kpi-detail="users" role="button" tabindex="0" aria-label="Show total user details"><span class="kpi-icon">◉</span><small id="kpi-total-users-label">Total users</small><b id="kpi-total-users">0</b></div>
+          <div class="admin-kpi-card kpi-c2 clickable" id="kpi-card-active-users" data-kpi-detail="active-users" role="button" tabindex="0" aria-label="Show active user details"><span class="kpi-icon">⚡</span><small id="kpi-active-users-label">Active users</small><b id="kpi-active-users">0</b></div>
+          <div class="admin-kpi-card kpi-c3 clickable" data-kpi-detail="today-topup" role="button" tabindex="0" aria-label="Show today topup details"><span class="kpi-icon">₹</span><small id="kpi-today-topup-label">Today topup</small><b id="kpi-today-topup">₹0</b></div>
+          <div class="admin-kpi-card kpi-c4 clickable" data-kpi-detail="month-topup" role="button" tabindex="0" aria-label="Show this month topup details"><span class="kpi-icon">▦</span><small id="kpi-month-topup-label">This month topup</small><b id="kpi-month-topup">₹0</b></div>
+          <div class="admin-kpi-card kpi-c5 clickable" data-kpi-detail="last-month-topup" role="button" tabindex="0" aria-label="Show last month topup details"><span class="kpi-icon">↺</span><small id="kpi-last-month-topup-label">Last month topup</small><b id="kpi-last-month-topup">₹0</b></div>
+          <div class="admin-kpi-card kpi-c6 clickable" id="kpi-card-today-rc" data-kpi-detail="today-rc" role="button" tabindex="0" aria-label="Show today RC download details"><span class="kpi-icon">⬇</span><small>Today RC downloaded</small><b id="kpi-today-rc">0</b></div>
+          <div class="admin-kpi-card kpi-c7 clickable" id="kpi-card-month-rc" data-kpi-detail="month-rc" role="button" tabindex="0" aria-label="Show this month RC download details"><span class="kpi-icon">▤</span><small>This month RC downloaded</small><b id="kpi-month-rc">0</b></div>
+          <div class="admin-kpi-card kpi-c8 clickable" id="kpi-card-last-rc" data-kpi-detail="last-rc" role="button" tabindex="0" aria-label="Show last month RC download details"><span class="kpi-icon">↺</span><small>Last month RC downloaded</small><b id="kpi-last-month-rc">0</b></div>
+          <div class="admin-kpi-card kpi-c4 clickable" id="kpi-card-all-time-topup" data-kpi-detail="all-time-topup" role="button" tabindex="0" aria-label="Show all time topup details"><span class="kpi-icon">★</span><small id="kpi-all-time-topup-label">All-time topup</small><b id="kpi-all-time-topup">₹0</b></div>
+          <div class="admin-kpi-card kpi-c9 clickable" id="kpi-card-wallet-requests" data-kpi-detail="wallet-requests" role="button" tabindex="0" aria-label="Show wallet payment requests"><span class="kpi-icon">!</span><small>Wallet requests</small><b id="kpi-pending-wallet-requests">0</b><span class="kpi-sub" id="kpi-wallet-request-total">0 total requests</span></div>
+          <div class="admin-kpi-card kpi-range clickable" id="admin-kpi-range" data-kpi-detail="range-topup" role="button" tabindex="0" aria-label="Show selected range details" hidden><span class="kpi-icon">★</span><small id="kpi-range-label">Selected range</small><b id="kpi-range-topup">₹0</b><span class="kpi-sub" id="kpi-range-rc">0 RC downloads</span></div>
+        </div>
+        <div class="admin-kpi-detail-panel" id="admin-kpi-detail-panel" hidden>
+          <div class="admin-kpi-detail-heading"><div><h3 id="admin-kpi-detail-title">KPI details</h3><small id="admin-kpi-detail-subtitle">Click any row for more information.</small></div><button class="admin-kpi-detail-close" id="close-admin-kpi-details" type="button">Hide details</button></div>
+          <div class="admin-kpi-detail-list" id="admin-kpi-detail-list"><div class="empty-list">Details load ho rahe hain…</div></div>
         </div>
         <div class="admin-activity-panel" id="admin-activity-panel">
           <div class="admin-activity-heading"><div><div class="section-label">ADMIN-WISE RECHARGE</div><h3>Payment activity by admin</h3><p>Har admin ne kitne users ko wallet payment diya aur kitna amount add kiya.</p></div></div>

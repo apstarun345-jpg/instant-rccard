@@ -1,5 +1,5 @@
 
-    var state = { token: '', user: null, selectedAdminMobile: '', selectedAdminQuery: '', defaultRcCardPrice: 15, pendingVrn: '', busy: false, adminUsersQuery: '', adminAccessQuery: '', bulkConfirm: false, supportWhatsapp: '', supportPaymentQr: '', supportPaymentQrUrl: '', pendingTopupAmount: 0 };
+    var state = { token: '', user: null, selectedAdminMobile: '', selectedAdminQuery: '', defaultRcCardPrice: 15, pendingVrn: '', busy: false, adminUsersQuery: '', adminAccessQuery: '', bulkConfirm: false, supportWhatsapp: '', supportPaymentQr: '', supportPaymentQrUrl: '', pendingTopupAmount: 0, adminKpiDetail: '', adminLiveBusy: false };
     var DOWNLOAD_PRICES = { mparivahan: 10, 'rc-card': 15 };
     var $ = function (selector) { return document.querySelector(selector); };
     var $$ = function (selector) { return Array.prototype.slice.call(document.querySelectorAll(selector)); };
@@ -9,6 +9,7 @@
     var roboMessageIndex = 0;
     var roboGreetingLocked = false;
     var fetchingMessageTimer = null;
+    var adminLiveTimer = null;
 
     function appIsInstalled() {
       return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
@@ -89,6 +90,13 @@
         if (args[0] && args[0].from) qs.set('from', args[0].from);
         if (args[0] && args[0].to) qs.set('to', args[0].to);
         url = '/api/admin/stats' + (qs.toString() ? '?' + qs.toString() : '');
+      }
+      else if (name === 'adminGetKpiDetails') {
+        var detailQs = new URLSearchParams();
+        detailQs.set('type', args[0] || 'wallet-requests');
+        if (args[1] && args[1].from) detailQs.set('from', args[1].from);
+        if (args[1] && args[1].to) detailQs.set('to', args[1].to);
+        url = '/api/admin/stats/details?' + detailQs.toString();
       }
       else if (name === 'adminSetRating') { url = '/api/admin/settings/rating'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ rating: args[0] }); }
       else if (name === 'adminSetBaseline') { url = '/api/admin/settings/baseline'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ usersBaseline: args[0], downloadsBaseline: args[1] }); }
@@ -320,10 +328,20 @@
         return;
       }
       var button = $('#topup-whatsapp-button');
-      setButtonLoading(button, true, 'Payment done - send to WhatsApp <span>↗</span>');
+      setButtonLoading(button, true, 'Request create ho rahi hai…');
+      // Reserve the browser tab during the click gesture. Chrome can otherwise
+      // treat navigation after the awaited API call as a blocked popup.
+      var whatsappWindow = null;
+      try {
+        whatsappWindow = window.open('about:blank', '_blank');
+        if (whatsappWindow) {
+          try { whatsappWindow.opener = null; whatsappWindow.document.title = 'Opening WhatsApp…'; } catch (ignore) {}
+        }
+      } catch (ignore) {}
       try {
         var response = await callServer('createWalletTopupRequest', [Math.round(amount)]);
         if (!response.success || !response.request) {
+          if (whatsappWindow && !whatsappWindow.closed) whatsappWindow.close();
           toast('Request create nahi hui', response.message || 'Please dobara try karein.', 'error');
           return;
         }
@@ -334,8 +352,14 @@
         var whatsappUrl = 'https://wa.me/91' + state.supportWhatsapp + '?text=' + encodeURIComponent(message);
         closeWalletTopup();
         toast(response.existing ? 'Request already pending' : 'Request sent', 'Request ID ' + request.id + ' ke saath WhatsApp open ho raha hai.', 'success');
-        window.location.href = whatsappUrl;
+        if (whatsappWindow && !whatsappWindow.closed) {
+          whatsappWindow.location.replace(whatsappUrl);
+          try { whatsappWindow.focus(); } catch (ignore) {}
+        } else {
+          window.location.assign(whatsappUrl);
+        }
       } catch (error) {
+        if (whatsappWindow && !whatsappWindow.closed) whatsappWindow.close();
         toast('Topup request error', error.message, 'error');
       } finally {
         setButtonLoading(button, false, 'Payment done - send to WhatsApp <span>↗</span>');
@@ -514,6 +538,9 @@
         if (hasAdminPermission('ads')) loadAdminAds();
         if (hasAdminPermission('kpi')) loadAdminStats();
         if (hasAdminPermission('rates')) loadAdminUsers('', { silent: true });
+        startAdminLiveUpdates();
+      } else {
+        stopAdminLiveUpdates();
       }
     }
 
@@ -532,9 +559,12 @@
       if ($('#download-status')) $('#download-status').hidden = true;
       closeWelcomePopup();
       stopRoboAssistant();
+      stopAdminLiveUpdates();
       if (typeof closeUserDropdown === 'function') closeUserDropdown();
       state.token = '';
       state.user = null;
+      state.adminKpiDetail = '';
+      if ($('#admin-kpi-detail-panel')) $('#admin-kpi-detail-panel').hidden = true;
       $('#auth-view').hidden = false;
       $('#topbar').hidden = true;
       $('#dashboard').hidden = true;
@@ -1535,27 +1565,34 @@
       }
     }
 
+    function topupRequestMarkup(request) {
+      var status = String(request.status || 'PENDING').toLowerCase();
+      var requested = formatMoney(request.amountRequested);
+      var amountHtml = status === 'pending'
+        ? '<input data-topup-amount="' + escapeHtml(request.id) + '" type="number" min="1" max="100000" step="1" value="' + Number(request.amountRequested || 0) + '" aria-label="Approved amount">'
+        : '<strong>' + escapeHtml(formatMoney(request.amountApproved == null ? request.amountRequested : request.amountApproved)) + '</strong>';
+      var actions = status === 'pending'
+        ? '<div class="topup-request-actions"><button class="topup-request-approve" data-topup-approve="' + escapeHtml(request.id) + '" type="button">Approve</button><button class="topup-request-reject" data-topup-reject="' + escapeHtml(request.id) + '" type="button">Reject</button></div>'
+        : '';
+      var decision = request.decidedAt ? ' · ' + formatDate(request.decidedAt) : '';
+      return '<div class="topup-request-row"><div class="topup-request-main"><b>' + escapeHtml(request.name || 'User') + ' · +91 ' + escapeHtml(request.mobile || '—') + '</b><small>Requested ' + escapeHtml(requested) + ' · ' + escapeHtml(formatDate(request.createdAt)) + decision + '</small><span class="topup-request-status ' + escapeHtml(status) + '">' + escapeHtml(request.status || 'PENDING') + '</span><div class="topup-request-id">ID: ' + escapeHtml(request.id) + '</div>' + (request.rejectReason ? '<small>Reason: ' + escapeHtml(request.rejectReason) + '</small>' : '') + '</div><div class="topup-request-side">' + amountHtml + actions + '</div></div>';
+    }
+
+    function wireTopupRequestButtons(root) {
+      if (!root) return;
+      Array.prototype.slice.call(root.querySelectorAll('[data-topup-approve]')).forEach(function (button) { button.addEventListener('click', function () { resolveAdminTopup(button.dataset.topupApprove, 'APPROVED', button); }); });
+      Array.prototype.slice.call(root.querySelectorAll('[data-topup-reject]')).forEach(function (button) { button.addEventListener('click', function () { resolveAdminTopup(button.dataset.topupReject, 'REJECTED', button); }); });
+    }
+
     function renderAdminTopupRequests(requests) {
       var list = $('#admin-topup-request-list');
       if (!list) return;
       if (!requests.length) {
-        list.innerHTML = '<div class="empty-list">Koi pending wallet payment request nahi hai.</div>';
+        list.innerHTML = '<div class="empty-list">Koi wallet payment request nahi hai.</div>';
         return;
       }
-      list.innerHTML = requests.map(function (request) {
-        var status = String(request.status || 'PENDING').toLowerCase();
-        var requested = formatMoney(request.amountRequested);
-        var amountHtml = status === 'pending'
-          ? '<input data-topup-amount="' + escapeHtml(request.id) + '" type="number" min="1" max="100000" step="1" value="' + Number(request.amountRequested || 0) + '" aria-label="Approved amount">'
-          : '<strong>' + escapeHtml(formatMoney(request.amountApproved == null ? request.amountRequested : request.amountApproved)) + '</strong>';
-        var actions = status === 'pending'
-          ? '<div class="topup-request-actions"><button class="topup-request-approve" data-topup-approve="' + escapeHtml(request.id) + '" type="button">Approve</button><button class="topup-request-reject" data-topup-reject="' + escapeHtml(request.id) + '" type="button">Reject</button></div>'
-          : '';
-        var decision = request.decidedAt ? ' · ' + formatDate(request.decidedAt) : '';
-        return '<div class="topup-request-row"><div class="topup-request-main"><b>' + escapeHtml(request.name || 'User') + ' · +91 ' + escapeHtml(request.mobile || '—') + '</b><small>Requested ' + escapeHtml(requested) + ' · ' + escapeHtml(formatDate(request.createdAt)) + decision + '</small><span class="topup-request-status ' + escapeHtml(status) + '">' + escapeHtml(request.status || 'PENDING') + '</span><div class="topup-request-id">ID: ' + escapeHtml(request.id) + '</div>' + (request.rejectReason ? '<small>Reason: ' + escapeHtml(request.rejectReason) + '</small>' : '') + '</div><div class="topup-request-side">' + amountHtml + actions + '</div></div>';
-      }).join('');
-      $$('[data-topup-approve]').forEach(function (button) { button.addEventListener('click', function () { resolveAdminTopup(button.dataset.topupApprove, 'APPROVED', button); }); });
-      $$('[data-topup-reject]').forEach(function (button) { button.addEventListener('click', function () { resolveAdminTopup(button.dataset.topupReject, 'REJECTED', button); }); });
+      list.innerHTML = requests.map(topupRequestMarkup).join('');
+      wireTopupRequestButtons(list);
     }
 
     async function resolveAdminTopup(requestId, decision, sourceButton) {
@@ -1572,7 +1609,8 @@
       } else if (!window.confirm('Is wallet payment request ko reject karna hai?')) return;
       sourceButton.disabled = true;
       try {
-        var reason = decision === 'REJECTED' ? (window.prompt('Reject reason (optional)', 'Payment verify nahi ho paayi.') || '') : '';
+        // Keep rejection to one clear confirmation; the server stores a safe default reason.
+        var reason = decision === 'REJECTED' ? 'Payment verify nahi ho paayi.' : '';
         var response = await callServer('adminResolveTopupRequest', [requestId, decision, decision === 'APPROVED' ? Math.round(amount) : '', reason]);
         if (!response.success) { toast('Request update failed', response.message || 'Please refresh karke dobara try karein.', 'error'); return; }
         if (response.user && state.user && response.user.mobile === state.user.mobile) {
@@ -1581,7 +1619,10 @@
         }
         await loadAdminTopupRequests();
         if (hasAdminPermission('transactions')) await loadAdminTransactions();
-        if (hasAdminPermission('kpi')) loadAdminStats();
+        if (hasAdminPermission('kpi')) {
+          loadAdminStats();
+          if (state.adminKpiDetail && $('#admin-kpi-detail-panel') && !$('#admin-kpi-detail-panel').hidden) loadKpiDetails(state.adminKpiDetail, true);
+        }
         toast(decision === 'APPROVED' ? 'Topup approved' : 'Topup rejected', response.message || 'Request status update ho gaya.', 'success');
       } catch (error) { toast('Request update error', error.message, 'error'); }
       finally { sourceButton.disabled = false; }
@@ -1637,6 +1678,8 @@
       setText('#kpi-month-topup', formatMoney(stats.monthTopup));
       setText('#kpi-last-month-topup', formatMoney(stats.lastMonthTopup));
       setText('#kpi-all-time-topup', formatMoney(stats.allTimeTopup));
+      setText('#kpi-pending-wallet-requests', Number(stats.walletRequests && stats.walletRequests.pending || 0).toLocaleString('en-IN'));
+      setText('#kpi-wallet-request-total', Number(stats.walletRequests && stats.walletRequests.total || 0).toLocaleString('en-IN') + ' total · ' + Number(stats.walletRequests && stats.walletRequests.approved || 0).toLocaleString('en-IN') + ' approved');
       setText('#kpi-today-rc', Number(stats.todayRcDownloads || 0).toLocaleString('en-IN'));
       setText('#kpi-month-rc', Number(stats.monthRcDownloads || 0).toLocaleString('en-IN'));
       setText('#kpi-last-month-rc', Number(stats.lastMonthRcDownloads || 0).toLocaleString('en-IN'));
@@ -1667,13 +1710,104 @@
       renderAdminActivity(stats.adminActivity, stats.scope);
     }
 
-    async function loadAdminStats(range) {
+    function currentAdminStatsRange() {
+      var fromEl = $('#admin-stats-from');
+      var toEl = $('#admin-stats-to');
+      var from = fromEl ? fromEl.value : '';
+      var to = toEl ? toEl.value : '';
+      return from && to ? { from: from, to: to } : null;
+    }
+
+    function renderKpiDetailItems(type, items) {
+      var list = $('#admin-kpi-detail-list');
+      if (!list) return;
+      if (!items || !items.length) {
+        list.innerHTML = '<div class="empty-list">Is KPI ke liye abhi koi detail nahi hai.</div>';
+        return;
+      }
+      if (type === 'wallet-requests') {
+        list.innerHTML = items.map(topupRequestMarkup).join('');
+        wireTopupRequestButtons(list);
+        return;
+      }
+      list.innerHTML = items.map(function (item) {
+        var isUser = Object.prototype.hasOwnProperty.call(item, 'wallet') && !item.time;
+        if (isUser) {
+          return '<div class="admin-kpi-detail-row"><div><b>' + escapeHtml(item.name || 'User') + ' · +91 ' + escapeHtml(item.mobile || '—') + '</b><small>' + escapeHtml(item.email || 'Email not set') + ' · ' + escapeHtml(item.status || '') + '</small></div><div class="admin-kpi-detail-value">' + escapeHtml(formatMoney(item.wallet)) + '</div></div>';
+        }
+        var isRc = Object.prototype.hasOwnProperty.call(item, 'vrn');
+        var label = isRc ? 'RC download · ' + (item.vrn || '—') : 'Wallet topup';
+        var second = isRc
+          ? (item.mobile || '—') + ' · ' + (item.status || 'SUCCESS')
+          : (item.mobile || '—') + ' · ' + (item.note || item.status || 'SUCCESS');
+        return '<div class="admin-kpi-detail-row"><div><b>' + escapeHtml(label) + '</b><small>' + escapeHtml(formatDate(item.time)) + ' · +91 ' + escapeHtml(second) + '</small></div><div class="admin-kpi-detail-value">' + escapeHtml((Number(item.amount || 0) < 0 ? '−' : '+') + formatMoney(Math.abs(Number(item.amount || 0)))) + '</div></div>';
+      }).join('');
+    }
+
+    async function loadKpiDetails(type, silent) {
       if (!state.user || state.user.role !== 'admin' || !hasAdminPermission('kpi')) return;
+      var panel = $('#admin-kpi-detail-panel');
+      var list = $('#admin-kpi-detail-list');
+      if (!panel || !list) return;
+      state.adminKpiDetail = type || 'wallet-requests';
+      panel.hidden = false;
+      if (!silent) list.innerHTML = '<div class="empty-list">Details load ho rahe hain…</div>';
+      try {
+        var response = await callServer('adminGetKpiDetails', [state.adminKpiDetail, currentAdminStatsRange()]);
+        if (!response.success) throw new Error(response.message || 'Details load nahi ho paayi.');
+        $('#admin-kpi-detail-title').textContent = response.title || 'KPI details';
+        var range = response.from && response.to ? 'Date range: ' + response.from + ' → ' + response.to + ' · ' : '';
+        $('#admin-kpi-detail-subtitle').textContent = range + Number(response.items ? response.items.length : 0).toLocaleString('en-IN') + ' record(s)';
+        renderKpiDetailItems(state.adminKpiDetail, response.items || []);
+      } catch (error) {
+        if (!silent) list.innerHTML = '<div class="empty-list">Details load nahi ho paayi.</div>';
+      }
+    }
+
+    function openKpiDetails(type) {
+      loadKpiDetails(type, false);
+      var panel = $('#admin-kpi-detail-panel');
+      if (panel) window.setTimeout(function () { panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }, 40);
+    }
+
+    function closeKpiDetails() {
+      state.adminKpiDetail = '';
+      var panel = $('#admin-kpi-detail-panel');
+      if (panel) panel.hidden = true;
+    }
+
+    function stopAdminLiveUpdates() {
+      if (adminLiveTimer) window.clearInterval(adminLiveTimer);
+      adminLiveTimer = null;
+      state.adminLiveBusy = false;
+    }
+
+    function startAdminLiveUpdates() {
+      stopAdminLiveUpdates();
+      if (!state.user || state.user.role !== 'admin') return;
+      adminLiveTimer = window.setInterval(async function () {
+        if (!state.user || state.user.role !== 'admin' || state.adminLiveBusy) return;
+        state.adminLiveBusy = true;
+        try {
+          if (hasAdminPermission('recharge')) await loadAdminTopupRequests();
+          if (hasAdminPermission('kpi')) {
+            await loadAdminStats(currentAdminStatsRange(), { skipSettings: true, skipDetails: true });
+            if (state.adminKpiDetail && $('#admin-kpi-detail-panel') && !$('#admin-kpi-detail-panel').hidden) await loadKpiDetails(state.adminKpiDetail, true);
+          }
+        } finally {
+          state.adminLiveBusy = false;
+        }
+      }, 5000);
+    }
+
+    async function loadAdminStats(range, options) {
+      if (!state.user || state.user.role !== 'admin' || !hasAdminPermission('kpi')) return;
+      options = options || {};
       try {
         var response = await callServer('adminGetStats', [range || null]);
         if (response.success) {
           renderAdminStats(response.stats);
-          if (response.settings) {
+          if (response.settings && !options.skipSettings) {
             if (response.settings.rating) $('#admin-rating-input').value = response.settings.rating;
             $('#admin-users-baseline-input').value = response.settings.usersBaseline;
             $('#admin-downloads-baseline-input').value = response.settings.downloadsBaseline;
@@ -1683,6 +1817,7 @@
               paymentQr: Object.prototype.hasOwnProperty.call(response.settings, 'paymentQr') ? response.settings.paymentQr : state.supportPaymentQr
             });
           }
+          if (state.adminKpiDetail && $('#admin-kpi-detail-panel') && !$('#admin-kpi-detail-panel').hidden && !options.skipDetails) loadKpiDetails(state.adminKpiDetail, true);
         }
       } catch (error) { /* KPI dashboard is non-critical */ }
     }
@@ -2016,6 +2151,13 @@
     });
     $('#admin-recharge-button').addEventListener('click', rechargeAdminUser);
     if ($('#refresh-topup-requests')) $('#refresh-topup-requests').addEventListener('click', loadAdminTopupRequests);
+    if ($('#close-admin-kpi-details')) $('#close-admin-kpi-details').addEventListener('click', closeKpiDetails);
+    $$('[data-kpi-detail]').forEach(function (card) {
+      card.addEventListener('click', function () { openKpiDetails(card.dataset.kpiDetail); });
+      card.addEventListener('keydown', function (event) {
+        if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openKpiDetails(card.dataset.kpiDetail); }
+      });
+    });
     if ($('#admin-user-rate-save')) $('#admin-user-rate-save').addEventListener('click', function () { saveAdminUserRate(false); });
     if ($('#admin-user-rate-clear')) $('#admin-user-rate-clear').addEventListener('click', function () { saveAdminUserRate(true); });
     if ($('#admin-users-search-button')) $('#admin-users-search-button').addEventListener('click', searchAdminUsersList);
