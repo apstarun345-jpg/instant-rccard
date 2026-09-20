@@ -264,7 +264,35 @@
     .wallet-modal > p { margin: 0 0 16px; color: var(--muted); font-size: 12px; line-height: 1.6; }
     .topup-payment-qr { display: grid; justify-items: center; gap: 6px; margin: 0 0 14px; padding: 10px; border: 1px solid #dfe8f7; border-radius: 13px; background: #fbfdff; }
     .topup-payment-qr span { color: #7890b1; font-size: 9px; font-weight: 850; letter-spacing: .08em; }
-    .topup-payment-qr img { width: 138px; height: 138px; object-fit: contain; border-radius: 8px; background: #fff; }
+    .topup-payment-qr img { width: 230px; height: 230px; object-fit: contain; border-radius: 8px; background: #fff; }
+    .topup-payment-qr.large { margin-top: 4px; padding: 14px; }
+    .topup-step { display: grid; gap: 12px; }
+    .topup-step[hidden] { display: none; }
+    .topup-payment-amount { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border: 1px solid #dce8fb; border-radius: 11px; color: #6d7f9d; background: #f7faff; font-size: 11px; }
+    .topup-payment-amount b { color: var(--blue-950); font-size: 20px; }
+    .topup-step-actions { display: grid; gap: 8px; }
+    .topup-change-button { min-height: 36px; border: 0; color: #6d82a4; background: transparent; font-size: 11px; font-weight: 800; }
+    .admin-topup-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+    .admin-topup-heading h4 { margin: 0; color: #647792; font-size: 11px; }
+    .admin-topup-refresh { border: 0; padding: 5px 7px; border-radius: 7px; color: var(--blue); background: var(--blue-50); font-size: 9px; font-weight: 800; }
+    .topup-request-list { display: grid; gap: 9px; }
+    .topup-request-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; padding: 11px; border: 1px solid #e1eaf8; border-radius: 11px; background: #fff; }
+    .topup-request-main { min-width: 0; }
+    .topup-request-main b, .topup-request-main small { display: block; }
+    .topup-request-main b { overflow: hidden; color: var(--blue-950); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+    .topup-request-main small { margin-top: 4px; color: #8292aa; font-size: 9px; line-height: 1.4; }
+    .topup-request-status { display: inline-block; margin-top: 6px; padding: 4px 6px; border-radius: 6px; color: #9a6b15; background: #fff4d8; font-size: 8px; font-weight: 850; letter-spacing: .04em; }
+    .topup-request-status.approved { color: #18764b; background: #e5f9ef; }
+    .topup-request-status.rejected { color: #a0444c; background: #ffeaec; }
+    .topup-request-side { min-width: 128px; text-align: right; }
+    .topup-request-side strong { display: block; color: var(--blue); font-size: 17px; }
+    .topup-request-side input { width: 112px; height: 31px; margin: 6px 0 7px; padding: 0 7px; border: 1px solid #d7e3f4; border-radius: 7px; color: var(--ink); font-size: 11px; text-align: right; }
+    .topup-request-actions { display: flex; justify-content: flex-end; gap: 6px; }
+    .topup-request-actions button { min-height: 29px; padding: 0 8px; border: 0; border-radius: 7px; font-size: 9px; font-weight: 850; }
+    .topup-request-approve { color: #fff; background: #198754; }
+    .topup-request-reject { color: #a0444c; background: #ffeaec; }
+    .topup-request-id { overflow: hidden; max-width: 220px; margin-top: 4px; color: #a1aec0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+    @media (max-width: 620px) { .topup-request-row { grid-template-columns: 1fr; } .topup-request-side { text-align: left; } .topup-request-side input { text-align: left; } .topup-request-actions { justify-content: flex-start; } }
     .topup-payment-qr small { color: #8798b1; font-size: 10px; text-align: center; }
     .topup-balance { display: flex; align-items: center; justify-content: space-between; margin: 0 0 14px; padding: 11px 12px; border: 1px solid #dfeafa; border-radius: 11px; color: #7b8da9; background: #f7faff; font-size: 11px; }
     .topup-balance b { color: var(--blue); font-size: 17px; }
@@ -893,6 +921,7 @@
                   <small id="admin-user-rate-help">Is user ke liye alag rate set karo. Download par yahi rate dikhega aur wallet se yahi deduct hoga.</small>
                 </div>
                 <div class="admin-inline-hint" id="admin-rate-inline-hint">Sabhi users ki list ke saath rate set karne ke liye <button class="admin-link-button" type="button" data-goto-admin-section="users">Users &amp; rates</button> tab kholo.</div>
+                <div class="admin-tx" id="admin-topup-requests-block"><div class="admin-topup-heading"><h4>RC wallet payment requests</h4><button class="admin-topup-refresh" id="refresh-topup-requests" type="button">Refresh ↻</button></div><div class="topup-request-list" id="admin-topup-request-list"><div class="empty-list">Loading payment requests…</div></div></div>
                 <div class="admin-tx" id="admin-transactions-block"><h4 id="admin-transactions-title">Latest platform transactions</h4><div class="table-wrap"><table class="admin-table"><thead><tr><th>TIME</th><th>MOBILE</th><th>TYPE</th><th>AMOUNT</th><th>VRN</th></tr></thead><tbody id="admin-tx-body"><tr><td colspan="5">No transactions yet.</td></tr></tbody></table></div></div>
               </div>
               <div id="admin-users-section" hidden>
@@ -982,12 +1011,21 @@
       <button class="format-close" id="close-wallet-topup" type="button" aria-label="Close wallet topup">×</button>
       <div class="section-label">WALLET TOPUP</div>
       <h2 id="wallet-topup-title">Wallet recharge karna hai?</h2>
-      <p>RC Wallet me recharge karne ke liye amount enter karein. Phir diye gaye QR par payment karke payment ka screenshot lein. Uske baad WhatsApp topup request par click karke screenshot aur payment receipt WhatsApp par bhej dein.</p>
-      <div class="topup-payment-qr" id="topup-payment-qr-box"><span>PAYMENT QR</span><img id="topup-payment-qr" alt="Payment QR" hidden /><small id="topup-payment-qr-empty">Payment QR Main Admin settings se update hote hi yahan show hoga.</small></div>
-      <div class="topup-balance"><span>Current wallet</span><b id="topup-current-balance">₹0</b></div>
-      <div class="field"><label>Topup amount ₹</label><input id="topup-amount" type="number" min="1" step="1" inputmode="decimal" placeholder="100" /></div>
-      <button class="blue-button" id="topup-whatsapp-button" type="button">WhatsApp topup request par screenshot bhejo <span>↗</span></button>
-      <small class="wallet-modal-note">QR yahin show hoga ya WhatsApp message me link milega. Payment verify hone ke baad admin wallet recharge karega.</small>
+      <p>Amount enter karke wallet topup start karein. Payment ke baad request ID ke saath WhatsApp par screenshot bhej dein.</p>
+      <div class="topup-step" id="topup-amount-step">
+        <div class="topup-balance"><span>Current wallet</span><b id="topup-current-balance">₹0</b></div>
+        <div class="field"><label>Topup amount ₹</label><input id="topup-amount" type="number" min="1" step="1" inputmode="decimal" placeholder="100" /></div>
+        <button class="blue-button" id="topup-continue-button" type="button">Wallet topup <span>→</span></button>
+      </div>
+      <div class="topup-step" id="topup-payment-step" hidden>
+        <div class="topup-payment-qr large" id="topup-payment-qr-box"><span>PAYMENT QR</span><img id="topup-payment-qr" alt="Payment QR" hidden /><small id="topup-payment-qr-empty">Payment QR Main Admin settings se update hote hi yahan show hoga.</small></div>
+        <div class="topup-payment-amount"><span>Payment amount</span><b id="topup-payment-amount">₹0</b></div>
+        <div class="topup-step-actions">
+          <button class="blue-button" id="topup-whatsapp-button" type="button">Payment done - send to WhatsApp <span>↗</span></button>
+          <button class="topup-change-button" id="topup-change-amount" type="button">← Change amount</button>
+        </div>
+        <small class="wallet-modal-note">Payment verify hone ke baad admin aapke wallet me credited amount add karega.</small>
+      </div>
     </div>
   </div>
   <div class="fetching-backdrop" id="fetching-overlay" hidden>

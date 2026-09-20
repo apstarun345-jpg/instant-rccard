@@ -46,7 +46,7 @@ const MIME_TYPES = {
   '.ico': 'image/x-icon'
 };
 
-let db = { users: [], transactions: [], ads: [], settings: {}, rateLog: [] };
+let db = { users: [], transactions: [], ads: [], settings: {}, rateLog: [], topupRequests: [] };
 let mutationQueue = Promise.resolve();
 let sheetSyncQueue = Promise.resolve();
 let sheetSyncFailures = [];
@@ -324,11 +324,12 @@ async function loadDatabase() {
       transactions: Array.isArray(parsed.transactions) ? parsed.transactions : [],
       ads: Array.isArray(parsed.ads) ? parsed.ads : [],
       settings: parsed.settings && typeof parsed.settings === 'object' ? parsed.settings : {},
-      rateLog: Array.isArray(parsed.rateLog) ? parsed.rateLog : []
+      rateLog: Array.isArray(parsed.rateLog) ? parsed.rateLog : [],
+      topupRequests: Array.isArray(parsed.topupRequests) ? parsed.topupRequests : []
     };
   } catch (error) {
     if (error.code !== 'ENOENT') throw error;
-    db = { users: [], transactions: [], ads: [], settings: {}, rateLog: [] };
+    db = { users: [], transactions: [], ads: [], settings: {}, rateLog: [], topupRequests: [] };
     await persistDatabase();
   }
 }
@@ -476,6 +477,34 @@ function sheetAdPayload(ad) {
     active: ad.active !== false,
     createdAt: ad.createdAt,
     updatedAt: ad.updatedAt
+  };
+}
+
+function publicTopupRequest(request) {
+  return {
+    id: String(request.id || ''),
+    mobile: String(request.mobile || ''),
+    name: String(request.name || ''),
+    email: String(request.email || ''),
+    amountRequested: Number(request.amountRequested || 0),
+    amountApproved: request.amountApproved == null ? null : Number(request.amountApproved),
+    status: String(request.status || 'PENDING'),
+    createdAt: request.createdAt || '',
+    updatedAt: request.updatedAt || request.createdAt || '',
+    whatsappSentAt: request.whatsappSentAt || '',
+    decidedAt: request.decidedAt || '',
+    decidedBy: request.decidedBy || '',
+    rejectReason: request.rejectReason || ''
+  };
+}
+
+function sheetTopupRequestPayload(request) {
+  const publicRequest = publicTopupRequest(request);
+  return {
+    ...publicRequest,
+    userId: request.userId || '',
+    amountRequested: publicRequest.amountRequested,
+    amountApproved: publicRequest.amountApproved == null ? '' : publicRequest.amountApproved
   };
 }
 
@@ -659,6 +688,7 @@ async function restoreFromSheet() {
     const accounts = Array.isArray(snapshot.accounts) ? snapshot.accounts : [];
     const transactions = Array.isArray(snapshot.transactions) ? snapshot.transactions : [];
     const ads = Array.isArray(snapshot.ads) ? snapshot.ads : [];
+    const topupRequests = Array.isArray(snapshot.topupRequests) ? snapshot.topupRequests : [];
     const sheetRateLog = Array.isArray(snapshot.rateLog) ? snapshot.rateLog.slice(-300) : [];
     const localRateLog = Array.isArray(db.rateLog) ? db.rateLog : [];
     const rateLogById = new Map();
@@ -766,6 +796,11 @@ async function restoreFromSheet() {
       const localTransactions = db.transactions.slice();
       const durableIds = new Set(transactions.map((transaction) => String(transaction.id || '')).filter(Boolean));
       db.transactions = transactions.concat(localTransactions.filter((transaction) => !durableIds.has(String(transaction.id || ''))));
+    }
+    if (topupRequests.length || !db.topupRequests.length) {
+      const localRequests = db.topupRequests.slice();
+      const durableIds = new Set(topupRequests.map((request) => String(request.id || '')).filter(Boolean));
+      db.topupRequests = topupRequests.concat(localRequests.filter((request) => !durableIds.has(String(request.id || ''))));
     }
     if (snapshot.settings && typeof snapshot.settings === 'object') db.settings = { ...db.settings, ...snapshot.settings };
     if (durableRateLog.length || !db.rateLog.length) db.rateLog = durableRateLog;
@@ -931,6 +966,113 @@ function requireMainAdmin(req, res) {
     return null;
   }
   return user;
+}
+
+async function handleCreateTopupRequest(req, res) {
+  const user = currentUser(req);
+  if (!user || !user.active) return sendError(res, 401, 'Session expire ho gaya. Dobara login karo.');
+  const body = await readJson(req);
+  const amount = Number(body.amount);
+  if (!Number.isFinite(amount) || amount < 1 || amount > 100000) {
+    return sendError(res, 422, 'Topup amount ₹1 se ₹100000 ke beech hona chahiye.');
+  }
+
+  return withMutationLock(async () => {
+    const fresh = syncAdminRole(findUser(user.mobile));
+    if (!fresh || !fresh.active) return sendError(res, 401, 'User account nahi mila.');
+    if (!Array.isArray(db.topupRequests)) db.topupRequests = [];
+    const pending = db.topupRequests.find((request) => request.mobile === fresh.mobile && request.status === 'PENDING');
+    if (pending) {
+      return sendJson(res, 200, {
+        success: true,
+        existing: true,
+        message: 'Aapki ek wallet payment request already pending hai.',
+        request: publicTopupRequest(pending)
+      });
+    }
+    const now = new Date().toISOString();
+    const request = {
+      id: crypto.randomUUID(),
+      userId: fresh.id,
+      mobile: fresh.mobile,
+      name: fresh.name || '',
+      email: fresh.email || '',
+      amountRequested: Math.round(amount),
+      amountApproved: null,
+      status: 'PENDING',
+      createdAt: now,
+      updatedAt: now,
+      whatsappSentAt: now,
+      decidedAt: '',
+      decidedBy: '',
+      rejectReason: ''
+    };
+    db.topupRequests.push(request);
+    await persistDatabase();
+    queueSheetSync('topupRequest', sheetTopupRequestPayload(request));
+    await flushSheetSync();
+    return sendJson(res, 200, { success: true, request: publicTopupRequest(request) });
+  });
+}
+
+async function handleAdminGetTopupRequests(req, res) {
+  const admin = requireAdmin(req, res, 'recharge');
+  if (!admin) return;
+  const status = String(new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`).searchParams.get('status') || 'ALL').toUpperCase();
+  const requests = (Array.isArray(db.topupRequests) ? db.topupRequests : [])
+    .filter((request) => !status || status === 'ALL' || request.status === status)
+    .slice(-100)
+    .reverse()
+    .map(publicTopupRequest);
+  return sendJson(res, 200, { success: true, requests, pending: requests.filter((request) => request.status === 'PENDING').length });
+}
+
+async function handleAdminResolveTopupRequest(req, res, requestId) {
+  const admin = requireAdmin(req, res, 'recharge');
+  if (!admin) return;
+  const body = await readJson(req);
+  const decision = String(body.status || body.action || '').toUpperCase();
+  if (!['APPROVED', 'REJECTED'].includes(decision)) return sendError(res, 422, 'Request ko approve ya reject choose karo.');
+
+  return withMutationLock(async () => {
+    const request = (Array.isArray(db.topupRequests) ? db.topupRequests : []).find((item) => String(item.id) === String(requestId));
+    if (!request) return sendError(res, 404, 'Wallet payment request nahi mili.');
+    if (request.status !== 'PENDING') return sendError(res, 409, 'Ye request already process ho chuki hai.');
+    const now = new Date().toISOString();
+    if (decision === 'REJECTED') {
+      request.status = 'REJECTED';
+      request.amountApproved = null;
+      request.rejectReason = String(body.reason || 'Payment verify nahi ho paayi.').trim().slice(0, 180);
+      request.decidedAt = now;
+      request.decidedBy = admin.mobile;
+      request.updatedAt = now;
+      await persistDatabase();
+      queueSheetSync('topupRequest', sheetTopupRequestPayload(request));
+      await flushSheetSync();
+      return sendJson(res, 200, { success: true, request: publicTopupRequest(request), message: 'Wallet payment request reject ho gayi.' });
+    }
+
+    const amount = Number(body.amount == null || body.amount === '' ? request.amountRequested : body.amount);
+    if (!Number.isFinite(amount) || amount < 1 || amount > 100000) {
+      return sendError(res, 422, 'Approved amount ₹1 se ₹100000 ke beech hona chahiye.');
+    }
+    const user = findUser(request.mobile);
+    if (!user || !user.active) return sendError(res, 404, 'Request ka user account nahi mila ya blocked hai.');
+    user.wallet = Number(user.wallet || 0) + Math.round(amount);
+    appendTransaction(user.mobile, 'RECHARGE', Math.round(amount), user.wallet, '', `RC wallet payment request ${request.id}`, admin.mobile);
+    request.status = 'APPROVED';
+    request.amountApproved = Math.round(amount);
+    request.decidedAt = now;
+    request.decidedBy = admin.mobile;
+    request.updatedAt = now;
+    request.rejectReason = '';
+    await persistDatabase();
+    queueSheetSync('topupRequest', sheetTopupRequestPayload(request));
+    queueSheetSync('user', sheetUserPayload(user));
+    queueSheetSync('transaction', db.transactions[db.transactions.length - 1]);
+    await flushSheetSync();
+    return sendJson(res, 200, { success: true, request: publicTopupRequest(request), user: publicUser(user), message: `₹${Math.round(amount)} wallet me add ho gaye.` });
+  });
 }
 
 async function handleAdminSearch(req, res) {
@@ -1560,6 +1702,7 @@ const server = http.createServer(async (req, res) => {
       if (!user) return sendError(res, 401, 'Session expire ho gaya.');
       return sendJson(res, 200, { success: true, transactions: userTransactions(user.mobile, 30) });
     }
+    if (req.method === 'POST' && pathname === '/api/wallet/topup-request') return await handleCreateTopupRequest(req, res);
     if (req.method === 'POST' && pathname === '/api/rc/purchase') return await handlePurchase(req, res);
     if (req.method === 'POST' && pathname === '/api/admin/users/search') return await handleAdminSearch(req, res);
     if (req.method === 'GET' && pathname === '/api/admin/users') return await handleAdminListUsers(req, res, url.searchParams);
@@ -1569,6 +1712,9 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && pathname === '/api/admin/users/bulk-rate') return await handleAdminBulkSetRate(req, res);
     if (req.method === 'POST' && pathname === '/api/admin/users/status') return await handleAdminSetUserStatus(req, res);
     if (req.method === 'POST' && pathname === '/api/admin/recharge') return await handleAdminRecharge(req, res);
+    if (req.method === 'GET' && pathname === '/api/admin/wallet/topup-requests') return await handleAdminGetTopupRequests(req, res);
+    const topupRequestRoute = pathname.match(/^\/api\/admin\/wallet\/topup-requests\/([^/]+)$/);
+    if (topupRequestRoute && req.method === 'POST') return await handleAdminResolveTopupRequest(req, res, decodeURIComponent(topupRequestRoute[1]));
     if (req.method === 'GET' && pathname === '/api/admin/ads') return await handleAdminGetAds(req, res);
     if (req.method === 'POST' && pathname === '/api/admin/ads') return await handleAdminAddAd(req, res);
     const adRoute = pathname.match(/^\/api\/admin\/ads\/([^/]+)$/);

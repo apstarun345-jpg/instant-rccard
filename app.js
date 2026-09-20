@@ -1,5 +1,5 @@
 
-    var state = { token: '', user: null, selectedAdminMobile: '', selectedAdminQuery: '', defaultRcCardPrice: 15, pendingVrn: '', busy: false, adminUsersQuery: '', adminAccessQuery: '', bulkConfirm: false, supportWhatsapp: '', supportPaymentQr: '', supportPaymentQrUrl: '' };
+    var state = { token: '', user: null, selectedAdminMobile: '', selectedAdminQuery: '', defaultRcCardPrice: 15, pendingVrn: '', busy: false, adminUsersQuery: '', adminAccessQuery: '', bulkConfirm: false, supportWhatsapp: '', supportPaymentQr: '', supportPaymentQrUrl: '', pendingTopupAmount: 0 };
     var DOWNLOAD_PRICES = { mparivahan: 10, 'rc-card': 15 };
     var $ = function (selector) { return document.querySelector(selector); };
     var $$ = function (selector) { return Array.prototype.slice.call(document.querySelectorAll(selector)); };
@@ -80,6 +80,9 @@
       else if (name === 'adminBulkRate') { url = '/api/admin/users/bulk-rate'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ price: args[0], clear: args[1] === true, scope: args[2] || 'all', mobiles: args[3] || [], confirm: args[4] === true }); }
       else if (name === 'adminSetUserStatus') { url = '/api/admin/users/status'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ mobile: args[0], active: args[1] !== false }); }
       else if (name === 'adminRecharge') { url = '/api/admin/recharge'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ mobile: args[0], amount: args[1], note: args[2] }); }
+      else if (name === 'createWalletTopupRequest') { url = '/api/wallet/topup-request'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ amount: args[0] }); }
+      else if (name === 'adminGetTopupRequests') { url = '/api/admin/wallet/topup-requests'; }
+      else if (name === 'adminResolveTopupRequest') { url = '/api/admin/wallet/topup-requests/' + encodeURIComponent(args[0]); options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ status: args[1], amount: args[2], reason: args[3] || '' }); }
       else if (name === 'adminGetTransactions') { url = '/api/admin/transactions'; }
       else if (name === 'adminGetStats') {
         var qs = new URLSearchParams();
@@ -266,24 +269,49 @@
       $('#wallet-alert').hidden = true;
     }
 
+    function showTopupAmountStep() {
+      $('#topup-amount-step').hidden = false;
+      $('#topup-payment-step').hidden = true;
+      setTimeout(function () { $('#topup-amount').focus(); }, 30);
+    }
+
     function openWalletTopup() {
       loadSupportSettings();
       var current = state.user ? Number(state.user.wallet || 0) : 0;
       $('#topup-current-balance').textContent = formatMoney(current);
       $('#topup-amount').value = '';
+      state.pendingTopupAmount = 0;
+      showTopupAmountStep();
       $('#wallet-topup-modal').hidden = false;
       document.body.style.overflow = 'hidden';
-      setTimeout(function () { $('#topup-amount').focus(); }, 30);
     }
 
     function closeWalletTopup() {
       $('#wallet-topup-modal').hidden = true;
+      state.pendingTopupAmount = 0;
       if ($('#fetching-overlay').hidden && $('#download-options-modal').hidden) document.body.style.overflow = '';
     }
 
-    function redirectToWalletTopupWhatsapp() {
+    function proceedToWalletPayment() {
       var amount = Number($('#topup-amount').value);
+      if (!Number.isFinite(amount) || amount < 1 || amount > 100000) {
+        toast('Amount enter karo', 'Topup amount ₹1 se ₹100000 ke beech hona chahiye.', 'error');
+        return;
+      }
+      if (!state.supportPaymentQr && !state.supportPaymentQrUrl) {
+        toast('Payment QR not set', 'Main Admin pehle payment QR configure karein.', 'error');
+        return;
+      }
+      state.pendingTopupAmount = Math.round(amount);
+      $('#topup-payment-amount').textContent = formatMoney(state.pendingTopupAmount);
+      $('#topup-amount-step').hidden = true;
+      $('#topup-payment-step').hidden = false;
+    }
+
+    async function redirectToWalletTopupWhatsapp() {
+      var amount = Number(state.pendingTopupAmount || $('#topup-amount').value);
       if (!Number.isFinite(amount) || amount < 1) {
+        showTopupAmountStep();
         toast('Amount enter karo', 'Jitna wallet topup chahiye, woh amount daalo.', 'error');
         return;
       }
@@ -291,14 +319,27 @@
         toast('WhatsApp number not set', 'Main Admin pehle WhatsApp support number configure karein.', 'error');
         return;
       }
-      var qrLine = state.supportPaymentQrUrl
-        ? ' Payment QR link: ' + state.supportPaymentQrUrl
-        : ' Kripya diye gaye payment QR par payment karke QR ka screenshot bhej dijiye.';
-      var message = 'Hello InstantRCcard support. RC Wallet me recharge ke liye amount: ₹' + amount + '. Maine diye gaye QR par payment karke payment screenshot aur receipt WhatsApp par bhejni hai.' + qrLine;
-      var whatsappUrl = 'https://wa.me/91' + state.supportWhatsapp + '?text=' + encodeURIComponent(message);
-      closeWalletTopup();
-      toast('WhatsApp open ho raha hai', 'Wallet topup ke liye WhatsApp par redirect kiya ja raha hai.', 'success');
-      window.location.href = whatsappUrl;
+      var button = $('#topup-whatsapp-button');
+      setButtonLoading(button, true, 'Payment done - send to WhatsApp <span>↗</span>');
+      try {
+        var response = await callServer('createWalletTopupRequest', [Math.round(amount)]);
+        if (!response.success || !response.request) {
+          toast('Request create nahi hui', response.message || 'Please dobara try karein.', 'error');
+          return;
+        }
+        var request = response.request;
+        var qrLink = state.supportPaymentQrUrl || (state.supportPaymentQr ? window.location.origin + '/api/payment-qr' : '');
+        var qrLine = qrLink ? ' Payment QR link: ' + qrLink : ' Payment QR app me dikhaya gaya hai.';
+        var message = 'Hello InstantRCcard support. Payment done. RC wallet payment request ID: ' + request.id + '. Amount: ₹' + request.amountRequested + '. User mobile: +91 ' + (state.user ? state.user.mobile : '') + '. Payment instructions: app me diye gaye QR par payment karke screenshot aur receipt isi chat me bhej raha/rahi hoon.' + qrLine;
+        var whatsappUrl = 'https://wa.me/91' + state.supportWhatsapp + '?text=' + encodeURIComponent(message);
+        closeWalletTopup();
+        toast(response.existing ? 'Request already pending' : 'Request sent', 'Request ID ' + request.id + ' ke saath WhatsApp open ho raha hai.', 'success');
+        window.location.href = whatsappUrl;
+      } catch (error) {
+        toast('Topup request error', error.message, 'error');
+      } finally {
+        setButtonLoading(button, false, 'Payment done - send to WhatsApp <span>↗</span>');
+      }
     }
 
     function setAuthMode(mode) {
@@ -426,6 +467,8 @@
       if (rateHint) rateHint.hidden = !hasAdminPermission('rates');
       var transactionsBlock = $('#admin-transactions-block');
       if (transactionsBlock) transactionsBlock.hidden = !hasAdminPermission('transactions');
+      var topupRequestsBlock = $('#admin-topup-requests-block');
+      if (topupRequestsBlock) topupRequestsBlock.hidden = !hasAdminPermission('recharge');
       ['#admin-settings-rating', '#admin-settings-baseline', '#admin-settings-price', '#admin-settings-support'].forEach(function (selector) {
         var settingsRow = $(selector);
         if (settingsRow) settingsRow.hidden = !isMainAdminUser(user);
@@ -467,6 +510,7 @@
       loadTransactions();
       if (user.role === 'admin') {
         if (hasAdminPermission('transactions')) loadAdminTransactions();
+        if (hasAdminPermission('recharge')) loadAdminTopupRequests();
         if (hasAdminPermission('ads')) loadAdminAds();
         if (hasAdminPermission('kpi')) loadAdminStats();
         if (hasAdminPermission('rates')) loadAdminUsers('', { silent: true });
@@ -744,6 +788,7 @@
       if ($('#admin-ads-section')) $('#admin-ads-section').hidden = section !== 'ads';
       if ($('#admin-access-section')) $('#admin-access-section').hidden = section !== 'access';
       if ($('#admin-no-permission')) $('#admin-no-permission').hidden = Boolean(section);
+      if (section === 'wallet' && hasAdminPermission('recharge')) loadAdminTopupRequests();
       if (section === 'users') loadAdminUsers(state.adminUsersQuery || '', { silent: true });
       if (section === 'access' && !state.adminAccessQuery) {
         $('#admin-access-list').innerHTML = '<div class="empty-list">Search karke existing user select karo.</div>';
@@ -1479,6 +1524,69 @@
       finally { setButtonLoading(button, false, 'Recharge'); }
     }
 
+    async function loadAdminTopupRequests() {
+      if (!state.user || state.user.role !== 'admin' || !hasAdminPermission('recharge')) return;
+      try {
+        var response = await callServer('adminGetTopupRequests', []);
+        if (response.success) renderAdminTopupRequests(response.requests || []);
+      } catch (error) {
+        var list = $('#admin-topup-request-list');
+        if (list) list.innerHTML = '<div class="empty-list">Payment requests load nahi ho paayi.</div>';
+      }
+    }
+
+    function renderAdminTopupRequests(requests) {
+      var list = $('#admin-topup-request-list');
+      if (!list) return;
+      if (!requests.length) {
+        list.innerHTML = '<div class="empty-list">Koi pending wallet payment request nahi hai.</div>';
+        return;
+      }
+      list.innerHTML = requests.map(function (request) {
+        var status = String(request.status || 'PENDING').toLowerCase();
+        var requested = formatMoney(request.amountRequested);
+        var amountHtml = status === 'pending'
+          ? '<input data-topup-amount="' + escapeHtml(request.id) + '" type="number" min="1" max="100000" step="1" value="' + Number(request.amountRequested || 0) + '" aria-label="Approved amount">'
+          : '<strong>' + escapeHtml(formatMoney(request.amountApproved == null ? request.amountRequested : request.amountApproved)) + '</strong>';
+        var actions = status === 'pending'
+          ? '<div class="topup-request-actions"><button class="topup-request-approve" data-topup-approve="' + escapeHtml(request.id) + '" type="button">Approve</button><button class="topup-request-reject" data-topup-reject="' + escapeHtml(request.id) + '" type="button">Reject</button></div>'
+          : '';
+        var decision = request.decidedAt ? ' · ' + formatDate(request.decidedAt) : '';
+        return '<div class="topup-request-row"><div class="topup-request-main"><b>' + escapeHtml(request.name || 'User') + ' · +91 ' + escapeHtml(request.mobile || '—') + '</b><small>Requested ' + escapeHtml(requested) + ' · ' + escapeHtml(formatDate(request.createdAt)) + decision + '</small><span class="topup-request-status ' + escapeHtml(status) + '">' + escapeHtml(request.status || 'PENDING') + '</span><div class="topup-request-id">ID: ' + escapeHtml(request.id) + '</div>' + (request.rejectReason ? '<small>Reason: ' + escapeHtml(request.rejectReason) + '</small>' : '') + '</div><div class="topup-request-side">' + amountHtml + actions + '</div></div>';
+      }).join('');
+      $$('[data-topup-approve]').forEach(function (button) { button.addEventListener('click', function () { resolveAdminTopup(button.dataset.topupApprove, 'APPROVED', button); }); });
+      $$('[data-topup-reject]').forEach(function (button) { button.addEventListener('click', function () { resolveAdminTopup(button.dataset.topupReject, 'REJECTED', button); }); });
+    }
+
+    async function resolveAdminTopup(requestId, decision, sourceButton) {
+      if (!hasAdminPermission('recharge')) return;
+      var row = sourceButton.closest('.topup-request-row');
+      var input = row ? row.querySelector('[data-topup-amount]') : null;
+      var amount = input ? Number(input.value) : '';
+      if (decision === 'APPROVED') {
+        if (!Number.isFinite(amount) || amount < 1 || amount > 100000) {
+          toast('Amount check karo', 'Approved amount ₹1 se ₹100000 ke beech hona chahiye.', 'error');
+          return;
+        }
+        if (!window.confirm('Is request ko ' + formatMoney(amount) + ' se approve karna hai?')) return;
+      } else if (!window.confirm('Is wallet payment request ko reject karna hai?')) return;
+      sourceButton.disabled = true;
+      try {
+        var reason = decision === 'REJECTED' ? (window.prompt('Reject reason (optional)', 'Payment verify nahi ho paayi.') || '') : '';
+        var response = await callServer('adminResolveTopupRequest', [requestId, decision, decision === 'APPROVED' ? Math.round(amount) : '', reason]);
+        if (!response.success) { toast('Request update failed', response.message || 'Please refresh karke dobara try karein.', 'error'); return; }
+        if (response.user && state.user && response.user.mobile === state.user.mobile) {
+          state.user.wallet = response.user.wallet;
+          updateWallet(response.user.wallet);
+        }
+        await loadAdminTopupRequests();
+        if (hasAdminPermission('transactions')) await loadAdminTransactions();
+        if (hasAdminPermission('kpi')) loadAdminStats();
+        toast(decision === 'APPROVED' ? 'Topup approved' : 'Topup rejected', response.message || 'Request status update ho gaya.', 'success');
+      } catch (error) { toast('Request update error', error.message, 'error'); }
+      finally { sourceButton.disabled = false; }
+    }
+
     async function loadAdminTransactions() {
       if (!state.user || state.user.role !== 'admin' || !hasAdminPermission('transactions')) return;
       try {
@@ -1825,6 +1933,8 @@
     $('#wallet-card-trigger').addEventListener('keydown', function (event) { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openWalletTopup(); } });
     $('#close-wallet-topup').addEventListener('click', closeWalletTopup);
     $('#wallet-topup-modal').addEventListener('click', function (event) { if (event.target === $('#wallet-topup-modal')) closeWalletTopup(); });
+    $('#topup-continue-button').addEventListener('click', proceedToWalletPayment);
+    $('#topup-change-amount').addEventListener('click', showTopupAmountStep);
     $('#topup-whatsapp-button').addEventListener('click', redirectToWalletTopupWhatsapp);
     document.addEventListener('keydown', function (event) {
       if (event.key !== 'Escape') return;
@@ -1905,6 +2015,7 @@
       if (event.key === 'Enter') { event.preventDefault(); findAdminUser(); }
     });
     $('#admin-recharge-button').addEventListener('click', rechargeAdminUser);
+    if ($('#refresh-topup-requests')) $('#refresh-topup-requests').addEventListener('click', loadAdminTopupRequests);
     if ($('#admin-user-rate-save')) $('#admin-user-rate-save').addEventListener('click', function () { saveAdminUserRate(false); });
     if ($('#admin-user-rate-clear')) $('#admin-user-rate-clear').addEventListener('click', function () { saveAdminUserRate(true); });
     if ($('#admin-users-search-button')) $('#admin-users-search-button').addEventListener('click', searchAdminUsersList);
