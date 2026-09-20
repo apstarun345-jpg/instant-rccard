@@ -138,6 +138,11 @@
     function normalizeVrn(value) { return String(value || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, ''); }
     function validEmail(value) { return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(value || '').trim()); }
     function validMobile(value) { return /^[6-9]\d{9}$/.test(value); }
+    function validLoginIdentifier(value) {
+      var raw = String(value || '').trim();
+      var mobile = normalizeMobile(raw);
+      return Boolean(raw && (validEmail(raw) || validMobile(mobile) || /^[A-Za-z][A-Za-z0-9 ._-]{1,79}$/.test(raw)));
+    }
     function validVrn(value) { return /^[A-Z0-9]{4,15}$/.test(value); }
     function escapeHtml(value) { return String(value == null ? '' : value).replace(/[&<>"']/g, function (c) { return ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[c]; }); }
     function formatMoney(value) { return '₹' + Number(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 }); }
@@ -501,8 +506,9 @@
       if ($('#dropdown-mobile')) $('#dropdown-mobile').textContent = '+91 ' + user.mobile;
       if ($('#dropdown-email')) $('#dropdown-email').textContent = user.email || 'Email not set';
 
-      $('#welcome-title').textContent = 'Instant RC Card ke saath, RC download kijiye.';
-      $('#welcome-subtitle').textContent = 'Welcome back, ' + user.name.split(' ')[0] + '. Palak jhapakte hi vehicle number se front + back RC Card PDF download karein.';
+      var firstName = String(user.name || 'User').trim().split(' ')[0] || 'User';
+      $('#welcome-title').textContent = 'Hello, ' + firstName;
+      $('#welcome-subtitle').textContent = 'Aapka RC desk ready hai. Palak jhapakte hi vehicle number se front + back RC Card PDF download karein.';
       $('#account-name').textContent = user.name;
       $('#account-mobile').textContent = '+91 ' + user.mobile;
       if ($('#account-email')) $('#account-email').textContent = user.email || 'Email not set';
@@ -1990,9 +1996,10 @@
       var identifier = String($('#login-identifier').value || '').trim();
       var password = $('#login-password').value;
       $('#login-error').textContent = '';
-      var normalizedIdentifier = identifier.includes('@') ? identifier.toLowerCase() : normalizeMobile(identifier);
-      if ((!validEmail(normalizedIdentifier) && !validMobile(normalizedIdentifier)) || !password) {
-        $('#login-error').textContent = 'Valid email ya 10-digit mobile number, aur password enter karo.';
+      var mobileIdentifier = normalizeMobile(identifier);
+      var normalizedIdentifier = validEmail(identifier) ? identifier.toLowerCase() : (validMobile(mobileIdentifier) ? mobileIdentifier : identifier.replace(/\s+/g, ' ').trim());
+      if (!validLoginIdentifier(normalizedIdentifier) || !password) {
+        $('#login-error').textContent = 'Valid username, email ya 10-digit mobile number, aur password enter karo.';
         return;
       }
       $('#login-identifier').value = normalizedIdentifier;

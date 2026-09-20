@@ -379,6 +379,37 @@ function findUserByEmail(email) {
   return db.users.find((user) => normalizeEmail(user.email) === normalized) || null;
 }
 
+function normalizeLoginName(value) {
+  return String(value ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function findUserByLoginName(value) {
+  const normalized = normalizeLoginName(value);
+  if (!normalized || normalized.length < 2) return null;
+  const aliases = (user) => [user.username, user.userName, user.login, user.name]
+    .map(normalizeLoginName)
+    .filter(Boolean);
+  const exact = db.users.filter((user) => aliases(user).includes(normalized));
+  if (exact.length === 1) return exact[0];
+  if (exact.length > 1) return null;
+  // A unique first-name match keeps older name-based accounts usable without
+  // accidentally choosing between two users with the same name.
+  const firstNameMatches = db.users.filter((user) => {
+    const firstName = normalizeLoginName(user.name).split(' ')[0];
+    return firstName && firstName === normalized;
+  });
+  return firstNameMatches.length === 1 ? firstNameMatches[0] : null;
+}
+
+function findUserForLogin(identifier) {
+  const raw = String(identifier ?? '').trim();
+  if (!raw) return null;
+  if (raw.includes('@')) return findUserByEmail(raw);
+  const mobile = normalizeMobile(raw);
+  if (validMobile(mobile)) return findUser(mobile);
+  return findUserByLoginName(raw);
+}
+
 function findUserByQuery(query) {
   const raw = String(query ?? '').trim();
   if (!raw) return null;
@@ -523,6 +554,7 @@ function sheetUserPayload(user) {
     userId: user.shortId || user.id,
     shortUserId: user.shortId || '',
     internalUserId: user.id,
+    username: user.username || user.name || '',
     name: user.name,
     email: user.email || '',
     mobile: user.mobile,
@@ -843,6 +875,7 @@ async function restoreFromSheet() {
         return {
           id: accountKey || `sheet-${account.mobile}`,
           shortId: /^u\d+$/.test(shortAccountId) ? shortAccountId : '',
+          username: String(account.username || account.name || ''),
           name: String(account.name || ''),
           email: normalizeEmail(account.email),
           mobile,
@@ -918,7 +951,7 @@ async function handleSignup(req, res) {
     const salt = crypto.randomBytes(16).toString('hex');
     if (findUserByEmail(email)) return sendError(res, 409, 'Is email ka account pehle se bana hua hai.');
     const isOwner = Boolean(ADMIN_MOBILE && mobile === ADMIN_MOBILE);
-    const user = { id: crypto.randomUUID(), shortId: nextShortId('u', db.users, 'shortId'), name, email, mobile, salt, passwordHash: passwordHash(password, salt), wallet: 0, rcCardPrice: null, role: isOwner ? 'admin' : 'user', adminPermissions: isOwner ? { ...FULL_ADMIN_PERMISSIONS } : {}, createdAt: new Date().toISOString(), lastLogin: new Date().toISOString(), active: true };
+    const user = { id: crypto.randomUUID(), shortId: nextShortId('u', db.users, 'shortId'), username: name, name, email, mobile, salt, passwordHash: passwordHash(password, salt), wallet: 0, rcCardPrice: null, role: isOwner ? 'admin' : 'user', adminPermissions: isOwner ? { ...FULL_ADMIN_PERMISSIONS } : {}, createdAt: new Date().toISOString(), lastLogin: new Date().toISOString(), active: true };
     db.users.push(user);
     await persistDatabase();
     queueSheetSync('user', sheetUserPayload(user));
@@ -939,13 +972,7 @@ async function handleLogin(req, res) {
 
   let user = null;
   if (identifier) {
-    if (identifier.includes('@')) {
-      const email = normalizeEmail(identifier);
-      if (validEmail(email)) user = findUserByEmail(email);
-    } else {
-      const mobile = normalizeMobile(identifier);
-      if (validMobile(mobile)) user = findUser(mobile);
-    }
+    user = findUserForLogin(identifier);
   } else if (validMobile(legacyMobile)) {
     user = findUser(legacyMobile);
     if (user && validEmail(legacyEmail) && normalizeEmail(user.email) !== legacyEmail) user = null;

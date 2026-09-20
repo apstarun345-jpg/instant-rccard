@@ -22,7 +22,7 @@ See `DEPLOY_RAILWAY_RENDER.md` inside the final ZIP for step-by-step deployment 
 ## Included
 
 - Installable PWA from Chrome/Android browser without Play Store
-- Email ya mobile number + password login; signup me email + mobile required (SMS/OTP nahi)
+- Username/name, email ya mobile number + password login; signup me email + mobile required (SMS/OTP nahi); logged-in dashboard greeting shows `Hello, <username>`
 - Forgot password with email + mobile verification, new password and confirmation show/hide controls
 - Cookie-based login that survives browser refreshes
 - Durable Google Sheet account restore after Render restarts/redeploys when the Sheet mirror is configured
