@@ -1344,7 +1344,7 @@ function settingsNumber(key) {
 
 async function handlePublicStats(req, res) {
   const activeUsers = db.users.filter((user) => user.active !== false && user.role !== 'admin').length;
-  const completedDownloads = db.transactions.filter((tx) => tx.type === 'RC_PURCHASE' && tx.status === 'SUCCESS').length;
+  const completedDownloads = db.transactions.filter(isRcDownloadTransaction).length;
   const configuredRating = String((db.settings && db.settings.rating) || '').trim();
   const rating = configuredRating || String(process.env.PUBLIC_RATING || '').trim() || DEFAULT_SETTINGS.rating;
   return sendJson(res, 200, {
@@ -1377,6 +1377,32 @@ function monthKey(iso) {
   return dayKey(iso).slice(0, 7);
 }
 
+function transactionTime(transaction) {
+  return transaction?.time || transaction?.createdAt || transaction?.timestamp || transaction?.date || '';
+}
+
+function normalizedTransactionType(transaction) {
+  return String(transaction?.type || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+function successfulTransaction(transaction) {
+  const status = String(transaction?.status || 'SUCCESS').toUpperCase();
+  return !['FAILED', 'FAILURE', 'REJECTED', 'CANCELLED', 'ERROR'].includes(status);
+}
+
+function isRechargeTransaction(transaction) {
+  return ['RECHARGE', 'WALLETRECHARGE', 'WALLETTOPUP', 'TOPUP'].includes(normalizedTransactionType(transaction));
+}
+
+function isRcDownloadTransaction(transaction) {
+  const type = normalizedTransactionType(transaction);
+  if (!successfulTransaction(transaction)) return false;
+  if (['RCPURCHASE', 'RCDOWNLOAD', 'RCCARDDOWNLOAD', 'DOWNLOADRC', 'RCCARD'].includes(type)) return true;
+  // Accept older mirror rows that recorded a vehicle number and a debit but
+  // used a different display type. Never classify wallet/recharge rows here.
+  return Boolean(transaction?.vrn) && Number(transaction?.amount || 0) < 0 && !isRechargeTransaction(transaction);
+}
+
 function sumAmount(list) {
   return list.reduce((total, tx) => total + Number(tx.amount || 0), 0);
 }
@@ -1395,13 +1421,13 @@ function buildAdminActivity(topups, todayKey, monthNowKey, lastMonthKey, range, 
     : db.users.filter((user) => user.role === 'admin');
   return admins.map((admin) => {
     const own = topups.filter((tx) => tx.adminMobile === admin.mobile);
-    const today = summarizeAdminTopups(own.filter((tx) => dayKey(tx.time) === todayKey));
-    const month = summarizeAdminTopups(own.filter((tx) => monthKey(tx.time) === monthNowKey));
-    const lastMonth = summarizeAdminTopups(own.filter((tx) => monthKey(tx.time) === lastMonthKey));
+    const today = summarizeAdminTopups(own.filter((tx) => dayKey(transactionTime(tx)) === todayKey));
+    const month = summarizeAdminTopups(own.filter((tx) => monthKey(transactionTime(tx)) === monthNowKey));
+    const lastMonth = summarizeAdminTopups(own.filter((tx) => monthKey(transactionTime(tx)) === lastMonthKey));
     const allTime = summarizeAdminTopups(own);
     const rangeStats = range
       ? summarizeAdminTopups(own.filter((tx) => {
-        const key = dayKey(tx.time);
+        const key = dayKey(transactionTime(tx));
         return key >= range.from && key <= range.to;
       }))
       : null;
@@ -1430,9 +1456,9 @@ function computeAdminStats(fromDay, toDay, viewer) {
 
   // Main Admin sees the complete platform. An Admin Assistant only sees
   // transactions and users attributed to that assistant's own mobile.
-  const allTopups = db.transactions.filter((tx) => tx.type === 'RECHARGE');
+  const allTopups = db.transactions.filter(isRechargeTransaction);
   const topups = ownerView ? allTopups : allTopups.filter((tx) => tx.adminMobile === viewer.mobile);
-  const allRcDownloads = db.transactions.filter((tx) => tx.type === 'RC_PURCHASE' && tx.status === 'SUCCESS');
+  const allRcDownloads = db.transactions.filter(isRcDownloadTransaction);
   const rcDownloads = ownerView ? allRcDownloads : allRcDownloads.filter((tx) => tx.adminMobile === viewer.mobile);
   const scopedUserMobiles = new Set(topups.map((tx) => String(tx.mobile || '')).filter(Boolean));
   const scopedUsers = ownerView
@@ -1442,13 +1468,13 @@ function computeAdminStats(fromDay, toDay, viewer) {
   const totalUsers = scopedUsers.length;
   const activeUsers = scopedUsers.filter((user) => user.active !== false).length;
 
-  const todayTopup = sumAmount(topups.filter((tx) => dayKey(tx.time) === todayKey));
-  const monthTopup = sumAmount(topups.filter((tx) => monthKey(tx.time) === monthNowKey));
-  const lastMonthTopup = sumAmount(topups.filter((tx) => monthKey(tx.time) === lastMonthKey));
+  const todayTopup = sumAmount(topups.filter((tx) => dayKey(transactionTime(tx)) === todayKey));
+  const monthTopup = sumAmount(topups.filter((tx) => monthKey(transactionTime(tx)) === monthNowKey));
+  const lastMonthTopup = sumAmount(topups.filter((tx) => monthKey(transactionTime(tx)) === lastMonthKey));
 
-  const todayRcDownloads = rcDownloads.filter((tx) => dayKey(tx.time) === todayKey).length;
-  const monthRcDownloads = rcDownloads.filter((tx) => monthKey(tx.time) === monthNowKey).length;
-  const lastMonthRcDownloads = rcDownloads.filter((tx) => monthKey(tx.time) === lastMonthKey).length;
+  const todayRcDownloads = rcDownloads.filter((tx) => dayKey(transactionTime(tx)) === todayKey).length;
+  const monthRcDownloads = rcDownloads.filter((tx) => monthKey(transactionTime(tx)) === monthNowKey).length;
+  const lastMonthRcDownloads = rcDownloads.filter((tx) => monthKey(transactionTime(tx)) === lastMonthKey).length;
 
   const walletRequestSource = hasAdminPermission(viewer, 'recharge')
     ? (Array.isArray(db.topupRequests) ? db.topupRequests : [])
@@ -1470,7 +1496,7 @@ function computeAdminStats(fromDay, toDay, viewer) {
   let range = null;
   if (fromDay && toDay) {
     const inRange = (tx) => {
-      const key = dayKey(tx.time);
+      const key = dayKey(transactionTime(tx));
       return key >= fromDay && key <= toDay;
     };
     const rangeTopups = topups.filter(inRange);
@@ -1561,10 +1587,10 @@ async function handleAdminKpiDetails(req, res, searchParams) {
     if (type === 'last-month-topup' || type === 'last-rc') return key.slice(0, 7) === lastMonthKey;
     return true;
   };
-  const allTopups = db.transactions.filter((tx) => tx.type === 'RECHARGE');
-  const topups = (ownerView ? allTopups : allTopups.filter((tx) => tx.adminMobile === admin.mobile)).filter((tx) => inRange(tx.time));
-  const allRcDownloads = db.transactions.filter((tx) => tx.type === 'RC_PURCHASE' && tx.status === 'SUCCESS');
-  const rcDownloads = (ownerView ? allRcDownloads : allRcDownloads.filter((tx) => tx.adminMobile === admin.mobile)).filter((tx) => inRange(tx.time));
+  const allTopups = db.transactions.filter(isRechargeTransaction);
+  const topups = (ownerView ? allTopups : allTopups.filter((tx) => tx.adminMobile === admin.mobile)).filter((tx) => inRange(transactionTime(tx)));
+  const allRcDownloads = db.transactions.filter(isRcDownloadTransaction);
+  const rcDownloads = (ownerView ? allRcDownloads : allRcDownloads.filter((tx) => tx.adminMobile === admin.mobile)).filter((tx) => inRange(transactionTime(tx)));
   const scopedUserMobiles = new Set(allTopups.filter((tx) => ownerView || tx.adminMobile === admin.mobile).map((tx) => String(tx.mobile || '')).filter(Boolean));
   const scopedUsers = (ownerView
     ? db.users.filter((user) => user.role !== 'admin')
@@ -1583,7 +1609,7 @@ async function handleAdminKpiDetails(req, res, searchParams) {
   } else if (type === 'wallet-requests') {
     title = 'RC wallet payment requests';
     items = requests;
-  } else if (type.indexOf('rc-') === 0) {
+  } else if (type.indexOf('rc-') === 0 || type.endsWith('-rc')) {
     title = 'RC download details';
     items = rcDownloads.slice().reverse().map((tx) => ({
       time: tx.time, mobile: tx.mobile, amount: Number(tx.amount || 0), vrn: tx.vrn || '', status: tx.status || 'SUCCESS', note: tx.note || ''
