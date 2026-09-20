@@ -56,7 +56,8 @@ SUPPORT_WHATSAPP=your-support-mobile
 3. The migration imports old `Users` and `Transactions` rows into `Web_Accounts`, `Web_Users` and `Web_Transactions`, preserving wallets, password hashes, user roles and RC transaction history. It is safe to run more than once.
 4. Deploy the Node package to Railway or Render with the same `SHEET_WEBHOOK_URL`, `SHEET_SYNC_SECRET`, `SESSION_SECRET`, `ADMIN_MOBILE` and provider token.
 5. Restart the Node service. It waits for the Sheet snapshot before listening, so old users and transactions are loaded before anyone can create another account.
-6. Test one old user by mobile/name/password, then check the Admin KPI users and RC-download details before allowing new signups.
+6. Open `/api/health` and confirm `restore.status` is `success`, then check `restore.users`, `restore.transactions` and `restore.rcDownloads`. `sheetAccounts` and `sheetTransactions` show how many records came from the Sheet.
+7. Test one old user by mobile/name/password, then check the Admin KPI users and RC-download details before allowing new signups.
 
 The mirror uses compact display IDs (`u1`, `u2`, `T1`, `T2`) and preserves internal UUIDs in separate columns.
 

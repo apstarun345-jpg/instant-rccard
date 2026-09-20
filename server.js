@@ -50,6 +50,7 @@ let db = { users: [], transactions: [], ads: [], settings: {}, rateLog: [], topu
 let mutationQueue = Promise.resolve();
 let sheetSyncQueue = Promise.resolve();
 let sheetSyncFailures = [];
+let restoreState = { status: 'not-started', users: 0, transactions: 0, rcDownloads: 0, sheetAccounts: 0, sheetTransactions: 0, completedAt: '' };
 
 function normalizeMobile(value) {
   let digits = String(value ?? '').replace(/\D/g, '');
@@ -801,7 +802,11 @@ async function fetchProvider(vrn) {
 }
 
 async function restoreFromSheet() {
-  if (!SHEET_WEBHOOK_URL || !SHEET_SYNC_SECRET) return;
+  if (!SHEET_WEBHOOK_URL || !SHEET_SYNC_SECRET) {
+    restoreState = { ...restoreState, status: 'not-configured', users: db.users.length, transactions: db.transactions.length, rcDownloads: db.transactions.filter(isRcDownloadTransaction).length };
+    return;
+  }
+  restoreState = { ...restoreState, status: 'loading' };
   try {
     const snapshotUrl = new URL(SHEET_WEBHOOK_URL);
     snapshotUrl.searchParams.set('action', 'snapshot');
@@ -951,8 +956,18 @@ async function restoreFromSheet() {
       updatedAt: ad.updatedAt || ad.createdAt || new Date().toISOString()
     }));
     await persistDatabase();
+    restoreState = {
+      status: 'success',
+      users: db.users.length,
+      transactions: db.transactions.length,
+      rcDownloads: db.transactions.filter(isRcDownloadTransaction).length,
+      sheetAccounts: accounts.length,
+      sheetTransactions: transactions.length,
+      completedAt: new Date().toISOString()
+    };
     console.log(`Restored ${db.users.length} account(s), ${db.transactions.length} transaction(s), ${db.ads.length} ad(s) from Google Sheet.`);
   } catch (error) {
+    restoreState = { ...restoreState, status: 'failed', users: db.users.length, transactions: db.transactions.length, rcDownloads: db.transactions.filter(isRcDownloadTransaction).length };
     console.warn('Google Sheet restore skipped:', error.message);
   }
 }
@@ -1953,7 +1968,16 @@ const server = http.createServer(async (req, res) => {
         adminConfigured: Boolean(ADMIN_MOBILE),
         sheetSyncConfigured,
         storage: sheetSyncConfigured ? 'json+google-sheet' : 'json',
-        durableStore: sheetSyncConfigured ? 'google-sheet-mirror' : 'local-json-only'
+        durableStore: sheetSyncConfigured ? 'google-sheet-mirror' : 'local-json-only',
+        restore: {
+          status: restoreState.status,
+          users: db.users.length,
+          transactions: db.transactions.length,
+          rcDownloads: db.transactions.filter(isRcDownloadTransaction).length,
+          sheetAccounts: restoreState.sheetAccounts || 0,
+          sheetTransactions: restoreState.sheetTransactions || 0,
+          completedAt: restoreState.completedAt || ''
+        }
       });
     }
     if (req.method === 'GET' && pathname === '/api/auth/session') {
