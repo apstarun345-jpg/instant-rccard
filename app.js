@@ -1639,11 +1639,12 @@
             // Google Sheet cells have a character limit. Keep the QR data URL
             // below that limit while preserving a crisp, scannable image.
             var maxChars = 46_000;
+            var minDimension = 220;
             var sourceWidth = image.naturalWidth || image.width || 600;
             var sourceHeight = image.naturalHeight || image.height || 600;
             var scale = Math.min(1, 900 / Math.max(sourceWidth, sourceHeight));
-            var width = Math.max(280, Math.round(sourceWidth * scale));
-            var height = Math.max(280, Math.round(sourceHeight * scale));
+            var width = Math.max(minDimension, Math.round(sourceWidth * scale));
+            var height = Math.max(minDimension, Math.round(sourceHeight * scale));
             var canvas = document.createElement('canvas');
             var context;
             var output;
@@ -1660,19 +1661,20 @@
             }
 
             output = drawPng();
-            while (output.length > maxChars && width > 280) {
-              width = Math.max(280, Math.round(width * 0.84));
-              height = Math.max(280, Math.round(height * 0.84));
+            while (output.length > maxChars && width > minDimension) {
+              width = Math.max(minDimension, Math.round(width * 0.84));
+              height = Math.max(minDimension, Math.round(height * 0.84));
               output = drawPng();
             }
 
             // A PNG is preferred for QR readability. If a photographic/colour
-            // QR is still large, use a high-quality JPEG as a final fallback.
+            // QR is still large, use a compressed JPEG fallback and keep the
+            // rendered image large enough for phone scanners.
             if (output.length > maxChars) {
-              var quality = 0.92;
+              var quality = 0.86;
               output = canvas.toDataURL('image/jpeg', quality);
-              while (output.length > maxChars && quality > 0.5) {
-                quality -= 0.08;
+              while (output.length > maxChars && quality > 0.18) {
+                quality -= 0.1;
                 output = canvas.toDataURL('image/jpeg', quality);
               }
             }
