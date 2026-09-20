@@ -10,6 +10,8 @@
     var roboGreetingLocked = false;
     var fetchingMessageTimer = null;
     var adminLiveTimer = null;
+    // Keeps the A4/card reference layout crisp while reducing canvas/PDF work on mobile browsers.
+    var RENDER_DPI = 240;
 
     function appIsInstalled() {
       return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
@@ -316,9 +318,9 @@
       $('#topup-payment-step').hidden = false;
     }
 
-    async function redirectToWalletTopupWhatsapp() {
+    function redirectToWalletTopupWhatsapp() {
       var amount = Number(state.pendingTopupAmount || $('#topup-amount').value);
-      if (!Number.isFinite(amount) || amount < 1) {
+      if (!Number.isFinite(amount) || amount < 1 || amount > 100000) {
         showTopupAmountStep();
         toast('Amount enter karo', 'Jitna wallet topup chahiye, woh amount daalo.', 'error');
         return;
@@ -328,42 +330,21 @@
         return;
       }
       var button = $('#topup-whatsapp-button');
-      setButtonLoading(button, true, 'Request create ho rahi hai…');
-      // Reserve the browser tab during the click gesture. Chrome can otherwise
-      // treat navigation after the awaited API call as a blocked popup.
-      var whatsappWindow = null;
-      try {
-        whatsappWindow = window.open('about:blank', '_blank');
-        if (whatsappWindow) {
-          try { whatsappWindow.opener = null; whatsappWindow.document.title = 'Opening WhatsApp…'; } catch (ignore) {}
-        }
-      } catch (ignore) {}
-      try {
-        var response = await callServer('createWalletTopupRequest', [Math.round(amount)]);
-        if (!response.success || !response.request) {
-          if (whatsappWindow && !whatsappWindow.closed) whatsappWindow.close();
-          toast('Request create nahi hui', response.message || 'Please dobara try karein.', 'error');
-          return;
-        }
-        var request = response.request;
-        var qrLink = state.supportPaymentQrUrl || (state.supportPaymentQr ? window.location.origin + '/api/payment-qr' : '');
-        var qrLine = qrLink ? ' Payment QR link: ' + qrLink : ' Payment QR app me dikhaya gaya hai.';
-        var message = 'Hello InstantRCcard support. Payment done. RC wallet payment request ID: ' + request.id + '. Amount: ₹' + request.amountRequested + '. User mobile: +91 ' + (state.user ? state.user.mobile : '') + '. Payment instructions: app me diye gaye QR par payment karke screenshot aur receipt isi chat me bhej raha/rahi hoon.' + qrLine;
-        var whatsappUrl = 'https://wa.me/91' + state.supportWhatsapp + '?text=' + encodeURIComponent(message);
-        closeWalletTopup();
-        toast(response.existing ? 'Request already pending' : 'Request sent', 'Request ID ' + request.id + ' ke saath WhatsApp open ho raha hai.', 'success');
-        if (whatsappWindow && !whatsappWindow.closed) {
-          whatsappWindow.location.replace(whatsappUrl);
-          try { whatsappWindow.focus(); } catch (ignore) {}
-        } else {
-          window.location.assign(whatsappUrl);
-        }
-      } catch (error) {
-        if (whatsappWindow && !whatsappWindow.closed) whatsappWindow.close();
-        toast('Topup request error', error.message, 'error');
-      } finally {
-        setButtonLoading(button, false, 'Payment done - send to WhatsApp <span>↗</span>');
-      }
+      setButtonLoading(button, true, 'WhatsApp open ho raha hai…');
+      // A real form navigation lets the server create and mirror the request,
+      // then return a 303 directly to wa.me. This avoids Chrome's async popup
+      // handling and makes the first click sufficient.
+      var form = document.createElement('form');
+      form.method = 'POST';
+      form.action = '/api/wallet/topup-whatsapp';
+      form.target = '_self';
+      var field = document.createElement('input');
+      field.type = 'hidden';
+      field.name = 'amount';
+      field.value = String(Math.round(amount));
+      form.appendChild(field);
+      document.body.appendChild(form);
+      window.setTimeout(function () { form.submit(); }, 30);
     }
 
     function setAuthMode(mode) {
@@ -520,7 +501,8 @@
       if ($('#dropdown-mobile')) $('#dropdown-mobile').textContent = '+91 ' + user.mobile;
       if ($('#dropdown-email')) $('#dropdown-email').textContent = user.email || 'Email not set';
 
-      $('#welcome-title').textContent = 'Hello, ' + user.name.split(' ')[0] + '.';
+      $('#welcome-title').textContent = 'Instant RC Card ke saath, RC download kijiye.';
+      $('#welcome-subtitle').textContent = 'Welcome back, ' + user.name.split(' ')[0] + '. Palak jhapakte hi vehicle number se front + back RC Card PDF download karein.';
       $('#account-name').textContent = user.name;
       $('#account-mobile').textContent = '+91 ' + user.mobile;
       if ($('#account-email')) $('#account-email').textContent = user.email || 'Email not set';
@@ -861,10 +843,10 @@
       var loadedImages = await Promise.all([loadImage(frontSource), loadImage(backSource)]);
       var front = loadedImages[0];
       var back = loadedImages[1];
-      var dpi = 300;
+      var dpi = RENDER_DPI;
       var mm = function (value) { return Math.round(value * dpi / 25.4); };
-      var pageWidth = 2480; // A4 at 300 DPI
-      var pageHeight = 3508;
+      var pageWidth = Math.round(210 * dpi / 25.4);
+      var pageHeight = Math.round(297 * dpi / 25.4);
       var cardWidth = mm(85.6); // standard bank-card width
       var cardHeight = mm(54);  // standard bank-card height
       var gap = mm(20);
@@ -906,7 +888,7 @@
       var loadedImages = await Promise.all([loadImage(frontSource), loadImage(backSource)]);
       var front = loadedImages[0];
       var back = loadedImages[1];
-      var dpi = 300;
+      var dpi = RENDER_DPI;
       var mm = function (value) { return Math.round(value * dpi / 25.4); };
       // Compact RC Card: front aur back ek hi clear canvas par, bina A4 whitespace.
       var pageWidth = mm(85.6);
@@ -938,7 +920,7 @@
       var loadedImages = await Promise.all([loadImage(frontSource), loadImage(backSource)]);
       var front = loadedImages[0];
       var back = loadedImages[1];
-      var dpi = 300;
+      var dpi = RENDER_DPI;
       var mm = function (value) { return Math.round(value * dpi / 25.4); };
       var pageWidth = mm(210);
       var pageHeight = mm(297);
@@ -1003,7 +985,7 @@
     }
 
     function makePdfFromCanvas(canvas, pageWidth, pageHeight) {
-      var dataUrl = canvas.toDataURL('image/jpeg', .98);
+      var dataUrl = canvas.toDataURL('image/jpeg', .94);
       var encoded = dataUrl.slice(dataUrl.indexOf(',') + 1);
       var binary = atob(encoded);
       var imageBytes = new Uint8Array(binary.length);

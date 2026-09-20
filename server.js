@@ -314,6 +314,25 @@ async function readJson(req) {
   }
 }
 
+async function readFormOrJson(req) {
+  const chunks = [];
+  let total = 0;
+  for await (const chunk of req) {
+    total += chunk.length;
+    if (total > MAX_BODY_BYTES) throw Object.assign(new Error('Request too large'), { status: 413 });
+    chunks.push(chunk);
+  }
+  const raw = Buffer.concat(chunks).toString('utf8');
+  if (!raw) return {};
+  const contentType = String(req.headers['content-type'] || '').toLowerCase();
+  if (contentType.includes('application/x-www-form-urlencoded')) return Object.fromEntries(new URLSearchParams(raw).entries());
+  try {
+    return JSON.parse(raw);
+  } catch {
+    throw Object.assign(new Error('Invalid request body'), { status: 400 });
+  }
+}
+
 async function loadDatabase() {
   await fs.mkdir(dataDir, { recursive: true });
   try {
@@ -968,6 +987,36 @@ function requireMainAdmin(req, res) {
   return user;
 }
 
+async function createTopupRequestRecord(user, amount) {
+  const fresh = syncAdminRole(findUser(user.mobile));
+  if (!fresh || !fresh.active) return { error: { status: 401, message: 'User account nahi mila.' } };
+  if (!Array.isArray(db.topupRequests)) db.topupRequests = [];
+  const pending = db.topupRequests.find((request) => request.mobile === fresh.mobile && request.status === 'PENDING');
+  if (pending) return { existing: true, request: pending };
+  const now = new Date().toISOString();
+  const request = {
+    id: crypto.randomUUID(),
+    userId: fresh.id,
+    mobile: fresh.mobile,
+    name: fresh.name || '',
+    email: fresh.email || '',
+    amountRequested: Math.round(amount),
+    amountApproved: null,
+    status: 'PENDING',
+    createdAt: now,
+    updatedAt: now,
+    whatsappSentAt: now,
+    decidedAt: '',
+    decidedBy: '',
+    rejectReason: ''
+  };
+  db.topupRequests.push(request);
+  await persistDatabase();
+  queueSheetSync('topupRequest', sheetTopupRequestPayload(request));
+  await flushSheetSync();
+  return { existing: false, request };
+}
+
 async function handleCreateTopupRequest(req, res) {
   const user = currentUser(req);
   if (!user || !user.active) return sendError(res, 401, 'Session expire ho gaya. Dobara login karo.');
@@ -976,43 +1025,41 @@ async function handleCreateTopupRequest(req, res) {
   if (!Number.isFinite(amount) || amount < 1 || amount > 100000) {
     return sendError(res, 422, 'Topup amount ₹1 se ₹100000 ke beech hona chahiye.');
   }
-
   return withMutationLock(async () => {
-    const fresh = syncAdminRole(findUser(user.mobile));
-    if (!fresh || !fresh.active) return sendError(res, 401, 'User account nahi mila.');
-    if (!Array.isArray(db.topupRequests)) db.topupRequests = [];
-    const pending = db.topupRequests.find((request) => request.mobile === fresh.mobile && request.status === 'PENDING');
-    if (pending) {
-      return sendJson(res, 200, {
-        success: true,
-        existing: true,
-        message: 'Aapki ek wallet payment request already pending hai.',
-        request: publicTopupRequest(pending)
-      });
-    }
-    const now = new Date().toISOString();
-    const request = {
-      id: crypto.randomUUID(),
-      userId: fresh.id,
-      mobile: fresh.mobile,
-      name: fresh.name || '',
-      email: fresh.email || '',
-      amountRequested: Math.round(amount),
-      amountApproved: null,
-      status: 'PENDING',
-      createdAt: now,
-      updatedAt: now,
-      whatsappSentAt: now,
-      decidedAt: '',
-      decidedBy: '',
-      rejectReason: ''
-    };
-    db.topupRequests.push(request);
-    await persistDatabase();
-    queueSheetSync('topupRequest', sheetTopupRequestPayload(request));
-    await flushSheetSync();
-    return sendJson(res, 200, { success: true, request: publicTopupRequest(request) });
+    const result = await createTopupRequestRecord(user, amount);
+    if (result.error) return sendError(res, result.error.status, result.error.message);
+    return sendJson(res, 200, {
+      success: true,
+      existing: result.existing,
+      ...(result.existing ? { message: 'Aapki ek wallet payment request already pending hai.' } : {}),
+      request: publicTopupRequest(result.request)
+    });
   });
+}
+
+// Direct form navigation is more reliable than navigating after an awaited
+// fetch: the browser receives a server redirect only after the request is
+// durably created, so one click always opens WhatsApp.
+async function handleWalletTopupWhatsapp(req, res) {
+  const user = currentUser(req);
+  if (!user || !user.active) return sendError(res, 401, 'Session expire ho gaya. Dobara login karo.');
+  const whatsapp = supportWhatsappNumber();
+  if (!whatsapp) return sendError(res, 422, 'Main Admin ne WhatsApp support number configure nahi kiya.');
+  const body = await readFormOrJson(req);
+  const amount = Number(body.amount);
+  if (!Number.isFinite(amount) || amount < 1 || amount > 100000) {
+    return sendError(res, 422, 'Topup amount ₹1 se ₹100000 ke beech hona chahiye.');
+  }
+  const result = await withMutationLock(() => createTopupRequestRecord(user, amount));
+  if (result.error) return sendError(res, result.error.status, result.error.message);
+  const request = result.request;
+  const support = supportSettingsPayload(req);
+  const qrLink = support.paymentQrUrl || (support.paymentQr ? `${String(req.headers['x-forwarded-proto'] || 'https').split(',')[0].trim()}://${req.headers.host}/api/payment-qr` : '');
+  const qrLine = qrLink ? ` Payment QR link: ${qrLink}.` : ' App me dikhaye gaye payment QR par payment karein.';
+  const message = `Hello InstantRCcard support. Payment done. RC wallet payment request ID: ${request.id}. Amount: ₹${request.amountRequested}. User mobile: +91 ${request.mobile}. Payment instructions: app me diye gaye QR par payment karke screenshot aur receipt isi chat me bhej raha/rahi hoon.${qrLine}`;
+  const whatsappUrl = `https://wa.me/91${whatsapp}?text=${encodeURIComponent(message)}`;
+  res.writeHead(303, { Location: whatsappUrl, 'Cache-Control': 'no-store', ...securityHeaders() });
+  return res.end();
 }
 
 async function handleAdminGetTopupRequests(req, res) {
@@ -1807,6 +1854,7 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { success: true, transactions: userTransactions(user.mobile, 30) });
     }
     if (req.method === 'POST' && pathname === '/api/wallet/topup-request') return await handleCreateTopupRequest(req, res);
+    if (req.method === 'POST' && pathname === '/api/wallet/topup-whatsapp') return await handleWalletTopupWhatsapp(req, res);
     if (req.method === 'POST' && pathname === '/api/rc/purchase') return await handlePurchase(req, res);
     if (req.method === 'POST' && pathname === '/api/admin/users/search') return await handleAdminSearch(req, res);
     if (req.method === 'GET' && pathname === '/api/admin/users') return await handleAdminListUsers(req, res, url.searchParams);
