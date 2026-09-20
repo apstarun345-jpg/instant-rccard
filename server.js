@@ -50,7 +50,7 @@ let db = { users: [], transactions: [], ads: [], settings: {}, rateLog: [], topu
 let mutationQueue = Promise.resolve();
 let sheetSyncQueue = Promise.resolve();
 let sheetSyncFailures = [];
-let restoreState = { status: 'not-started', users: 0, transactions: 0, rcDownloads: 0, sheetAccounts: 0, sheetTransactions: 0, completedAt: '' };
+let restoreState = { status: 'not-started', users: 0, transactions: 0, rcDownloads: 0, sheetAccounts: 0, sheetTransactions: 0, completedAt: '', error: '' };
 
 function normalizeMobile(value) {
   let digits = String(value ?? '').replace(/\D/g, '');
@@ -803,16 +803,19 @@ async function fetchProvider(vrn) {
 
 async function restoreFromSheet() {
   if (!SHEET_WEBHOOK_URL || !SHEET_SYNC_SECRET) {
-    restoreState = { ...restoreState, status: 'not-configured', users: db.users.length, transactions: db.transactions.length, rcDownloads: db.transactions.filter(isRcDownloadTransaction).length };
+    restoreState = { ...restoreState, status: 'not-configured', error: 'SHEET_WEBHOOK_URL or SHEET_SYNC_SECRET missing', users: db.users.length, transactions: db.transactions.length, rcDownloads: db.transactions.filter(isRcDownloadTransaction).length };
     return;
   }
-  restoreState = { ...restoreState, status: 'loading' };
+  restoreState = { ...restoreState, status: 'loading', error: '' };
   try {
     const snapshotUrl = new URL(SHEET_WEBHOOK_URL);
     snapshotUrl.searchParams.set('action', 'snapshot');
     snapshotUrl.searchParams.set('secret', SHEET_SYNC_SECRET);
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10_000);
+    // Apps Script can cold-start and run the one-time legacy migration before
+    // returning the snapshot. Give it enough time so a valid restore is not
+    // mistaken for an empty database during a Railway/Render restart.
+    const timeout = setTimeout(() => controller.abort(), 60_000);
     const response = await fetch(snapshotUrl, { headers: { Accept: 'application/json' }, signal: controller.signal });
     clearTimeout(timeout);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -963,12 +966,14 @@ async function restoreFromSheet() {
       rcDownloads: db.transactions.filter(isRcDownloadTransaction).length,
       sheetAccounts: accounts.length,
       sheetTransactions: transactions.length,
-      completedAt: new Date().toISOString()
+      completedAt: new Date().toISOString(),
+      error: ''
     };
     console.log(`Restored ${db.users.length} account(s), ${db.transactions.length} transaction(s), ${db.ads.length} ad(s) from Google Sheet.`);
   } catch (error) {
-    restoreState = { ...restoreState, status: 'failed', users: db.users.length, transactions: db.transactions.length, rcDownloads: db.transactions.filter(isRcDownloadTransaction).length };
-    console.warn('Google Sheet restore skipped:', error.message);
+    const restoreError = String(error && error.message || 'Unknown restore error').replace(/([?&]secret=)[^&]*/gi, '$1REDACTED').slice(0, 180);
+    restoreState = { ...restoreState, status: 'failed', error: restoreError, users: db.users.length, transactions: db.transactions.length, rcDownloads: db.transactions.filter(isRcDownloadTransaction).length };
+    console.warn('Google Sheet restore skipped:', restoreError);
   }
 }
 
@@ -1976,7 +1981,8 @@ const server = http.createServer(async (req, res) => {
           rcDownloads: db.transactions.filter(isRcDownloadTransaction).length,
           sheetAccounts: restoreState.sheetAccounts || 0,
           sheetTransactions: restoreState.sheetTransactions || 0,
-          completedAt: restoreState.completedAt || ''
+          completedAt: restoreState.completedAt || '',
+          error: restoreState.error || ''
         }
       });
     }
