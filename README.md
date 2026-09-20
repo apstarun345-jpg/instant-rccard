@@ -2,6 +2,21 @@
 
 A blue-and-white Node website for secure RC front-and-back downloads.
 
+## Same final package for Railway or Render
+
+`InstantRCcard-Railway-Render-Final.zip` is platform-neutral and can be deployed unchanged on either Railway or Render. Both platforms use the same commands:
+
+```text
+Build command: npm install
+Start command: npm start
+Health check:  GET /api/health
+Node runtime: 20+
+```
+
+The server reads the platform-provided `PORT`, binds to `0.0.0.0`, and does not require Railway- or Render-specific code. Set the same environment variables from `.env.example` on whichever platform you choose. Configure the private Google Sheet mirror with `SHEET_WEBHOOK_URL` and `SHEET_SYNC_SECRET` so users, wallets, transactions, settings and admin data survive restarts. For Render, use an always-on plan if eliminating free-tier sleep is required; Railway and Render both still need the same durable Sheet configuration.
+
+See `DEPLOY_RAILWAY_RENDER.md` inside the final ZIP for step-by-step deployment settings.
+
 > Final package note: this source was reconciled against the latest GitHub main upload available on 19 September 2026 and the newer deployed KPI, user-rate and admin build. The latest email/mobile login option, welcome flow and user-menu/logout controls are retained; the newer admin functionality is not discarded.
 
 ## Included
@@ -99,7 +114,7 @@ Rate change hone par us user ke download popup, wallet alert aur account panel m
 
 User wallet modal me pehle amount enter karta hai, phir payment QR aur exact amount dekhkar **Payment done - send to WhatsApp** choose karta hai. Server WhatsApp redirect se pehle stable `PENDING` request ID banata hai. WhatsApp text me request ID, amount, user mobile, payment instructions aur public QR link hota hai.
 
-Wallet Control me Main Admin aur sirf `recharge` permission wale Assistant Admin ko **RC wallet payment requests** queue milti hai. Approve se pehle credited amount edit kiya ja sakta hai; approval request ko ek hi baar `APPROVED` karta hai, exact edited amount ka ek `RECHARGE` transaction append karta hai aur user wallet update karta hai. Reject wallet ko credit nahi karta. Request status, wallet, user aur transaction Google Sheet mirror me persist hote hain.
+Wallet Control me Main Admin aur sirf `recharge` permission wale Assistant Admin ko **RC wallet payment requests** queue milti hai. Approve se pehle credited amount edit kiya ja sakta hai; approval request ko ek hi baar `APPROVED` karta hai, exact edited amount ka ek `RECHARGE` transaction append karta hai aur user wallet update karta hai. Reject wallet ko credit nahi karta. Request status, wallet, user aur transaction Google Sheet mirror me persist hote hain. Google Sheet display IDs compact hain: users `u1`, `u2` aur transactions `T1`, `T2`; original internal UUIDs safe restore ke liye internal columns me retained hain.
 
 ## Storage and production
 

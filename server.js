@@ -449,9 +449,59 @@ function clearAuthCookie() {
   return 'instant_rccard_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0';
 }
 
+function nextShortId(prefix, list, field) {
+  const values = (Array.isArray(list) ? list : []).map((item) => String(item?.[field] || '').toLowerCase());
+  const matcher = new RegExp(`^${prefix}\\d+$`, 'i');
+  const used = new Set(values.filter((value) => matcher.test(value)));
+  let number = 1;
+  while (used.has(`${prefix}${number}`.toLowerCase())) number += 1;
+  return `${prefix}${number}`;
+}
+
+function ensureLocalShortIds() {
+  let changed = false;
+  const usedUsers = new Set();
+  let nextUser = 1;
+  (Array.isArray(db.users) ? db.users : []).forEach((user) => {
+    let shortId = String(user.shortId || '').toLowerCase();
+    if (!/^u\d+$/.test(shortId) || usedUsers.has(shortId)) {
+      while (usedUsers.has(`u${nextUser}`)) nextUser += 1;
+      shortId = `u${nextUser}`;
+      nextUser += 1;
+      changed = true;
+    }
+    usedUsers.add(shortId);
+    if (user.shortId !== shortId) { user.shortId = shortId; changed = true; }
+  });
+  const usedTransactions = new Set();
+  let nextTransaction = 1;
+  (Array.isArray(db.transactions) ? db.transactions : []).forEach((transaction) => {
+    let shortId = String(transaction.shortId || '').toUpperCase();
+    if (!/^T\d+$/.test(shortId) || usedTransactions.has(shortId)) {
+      while (usedTransactions.has(`T${nextTransaction}`)) nextTransaction += 1;
+      shortId = `T${nextTransaction}`;
+      nextTransaction += 1;
+      changed = true;
+    }
+    usedTransactions.add(shortId);
+    if (transaction.shortId !== shortId) { transaction.shortId = shortId; changed = true; }
+  });
+  return changed;
+}
+
+function sheetTransactionPayload(transaction) {
+  return {
+    ...transaction,
+    id: transaction.shortId || transaction.id,
+    transactionId: transaction.shortId || transaction.id,
+    internalTransactionId: transaction.id
+  };
+}
+
 function appendTransaction(mobile, type, amount, balanceAfter, vrn, note, adminMobile = '') {
   db.transactions.push({
     id: crypto.randomUUID(),
+    shortId: nextShortId('T', db.transactions, 'shortId'),
     time: new Date().toISOString(),
     mobile,
     type,
@@ -470,7 +520,9 @@ function userTransactions(mobile, limit = 30) {
 
 function sheetUserPayload(user) {
   return {
-    userId: user.id,
+    userId: user.shortId || user.id,
+    shortUserId: user.shortId || '',
+    internalUserId: user.id,
     name: user.name,
     email: user.email || '',
     mobile: user.mobile,
@@ -519,9 +571,13 @@ function publicTopupRequest(request) {
 
 function sheetTopupRequestPayload(request) {
   const publicRequest = publicTopupRequest(request);
+  const shortUserId = String(request.userShortId || request.shortUserId || '').trim() || (/^u\d+$/i.test(String(request.userId || '').trim()) ? String(request.userId).trim() : '');
+  const internalUserId = String(request.internalUserId || '').trim() || (shortUserId ? '' : String(request.userId || '').trim());
   return {
     ...publicRequest,
-    userId: request.userId || '',
+    userId: shortUserId || internalUserId,
+    shortUserId,
+    internalUserId,
     amountRequested: publicRequest.amountRequested,
     amountApproved: publicRequest.amountApproved == null ? '' : publicRequest.amountApproved
   };
@@ -750,7 +806,9 @@ async function restoreFromSheet() {
         return !sheetIds.has(id) && !sheetMobiles.has(normalizeMobile(user.mobile));
       });
       db.users = accounts.map((account) => {
-        const accountKey = String(account.userId || account.id || account.mobile || '');
+        const shortAccountId = String(account.userId || account.shortUserId || '').trim().toLowerCase();
+        const internalAccountId = String(account.internalUserId || account.legacyUserId || '').trim();
+        const accountKey = internalAccountId || shortAccountId || String(account.id || account.mobile || '');
         const mobile = normalizeMobile(account.mobile);
         const localUser = localUsersByKey.get(accountKey) || db.users.find((user) => user.mobile === mobile);
         const customPrice = Number(account.rcCardPrice);
@@ -784,6 +842,7 @@ async function restoreFromSheet() {
           : account.rcRateUpdatedBy || (preservedLocalRate != null && localUser ? localUser.rcRateUpdatedBy || '' : '');
         return {
           id: accountKey || `sheet-${account.mobile}`,
+          shortId: /^u\d+$/.test(shortAccountId) ? shortAccountId : '',
           name: String(account.name || ''),
           email: normalizeEmail(account.email),
           mobile,
@@ -812,9 +871,14 @@ async function restoreFromSheet() {
       });
     }
     if (transactions.length || !db.transactions.length) {
+      const durableTransactions = transactions.map((transaction) => ({
+        ...transaction,
+        id: String(transaction.internalTransactionId || transaction.internalId || transaction.id || crypto.randomUUID()),
+        shortId: String(transaction.shortId || transaction.transactionId || transaction.id || '').match(/^T\d+$/i)?.[0]?.toUpperCase() || ''
+      }));
       const localTransactions = db.transactions.slice();
-      const durableIds = new Set(transactions.map((transaction) => String(transaction.id || '')).filter(Boolean));
-      db.transactions = transactions.concat(localTransactions.filter((transaction) => !durableIds.has(String(transaction.id || ''))));
+      const durableIds = new Set(durableTransactions.map((transaction) => String(transaction.id || '')).filter(Boolean));
+      db.transactions = durableTransactions.concat(localTransactions.filter((transaction) => !durableIds.has(String(transaction.id || ''))));
     }
     if (topupRequests.length || !db.topupRequests.length) {
       const localRequests = db.topupRequests.slice();
@@ -854,7 +918,7 @@ async function handleSignup(req, res) {
     const salt = crypto.randomBytes(16).toString('hex');
     if (findUserByEmail(email)) return sendError(res, 409, 'Is email ka account pehle se bana hua hai.');
     const isOwner = Boolean(ADMIN_MOBILE && mobile === ADMIN_MOBILE);
-    const user = { id: crypto.randomUUID(), name, email, mobile, salt, passwordHash: passwordHash(password, salt), wallet: 0, rcCardPrice: null, role: isOwner ? 'admin' : 'user', adminPermissions: isOwner ? { ...FULL_ADMIN_PERMISSIONS } : {}, createdAt: new Date().toISOString(), lastLogin: new Date().toISOString(), active: true };
+    const user = { id: crypto.randomUUID(), shortId: nextShortId('u', db.users, 'shortId'), name, email, mobile, salt, passwordHash: passwordHash(password, salt), wallet: 0, rcCardPrice: null, role: isOwner ? 'admin' : 'user', adminPermissions: isOwner ? { ...FULL_ADMIN_PERMISSIONS } : {}, createdAt: new Date().toISOString(), lastLogin: new Date().toISOString(), active: true };
     db.users.push(user);
     await persistDatabase();
     queueSheetSync('user', sheetUserPayload(user));
@@ -960,7 +1024,7 @@ async function handlePurchase(req, res) {
     appendTransaction(fresh.mobile, 'RC_PURCHASE', -price, fresh.wallet, vrn, downloadLabel);
     await persistDatabase();
     queueSheetSync('user', sheetUserPayload(fresh));
-    queueSheetSync('transaction', db.transactions[db.transactions.length - 1]);
+    queueSheetSync('transaction', sheetTransactionPayload(db.transactions[db.transactions.length - 1]));
     await flushSheetSync();
     return sendJson(res, 200, { success: true, data: { vrn, front: provider.images.front, back: provider.images.back, downloadType }, wallet: fresh.wallet, charged: price, requiredPrice: price });
   });
@@ -997,6 +1061,7 @@ async function createTopupRequestRecord(user, amount) {
   const request = {
     id: crypto.randomUUID(),
     userId: fresh.id,
+    userShortId: fresh.shortId || '',
     mobile: fresh.mobile,
     name: fresh.name || '',
     email: fresh.email || '',
@@ -1116,7 +1181,7 @@ async function handleAdminResolveTopupRequest(req, res, requestId) {
     await persistDatabase();
     queueSheetSync('topupRequest', sheetTopupRequestPayload(request));
     queueSheetSync('user', sheetUserPayload(user));
-    queueSheetSync('transaction', db.transactions[db.transactions.length - 1]);
+    queueSheetSync('transaction', sheetTransactionPayload(db.transactions[db.transactions.length - 1]));
     await flushSheetSync();
     return sendJson(res, 200, { success: true, request: publicTopupRequest(request), user: publicUser(user), message: `₹${Math.round(amount)} wallet me add ho gaye.` });
   });
@@ -1327,7 +1392,7 @@ async function handleAdminRecharge(req, res) {
     appendTransaction(mobile, 'RECHARGE', amount, user.wallet, '', String(body.note || 'Manual admin recharge').slice(0, 120), admin.mobile);
     await persistDatabase();
     queueSheetSync('user', sheetUserPayload(user));
-    queueSheetSync('transaction', db.transactions[db.transactions.length - 1]);
+    queueSheetSync('transaction', sheetTransactionPayload(db.transactions[db.transactions.length - 1]));
     await flushSheetSync();
     return sendJson(res, 200, { success: true, message: 'Wallet recharge successful.', user: publicUser(user) });
   });
@@ -1896,6 +1961,12 @@ const server = http.createServer(async (req, res) => {
 
 await loadDatabase();
 await restoreFromSheet();
+if (ensureLocalShortIds()) {
+  await persistDatabase();
+  if (SHEET_WEBHOOK_URL && SHEET_SYNC_SECRET) {
+    db.users.forEach((user) => queueSheetSync('user', sheetUserPayload(user)));
+  }
+}
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`InstantRCcard running on http://0.0.0.0:${PORT}`);
   console.log(`RC provider: ${RC_API_URL}`);
