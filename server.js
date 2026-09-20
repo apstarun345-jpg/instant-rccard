@@ -28,6 +28,7 @@ const MAX_AD_BYTES = 40_000;
 const MAX_PAYMENT_QR_BYTES = 1_500_000;
 const UPSTREAM_TIMEOUT_MS = 20_000;
 const SHEET_SYNC_TIMEOUT_MS = 60_000;
+const BUILD_VERSION = 'wallet-direct-v6';
 const RC_CACHE_TTL_MS = 10 * 60 * 1000;
 const RC_CACHE_MAX_ENTRIES = 24;
 const providerCache = new Map();
@@ -2035,6 +2036,7 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, {
         success: true,
         service: 'InstantRCcard',
+        build: BUILD_VERSION,
         providerConfigured: Boolean(RC_API_TOKEN),
         adminConfigured: Boolean(ADMIN_MOBILE),
         sheetSyncConfigured,

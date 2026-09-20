@@ -336,20 +336,37 @@
       }
       var button = $('#topup-whatsapp-button');
       setButtonLoading(button, true, 'WhatsApp open ho raha hai…');
-      // A real form navigation lets the server create and mirror the request,
-      // then return a 303 directly to wa.me. This avoids Chrome's async popup
-      // handling and makes the first click sufficient.
+
+      // Submit the durable request in a hidden iframe, while navigating the
+      // visible page directly to the admin-configured WhatsApp number. This
+      // prevents a slow Google Sheet response from trapping the user on
+      // "Please wait"; the server persists the request and retries Sheet sync
+      // through its pending outbox independently.
+      var frameName = 'topup-submit-' + Date.now();
+      var frame = document.createElement('iframe');
+      frame.name = frameName;
+      frame.hidden = true;
+      frame.setAttribute('aria-hidden', 'true');
+      document.body.appendChild(frame);
       var form = document.createElement('form');
       form.method = 'POST';
       form.action = '/api/wallet/topup-whatsapp';
-      form.target = '_self';
+      form.target = frameName;
+      form.style.display = 'none';
       var field = document.createElement('input');
       field.type = 'hidden';
       field.name = 'amount';
       field.value = String(Math.round(amount));
       form.appendChild(field);
       document.body.appendChild(form);
-      window.setTimeout(function () { form.submit(); }, 30);
+      form.submit();
+
+      var clientReference = 'PAY-' + Date.now().toString(36).toUpperCase();
+      var message = 'Hello InstantRCcard support. Payment done. Amount: ₹' + Math.round(amount) + '. User mobile: +91 ' + (state.user && state.user.mobile ? state.user.mobile : '') + '. App payment reference: ' + clientReference + '. Payment screenshot aur receipt isi chat me bhej raha/rahi hoon.';
+      var whatsappUrl = 'https://wa.me/91' + state.supportWhatsapp + '?text=' + encodeURIComponent(message);
+      window.setTimeout(function () {
+        window.location.assign(whatsappUrl);
+      }, 1200);
     }
 
     function setAuthMode(mode) {
