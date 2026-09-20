@@ -668,6 +668,38 @@ async function flushSheetSync() {
   }
 }
 
+function trackTopupSheetSync(request, operation) {
+  return operation
+    .then(() => {
+      // Do not wait on the mutation lock here: the caller may itself be
+      // holding that lock while awaiting the Sheet response.
+      void withMutationLock(async () => {
+        const current = Array.isArray(db.topupRequests) ? db.topupRequests.find((item) => String(item.id) === String(request.id)) : null;
+        if (current) {
+          current.sheetSyncPending = false;
+          await persistDatabase();
+        }
+      });
+      return { ok: true };
+    })
+    .catch((error) => {
+      const index = sheetSyncFailures.indexOf(error);
+      if (index >= 0) sheetSyncFailures.splice(index, 1);
+      console.warn('Topup Sheet sync pending retry:', error.message);
+      return { ok: false, error };
+    });
+}
+
+async function waitForTopupSheetSync(trackedOperation, timeoutMs) {
+  let timer;
+  const timeout = new Promise((resolve) => {
+    timer = setTimeout(() => resolve({ ok: false, timedOut: true }), timeoutMs);
+  });
+  const result = await Promise.race([trackedOperation, timeout]);
+  clearTimeout(timer);
+  return result;
+}
+
 async function syncToSheet(action, payload) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), SHEET_SYNC_TIMEOUT_MS);
@@ -1126,17 +1158,23 @@ function requireMainAdmin(req, res) {
   return user;
 }
 
-async function createTopupRequestRecord(user, amount) {
+async function createTopupRequestRecord(user, amount, options = {}) {
   const fresh = syncAdminRole(findUser(user.mobile));
   if (!fresh || !fresh.active) return { error: { status: 401, message: 'User account nahi mila.' } };
   if (!Array.isArray(db.topupRequests)) db.topupRequests = [];
   const pending = db.topupRequests.find((request) => request.mobile === fresh.mobile && request.status === 'PENDING');
   if (pending) {
     // A previous redirect attempt may have persisted locally before a slow
-    // Sheet sync failed. Re-sync that same durable request before reusing it;
-    // never create a second pending request for the same user.
-    queueSheetSync('topupRequest', sheetTopupRequestPayload(pending));
-    await flushSheetSync();
+    // Sheet sync failed. Re-sync that same durable request; never create a
+    // second pending request for the same user.
+    const operation = queueSheetSync('topupRequest', sheetTopupRequestPayload(pending));
+    const tracked = trackTopupSheetSync(pending, operation);
+    if (options.waitForSheet === false) {
+      await waitForTopupSheetSync(tracked, 8_000);
+      return { existing: true, request: pending };
+    }
+    const result = await tracked;
+    if (!result.ok) throw result.error;
     return { existing: true, request: pending };
   }
   const now = new Date().toISOString();
@@ -1150,6 +1188,7 @@ async function createTopupRequestRecord(user, amount) {
     amountRequested: Math.round(amount),
     amountApproved: null,
     status: 'PENDING',
+    sheetSyncPending: true,
     createdAt: now,
     updatedAt: now,
     whatsappSentAt: now,
@@ -1159,9 +1198,29 @@ async function createTopupRequestRecord(user, amount) {
   };
   db.topupRequests.push(request);
   await persistDatabase();
-  queueSheetSync('topupRequest', sheetTopupRequestPayload(request));
-  await flushSheetSync();
+  const operation = queueSheetSync('topupRequest', sheetTopupRequestPayload(request));
+  const tracked = trackTopupSheetSync(request, operation);
+  if (options.waitForSheet === false) {
+    // Give the fast path a short opportunity to complete normally. If the
+    // provider is slow, local durable storage plus the pending outbox keeps
+    // the request recoverable while WhatsApp still opens on the first click.
+    await waitForTopupSheetSync(tracked, 8_000);
+    return { existing: false, request };
+  }
+  const result = await tracked;
+  if (!result.ok) throw result.error;
   return { existing: false, request };
+}
+
+function retryPendingTopupSheetSyncs() {
+  if (!SHEET_WEBHOOK_URL || !SHEET_SYNC_SECRET || !Array.isArray(db.topupRequests)) return;
+  db.topupRequests
+    .filter((request) => String(request.status || 'PENDING').toUpperCase() === 'PENDING')
+    .forEach((request) => {
+      request.sheetSyncPending = true;
+      const operation = queueSheetSync('topupRequest', sheetTopupRequestPayload(request));
+      void trackTopupSheetSync(request, operation);
+    });
 }
 
 async function handleCreateTopupRequest(req, res) {
@@ -1197,7 +1256,7 @@ async function handleWalletTopupWhatsapp(req, res) {
   if (!Number.isFinite(amount) || amount < 1 || amount > 100000) {
     return sendError(res, 422, 'Topup amount ₹1 se ₹100000 ke beech hona chahiye.');
   }
-  const result = await withMutationLock(() => createTopupRequestRecord(user, amount));
+  const result = await withMutationLock(() => createTopupRequestRecord(user, amount, { waitForSheet: false }));
   if (result.error) return sendError(res, result.error.status, result.error.message);
   const request = result.request;
   const support = supportSettingsPayload(req);
@@ -2059,6 +2118,7 @@ if (ensureLocalShortIds()) {
     db.users.forEach((user) => queueSheetSync('user', sheetUserPayload(user)));
   }
 }
+retryPendingTopupSheetSyncs();
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`InstantRCcard running on http://0.0.0.0:${PORT}`);
   console.log(`RC provider: ${RC_API_URL}`);
