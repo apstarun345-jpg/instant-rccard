@@ -1632,7 +1632,58 @@
         if (file.size > 1_500_000) return reject(new Error('Payment QR image 1.5 MB se chhoti rakho.'));
         var reader = new FileReader();
         reader.onerror = function () { reject(new Error('Payment QR read nahi ho paaya.')); };
-        reader.onload = function () { resolve(String(reader.result || '')); };
+        reader.onload = function () {
+          var image = new Image();
+          image.onerror = function () { reject(new Error('Payment QR image valid nahi hai.')); };
+          image.onload = function () {
+            // Google Sheet cells have a character limit. Keep the QR data URL
+            // below that limit while preserving a crisp, scannable image.
+            var maxChars = 46_000;
+            var sourceWidth = image.naturalWidth || image.width || 600;
+            var sourceHeight = image.naturalHeight || image.height || 600;
+            var scale = Math.min(1, 900 / Math.max(sourceWidth, sourceHeight));
+            var width = Math.max(280, Math.round(sourceWidth * scale));
+            var height = Math.max(280, Math.round(sourceHeight * scale));
+            var canvas = document.createElement('canvas');
+            var context;
+            var output;
+
+            function drawPng() {
+              canvas.width = width;
+              canvas.height = height;
+              context = canvas.getContext('2d');
+              context.imageSmoothingEnabled = false;
+              context.fillStyle = '#ffffff';
+              context.fillRect(0, 0, width, height);
+              context.drawImage(image, 0, 0, width, height);
+              return canvas.toDataURL('image/png');
+            }
+
+            output = drawPng();
+            while (output.length > maxChars && width > 280) {
+              width = Math.max(280, Math.round(width * 0.84));
+              height = Math.max(280, Math.round(height * 0.84));
+              output = drawPng();
+            }
+
+            // A PNG is preferred for QR readability. If a photographic/colour
+            // QR is still large, use a high-quality JPEG as a final fallback.
+            if (output.length > maxChars) {
+              var quality = 0.92;
+              output = canvas.toDataURL('image/jpeg', quality);
+              while (output.length > maxChars && quality > 0.5) {
+                quality -= 0.08;
+                output = canvas.toDataURL('image/jpeg', quality);
+              }
+            }
+            if (output.length > maxChars) {
+              reject(new Error('Payment QR image bahut large hai. Chhoti ya simple QR image upload karo.'));
+              return;
+            }
+            resolve(output);
+          };
+          image.src = reader.result;
+        };
         reader.readAsDataURL(file);
       });
     }
