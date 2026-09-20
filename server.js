@@ -27,6 +27,7 @@ const MAX_BODY_BYTES = 5_000_000;
 const MAX_AD_BYTES = 40_000;
 const MAX_PAYMENT_QR_BYTES = 1_500_000;
 const UPSTREAM_TIMEOUT_MS = 20_000;
+const SHEET_SYNC_TIMEOUT_MS = 15_000;
 const RC_CACHE_TTL_MS = 10 * 60 * 1000;
 const RC_CACHE_MAX_ENTRIES = 24;
 const providerCache = new Map();
@@ -48,6 +49,7 @@ const MIME_TYPES = {
 let db = { users: [], transactions: [], ads: [], settings: {}, rateLog: [] };
 let mutationQueue = Promise.resolve();
 let sheetSyncQueue = Promise.resolve();
+let sheetSyncFailures = [];
 
 function normalizeMobile(value) {
   let digits = String(value ?? '').replace(/\D/g, '');
@@ -478,22 +480,51 @@ function sheetAdPayload(ad) {
 }
 
 function queueSheetSync(action, payload) {
-  if (!SHEET_WEBHOOK_URL || !SHEET_SYNC_SECRET) return;
-  sheetSyncQueue = sheetSyncQueue
-    .then(() => syncToSheet(action, payload))
-    .catch((error) => console.warn('Google Sheet sync failed:', error.message));
+  if (!SHEET_WEBHOOK_URL || !SHEET_SYNC_SECRET) return Promise.resolve();
+  const operation = sheetSyncQueue.then(async () => {
+    try {
+      return await syncToSheet(action, payload);
+    } catch (error) {
+      sheetSyncFailures.push(error);
+      throw error;
+    }
+  });
+  // Keep the global queue usable for later writes while returning the original
+  // rejecting operation to callers that need to fail safely.
+  sheetSyncQueue = operation.catch((error) => {
+    console.warn('Google Sheet sync failed:', error.message);
+    return null;
+  });
+  return operation;
+}
+
+// Critical mutations await this before responding so a Render process restart
+// cannot acknowledge a rate, wallet, account, or setting change before the
+// durable Google Sheet mirror has received it.
+async function flushSheetSync() {
+  await sheetSyncQueue;
+  if (sheetSyncFailures.length) {
+    const errors = sheetSyncFailures.splice(0);
+    throw new Error(errors.map((error) => error.message).join('; '));
+  }
 }
 
 async function syncToSheet(action, payload) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 5000);
+  const timeout = setTimeout(() => controller.abort(), SHEET_SYNC_TIMEOUT_MS);
   try {
-    await fetch(SHEET_WEBHOOK_URL, {
+    const response = await fetch(SHEET_WEBHOOK_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({ secret: SHEET_SYNC_SECRET, action, payload }),
       signal: controller.signal
     });
+    const raw = await response.text();
+    if (!response.ok) throw new Error(`Google Sheet sync HTTP ${response.status}`);
+    let result;
+    try { result = JSON.parse(raw); } catch { throw new Error('Google Sheet sync returned an invalid response'); }
+    if (result?.success === false) throw new Error(result.message || 'Google Sheet sync rejected the update');
+    return result;
   } finally {
     clearTimeout(timeout);
   }
@@ -628,50 +659,116 @@ async function restoreFromSheet() {
     const accounts = Array.isArray(snapshot.accounts) ? snapshot.accounts : [];
     const transactions = Array.isArray(snapshot.transactions) ? snapshot.transactions : [];
     const ads = Array.isArray(snapshot.ads) ? snapshot.ads : [];
+    const sheetRateLog = Array.isArray(snapshot.rateLog) ? snapshot.rateLog.slice(-300) : [];
+    const localRateLog = Array.isArray(db.rateLog) ? db.rateLog : [];
+    const rateLogById = new Map();
+    [...localRateLog, ...sheetRateLog].forEach((entry) => {
+      const fallbackId = `${entry.mobile || ''}|${entry.time || ''}|${entry.from ?? ''}|${entry.to ?? ''}`;
+      const id = String(entry.id || fallbackId);
+      const previous = rateLogById.get(id);
+      if (!previous || String(entry.time || '') >= String(previous.time || '')) rateLogById.set(id, entry);
+    });
+    const durableRateLog = Array.from(rateLogById.values())
+      .sort((a, b) => String(a.time || '').localeCompare(String(b.time || '')))
+      .slice(-300);
+    const latestDurableRateByMobile = new Map();
+    durableRateLog.forEach((entry) => {
+      const mobile = normalizeMobile(entry.mobile);
+      if (!validMobile(mobile)) return;
+      const rawTo = entry.to;
+      const numericTo = rawTo === null || rawTo === '' || rawTo === undefined ? null : Number(rawTo);
+      if (numericTo !== null && (!Number.isFinite(numericTo) || numericTo < 1)) return;
+      const previous = latestDurableRateByMobile.get(mobile);
+      const time = String(entry.time || '');
+      if (!previous || time >= previous.time) {
+        latestDurableRateByMobile.set(mobile, {
+          time,
+          to: numericTo == null ? null : Math.round(numericTo),
+          adminMobile: String(entry.adminMobile || '')
+        });
+      }
+    });
 
     // Google Sheet is the durable source when it contains account records.
     // Keep a local database if the sheet is empty/unavailable during first setup.
     if (accounts.length || !db.users.length) {
-      const localUsersByKey = new Map(db.users.map((user) => [String(user.id || user.mobile), user]));
+      const localUsers = db.users.slice();
+      const localUsersByKey = new Map(localUsers.map((user) => [String(user.id || user.mobile), user]));
+      const sheetMobiles = new Set(accounts.map((account) => normalizeMobile(account.mobile)).filter(Boolean));
+      const sheetIds = new Set(accounts.map((account) => String(account.userId || account.id || '')).filter(Boolean));
+      const localOnlyUsers = localUsers.filter((user) => {
+        const id = String(user.id || user.mobile || '');
+        return !sheetIds.has(id) && !sheetMobiles.has(normalizeMobile(user.mobile));
+      });
       db.users = accounts.map((account) => {
         const accountKey = String(account.userId || account.id || account.mobile || '');
-        const localUser = localUsersByKey.get(accountKey) || db.users.find((user) => user.mobile === normalizeMobile(account.mobile));
+        const mobile = normalizeMobile(account.mobile);
+        const localUser = localUsersByKey.get(accountKey) || db.users.find((user) => user.mobile === mobile);
         const customPrice = Number(account.rcCardPrice);
         const hasSheetRate = Number.isFinite(customPrice) && customPrice >= 1;
-        const rateUpdatedAt = account.rcRateUpdatedAt || '';
-        // An older Sheet row may not have the custom-rate columns yet. Do not
-        // erase a valid local custom rate during an unrelated restore/update.
-        // A non-empty rcRateUpdatedAt with a blank rate means the custom rate
-        // was intentionally cleared, so default should win in that case.
-        const preservedLocalRate = !hasSheetRate && !rateUpdatedAt && localUser ? customRcCardPrice(localUser) : null;
-        const effectiveRate = hasSheetRate ? Math.round(customPrice) : preservedLocalRate;
+        const rateUpdatedAt = String(account.rcRateUpdatedAt || '');
+        const durableRateLog = latestDurableRateByMobile.get(mobile);
+        const logIsNewer = Boolean(durableRateLog && (!rateUpdatedAt || durableRateLog.time >= rateUpdatedAt));
+        // The rate log is the recovery ledger for accounts created before the
+        // custom-rate columns existed or rows whose rate field was accidentally blank.
+        // A latest log entry with null `to` is an intentional clear action.
+        const loggedRate = logIsNewer && durableRateLog && durableRateLog.to != null ? durableRateLog.to : null;
+        const loggedClear = logIsNewer && durableRateLog && durableRateLog.to == null;
+        const localRate = localUser ? customRcCardPrice(localUser) : null;
+        const localRateUpdatedAt = String(localUser?.rcRateUpdatedAt || '');
+        const localRateIsNewer = localRate != null && (!rateUpdatedAt || localRateUpdatedAt >= rateUpdatedAt);
+        const preservedLocalRate = !hasSheetRate && !loggedRate && !loggedClear && localRateIsNewer
+          ? localRate
+          : null;
+        const effectiveRate = loggedRate != null
+          ? loggedRate
+          : loggedClear
+            ? null
+            : hasSheetRate
+              ? Math.round(customPrice)
+              : preservedLocalRate;
+        const effectiveRateUpdatedAt = logIsNewer && durableRateLog
+          ? durableRateLog.time
+          : rateUpdatedAt || (preservedLocalRate != null && localUser ? localUser.rcRateUpdatedAt || '' : '');
+        const effectiveRateUpdatedBy = logIsNewer && durableRateLog
+          ? durableRateLog.adminMobile
+          : account.rcRateUpdatedBy || (preservedLocalRate != null && localUser ? localUser.rcRateUpdatedBy || '' : '');
         return {
           id: accountKey || `sheet-${account.mobile}`,
           name: String(account.name || ''),
           email: normalizeEmail(account.email),
-          mobile: normalizeMobile(account.mobile),
+          mobile,
           salt: String(account.salt || ''),
           passwordHash: String(account.passwordHash || ''),
           wallet: Number(account.wallet || 0),
           rcCardPrice: effectiveRate,
-          rcRateUpdatedAt: rateUpdatedAt || (preservedLocalRate != null && localUser ? localUser.rcRateUpdatedAt || '' : ''),
-          rcRateUpdatedBy: account.rcRateUpdatedBy || (preservedLocalRate != null && localUser ? localUser.rcRateUpdatedBy || '' : ''),
+          rcRateUpdatedAt: effectiveRateUpdatedAt,
+          rcRateUpdatedBy: effectiveRateUpdatedBy,
           role: account.role === 'admin' ? 'admin' : 'user',
-          adminPermissions: account.role === 'admin' ? normalizedAdminPermissions(account.adminPermissions, account.adminPermissions == null) : {}, 
+          adminPermissions: account.role === 'admin' ? normalizedAdminPermissions(account.adminPermissions, account.adminPermissions == null) : {},
           createdAt: account.createdAt || new Date().toISOString(),
           lastLogin: account.lastLogin || account.createdAt || new Date().toISOString(),
           active: account.active !== false && String(account.active).toLowerCase() !== 'false'
         };
       });
+      // Never discard a local account that the Sheet has not seen yet. User
+      // deletion is not supported, so merging this safe local-only set avoids
+      // losing a just-created account during a partial first restore.
+      db.users.push(...localOnlyUsers);
+      localOnlyUsers.forEach((user) => queueSheetSync('user', sheetUserPayload(user)));
       // Repair an old/missing Sheet rate column asynchronously once the local
-      // custom value has been preserved, so future restarts remain durable.
+      // custom value or rate-ledger value has been recovered.
       db.users.forEach((user) => {
         if (customRcCardPrice(user) != null) queueSheetSync('user', sheetUserPayload(user));
       });
     }
-    if (transactions.length || !db.transactions.length) db.transactions = transactions;
+    if (transactions.length || !db.transactions.length) {
+      const localTransactions = db.transactions.slice();
+      const durableIds = new Set(transactions.map((transaction) => String(transaction.id || '')).filter(Boolean));
+      db.transactions = transactions.concat(localTransactions.filter((transaction) => !durableIds.has(String(transaction.id || ''))));
+    }
     if (snapshot.settings && typeof snapshot.settings === 'object') db.settings = { ...db.settings, ...snapshot.settings };
-    if (Array.isArray(snapshot.rateLog)) db.rateLog = snapshot.rateLog.slice(-300);
+    if (durableRateLog.length || !db.rateLog.length) db.rateLog = durableRateLog;
     if (ads.length || !db.ads.length) db.ads = ads.map((ad) => ({
       id: String(ad.id || crypto.randomUUID()),
       title: String(ad.title || ''),
@@ -707,6 +804,7 @@ async function handleSignup(req, res) {
     db.users.push(user);
     await persistDatabase();
     queueSheetSync('user', sheetUserPayload(user));
+    await flushSheetSync();
     return sendJson(res, 200, { success: true, user: publicUser(user) }, { 'Set-Cookie': authCookie(user.id) });
   });
 }
@@ -769,6 +867,7 @@ async function handleForgotPassword(req, res) {
     user.lastLogin = new Date().toISOString();
     await persistDatabase();
     queueSheetSync('user', sheetUserPayload(user));
+    await flushSheetSync();
     return sendJson(res, 200, { success: true, message: 'Password reset successful. Ab naye password se login karo.' });
   });
 }
@@ -808,6 +907,7 @@ async function handlePurchase(req, res) {
     await persistDatabase();
     queueSheetSync('user', sheetUserPayload(fresh));
     queueSheetSync('transaction', db.transactions[db.transactions.length - 1]);
+    await flushSheetSync();
     return sendJson(res, 200, { success: true, data: { vrn, front: provider.images.front, back: provider.images.back, downloadType }, wallet: fresh.wallet, charged: price, requiredPrice: price });
   });
 }
@@ -867,6 +967,7 @@ async function handleAdminSetUserRate(req, res) {
     if (!result.ok) return sendError(res, result.status, result.message);
 
     await persistDatabase();
+    await flushSheetSync();
     return sendJson(res, 200, {
       success: true,
       message: result.to == null
@@ -937,6 +1038,7 @@ async function handleAdminBulkSetRate(req, res) {
       if (result.ok) updated += 1;
     }
     await persistDatabase();
+    await flushSheetSync();
     return sendJson(res, 200, {
       success: true,
       updated,
@@ -986,6 +1088,7 @@ async function handleAdminUpdateAccess(req, res) {
     user.adminAccessUpdatedBy = admin.mobile;
     await persistDatabase();
     queueSheetSync('user', sheetUserPayload(user));
+    await flushSheetSync();
     return sendJson(res, 200, {
       success: true,
       message: makeAdmin ? `${user.name} ko selected admin access de diya gaya.` : `${user.name} ka admin access hata diya gaya.`,
@@ -1010,6 +1113,7 @@ async function handleAdminSetUserStatus(req, res) {
     user.active = active;
     await persistDatabase();
     queueSheetSync('user', sheetUserPayload(user));
+    await flushSheetSync();
     return sendJson(res, 200, {
       success: true,
       user: publicAdminUser(user),
@@ -1035,6 +1139,7 @@ async function handleAdminRecharge(req, res) {
     await persistDatabase();
     queueSheetSync('user', sheetUserPayload(user));
     queueSheetSync('transaction', db.transactions[db.transactions.length - 1]);
+    await flushSheetSync();
     return sendJson(res, 200, { success: true, message: 'Wallet recharge successful.', user: publicUser(user) });
   });
 }
@@ -1091,7 +1196,8 @@ function settingsNumber(key) {
   const raw = db.settings ? db.settings[key] : undefined;
   if (raw === undefined || raw === null || raw === '') return DEFAULT_SETTINGS[key] || 0;
   const value = Number(raw);
-  return Number.isFinite(value) && value >= 0 ? value : (DEFAULT_SETTINGS[key] || 0);
+  const minimum = key === 'rcCardPrice' ? 1 : 0;
+  return Number.isFinite(value) && value >= minimum ? value : (DEFAULT_SETTINGS[key] || 0);
 }
 
 async function handlePublicStats(req, res) {
@@ -1284,6 +1390,7 @@ async function handleAdminUpdateRating(req, res) {
   db.settings.rating = rating;
   await persistDatabase();
   queueSheetSync('settings', { rating });
+  await flushSheetSync();
   return sendJson(res, 200, { success: true, rating });
 }
 
@@ -1304,6 +1411,7 @@ async function handleAdminUpdateBaseline(req, res) {
   db.settings.downloadsBaseline = downloadsBaseline;
   await persistDatabase();
   queueSheetSync('settings', { usersBaseline, downloadsBaseline });
+  await flushSheetSync();
   return sendJson(res, 200, { success: true, usersBaseline, downloadsBaseline });
 }
 
@@ -1319,6 +1427,7 @@ async function handleAdminUpdateRcPrice(req, res) {
   db.settings.rcCardPrice = Math.round(price);
   await persistDatabase();
   queueSheetSync('settings', { rcCardPrice: db.settings.rcCardPrice });
+  await flushSheetSync();
   return sendJson(res, 200, {
     success: true,
     rcCardPrice: db.settings.rcCardPrice,
@@ -1344,6 +1453,7 @@ async function handleAdminUpdateSupport(req, res) {
   db.settings.paymentQr = nextQr;
   await persistDatabase();
   queueSheetSync('settings', { supportWhatsapp: whatsapp, paymentQr: nextQr });
+  await flushSheetSync();
   return sendJson(res, 200, { success: true, support: supportSettingsPayload(req) });
 }
 
@@ -1365,6 +1475,7 @@ async function handleAdminAddAd(req, res) {
   db.ads.push(ad);
   await persistDatabase();
   queueSheetSync('ad', sheetAdPayload(ad));
+  await flushSheetSync();
   return sendJson(res, 200, { success: true, ad: publicAd(ad) });
 }
 
@@ -1376,6 +1487,7 @@ async function handleAdminDeleteAd(req, res, adId) {
   if (db.ads.length === before) return sendError(res, 404, 'Advertisement nahi mila.');
   await persistDatabase();
   queueSheetSync('adDelete', { id: String(adId) });
+  await flushSheetSync();
   return sendJson(res, 200, { success: true, message: 'Advertisement remove ho gaya.' });
 }
 
@@ -1388,6 +1500,7 @@ async function handleAdminToggleAd(req, res, adId) {
   ad.updatedAt = new Date().toISOString();
   await persistDatabase();
   queueSheetSync('ad', sheetAdPayload(ad));
+  await flushSheetSync();
   return sendJson(res, 200, { success: true, ad: publicAd(ad) });
 }
 
@@ -1420,7 +1533,15 @@ const server = http.createServer(async (req, res) => {
     const pathname = url.pathname;
     if (req.method === 'GET' && pathname === '/api/health') {
       const sheetSyncConfigured = Boolean(SHEET_WEBHOOK_URL && SHEET_SYNC_SECRET);
-      return sendJson(res, 200, { success: true, service: 'InstantRCcard', providerConfigured: Boolean(RC_API_TOKEN), adminConfigured: Boolean(ADMIN_MOBILE), sheetSyncConfigured, storage: sheetSyncConfigured ? 'json+google-sheet' : 'json' });
+      return sendJson(res, 200, {
+        success: true,
+        service: 'InstantRCcard',
+        providerConfigured: Boolean(RC_API_TOKEN),
+        adminConfigured: Boolean(ADMIN_MOBILE),
+        sheetSyncConfigured,
+        storage: sheetSyncConfigured ? 'json+google-sheet' : 'json',
+        durableStore: sheetSyncConfigured ? 'google-sheet-mirror' : 'local-json-only'
+      });
     }
     if (req.method === 'GET' && pathname === '/api/auth/session') {
       const user = currentUser(req);
