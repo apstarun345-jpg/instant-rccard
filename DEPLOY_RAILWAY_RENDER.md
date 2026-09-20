@@ -26,7 +26,7 @@ APP_TIME_ZONE=Asia/Kolkata
 SUPPORT_WHATSAPP=your-support-mobile
 ```
 
-`SHEET_WEBHOOK_URL` and `SHEET_SYNC_SECRET` are required for durable production storage. The local JSON file is only a fallback/cache and must not be the only source of truth.
+`SHEET_WEBHOOK_URL` and `SHEET_SYNC_SECRET` are required for durable production storage. The local JSON file is only a fallback/cache and must not be the only source of truth. The updated Apps Script performs a one-time-safe recovery migration from older `Users` and `Transactions` sheets into `Web_Accounts`, `Web_Users` and `Web_Transactions`, so do not create duplicate accounts while recovering.
 
 ## Railway
 
@@ -49,9 +49,16 @@ SUPPORT_WHATSAPP=your-support-mobile
 6. Add `/api/health` as the health-check path if the dashboard exposes that setting.
 7. For a no-sleep production service, choose an always-on paid Render instance. Render Free can sleep after inactivity; application code cannot remove that platform-level sleep.
 
-## Google Sheet mirror
+## Recovery order for existing users and history
 
-Deploy the matching `apps-script/Code.gs` as the private Apps Script Web App, run `setupInstantRCcard` once, and update the existing Web App deployment to the new version. The mirror uses compact display IDs (`u1`, `u2`, `T1`, `T2`) and preserves internal UUIDs in separate columns.
+1. **Do not create more accounts yet.** First make a copy/backup of the current Google Sheet. Do not delete the old `Users` or `Transactions` tabs.
+2. Deploy the matching `apps-script/Code.gs` as the private Apps Script Web App, run `setupInstantRCcard` once, and update the existing Web App deployment to the new version using the same `/exec` URL.
+3. The migration imports old `Users` and `Transactions` rows into `Web_Accounts`, `Web_Users` and `Web_Transactions`, preserving wallets, password hashes, user roles and RC transaction history. It is safe to run more than once.
+4. Deploy the Node package to Railway or Render with the same `SHEET_WEBHOOK_URL`, `SHEET_SYNC_SECRET`, `SESSION_SECRET`, `ADMIN_MOBILE` and provider token.
+5. Restart the Node service. It waits for the Sheet snapshot before listening, so old users and transactions are loaded before anyone can create another account.
+6. Test one old user by mobile/name/password, then check the Admin KPI users and RC-download details before allowing new signups.
+
+The mirror uses compact display IDs (`u1`, `u2`, `T1`, `T2`) and preserves internal UUIDs in separate columns.
 
 ## Security
 

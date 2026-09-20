@@ -435,10 +435,32 @@ function passwordHash(password, salt) {
   return crypto.scryptSync(String(password), String(salt), 64).toString('hex');
 }
 
+function safeEqualText(left, right) {
+  const actual = Buffer.from(String(left || ''));
+  const expected = Buffer.from(String(right || ''));
+  return actual.length === expected.length && actual.length > 0 && crypto.timingSafeEqual(actual, expected);
+}
+
+function scryptPasswordMatches(password, user) {
+  const stored = String(user?.passwordHash || '');
+  const salt = String(user?.salt || '');
+  if (!/^[0-9a-f]{128}$/i.test(stored) || !salt) return false;
+  return safeEqualText(passwordHash(password, salt), stored.toLowerCase());
+}
+
+// The original Apps Script used SHA-256(salt + '|' + password) in base64.
+// Keep this verifier so legacy Users rows remain login-compatible, then upgrade
+// the account to the current scrypt format after a successful login.
+function legacyPasswordMatches(password, user) {
+  const stored = String(user?.passwordHash || '');
+  const salt = String(user?.salt || '');
+  if (!stored || !salt) return false;
+  const legacy = crypto.createHash('sha256').update(`${salt}|${String(password)}`, 'utf8').digest('base64');
+  return safeEqualText(legacy, stored);
+}
+
 function passwordMatches(password, user) {
-  const actual = Buffer.from(passwordHash(password, user.salt), 'hex');
-  const expected = Buffer.from(user.passwordHash, 'hex');
-  return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
+  return scryptPasswordMatches(password, user) || legacyPasswordMatches(password, user);
 }
 
 function makeSessionCookie(userId) {
@@ -875,12 +897,12 @@ async function restoreFromSheet() {
         return {
           id: accountKey || `sheet-${account.mobile}`,
           shortId: /^u\d+$/.test(shortAccountId) ? shortAccountId : '',
-          username: String(account.username || account.name || ''),
-          name: String(account.name || ''),
-          email: normalizeEmail(account.email),
+          username: String(account.username || account.name || localUser?.username || localUser?.name || ''),
+          name: String(account.name || localUser?.name || ''),
+          email: normalizeEmail(account.email || localUser?.email || ''),
           mobile,
-          salt: String(account.salt || ''),
-          passwordHash: String(account.passwordHash || ''),
+          salt: String(account.salt || localUser?.salt || ''),
+          passwordHash: String(account.passwordHash || localUser?.passwordHash || ''),
           wallet: Number(account.wallet || 0),
           rcCardPrice: effectiveRate,
           rcRateUpdatedAt: effectiveRateUpdatedAt,
@@ -967,7 +989,7 @@ async function handleLogin(req, res) {
   const legacyMobile = normalizeMobile(body.mobile);
   const password = String(body.password || '');
   if (!password || (!identifier && !validEmail(legacyEmail) && !validMobile(legacyMobile))) {
-    return sendError(res, 422, 'Email ya 10-digit mobile number, aur password enter karo.');
+    return sendError(res, 422, 'Username, email ya 10-digit mobile number, aur password enter karo.');
   }
 
   let user = null;
@@ -981,8 +1003,14 @@ async function handleLogin(req, res) {
   }
 
   user = syncAdminRole(user);
+  const legacyPassword = Boolean(user && !scryptPasswordMatches(password, user) && legacyPasswordMatches(password, user));
   if (!user || !user.active || !passwordMatches(password, user)) {
-    return sendError(res, 401, 'Email/mobile number ya password galat hai.');
+    return sendError(res, 401, 'Username/email/mobile number ya password galat hai.');
+  }
+  if (legacyPassword) {
+    const salt = crypto.randomBytes(16).toString('hex');
+    user.salt = salt;
+    user.passwordHash = passwordHash(password, salt);
   }
   user.lastLogin = new Date().toISOString();
   await persistDatabase();
