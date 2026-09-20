@@ -1131,7 +1131,14 @@ async function createTopupRequestRecord(user, amount) {
   if (!fresh || !fresh.active) return { error: { status: 401, message: 'User account nahi mila.' } };
   if (!Array.isArray(db.topupRequests)) db.topupRequests = [];
   const pending = db.topupRequests.find((request) => request.mobile === fresh.mobile && request.status === 'PENDING');
-  if (pending) return { existing: true, request: pending };
+  if (pending) {
+    // A previous redirect attempt may have persisted locally before a slow
+    // Sheet sync failed. Re-sync that same durable request before reusing it;
+    // never create a second pending request for the same user.
+    queueSheetSync('topupRequest', sheetTopupRequestPayload(pending));
+    await flushSheetSync();
+    return { existing: true, request: pending };
+  }
   const now = new Date().toISOString();
   const request = {
     id: crypto.randomUUID(),
