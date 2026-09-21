@@ -1,10 +1,10 @@
-# InstantRCcard — direct Node website
+# InstantRCcard — v9 single-primary Node website
 
 A blue-and-white Node website for secure RC front-and-back downloads.
 
 ## Same final package for Railway or Render
 
-`InstantRCcard-Railway-Render-Final.zip` is platform-neutral and can be deployed unchanged on either Railway or Render. Both platforms use the same commands:
+`InstantRCcard-Railway-Render-Final.zip` is platform-neutral. Recommended production mode keeps Railway as the single live writer and lets Render serve the same frontend while proxying every `/api/*` request to Railway. Both platforms use the same commands:
 
 ```text
 Build command: npm install
@@ -13,11 +13,11 @@ Health check:  GET /api/health
 Node runtime: 20+
 ```
 
-The server reads the platform-provided `PORT`, binds to `0.0.0.0`, and does not require Railway- or Render-specific code. Set the same environment variables from `.env.example` on whichever platform you choose. Configure the private Google Sheet mirror with `SHEET_WEBHOOK_URL` and `SHEET_SYNC_SECRET` so users, wallets, transactions, settings and admin data survive restarts. For Render, use an always-on plan if eliminating free-tier sleep is required; Railway and Render both still need the same durable Sheet configuration.
+The server reads the platform-provided `PORT`, binds to `0.0.0.0`, supports fast SQLite runtime storage, and does not expose provider/Sheet secrets to the browser. The free setup needs no paid database or volume: Railway uses local SQLite during runtime and Google Sheet provides restart recovery/mirror. Render should set `PRIMARY_API_URL` to Railway and `PROXY_TO_PRIMARY=true`, so there is no second live JSON/SQLite writer and every KPI/category uses the same Railway data. Free platform services may sleep; an always-on plan is optional for faster cold starts.
 
 See `DEPLOY_RAILWAY_RENDER.md` inside the final ZIP for step-by-step deployment settings.
 
-> Final package note: this source was reconciled against the latest GitHub main upload available on 19 September 2026 and the newer deployed KPI, user-rate and admin build. The latest email/mobile login option, welcome flow and user-menu/logout controls are retained; the newer admin functionality is not discarded.
+> Final package note: v9 retains the existing login, wallet, admin, notification and RC UI while adding a transactional SQLite primary store, Render-to-Railway same-origin API proxy, non-blocking Sheet reconciliation and bounded RC provider circuit protection.
 
 ## Included
 
@@ -31,7 +31,7 @@ See `DEPLOY_RAILWAY_RENDER.md` inside the final ZIP for step-by-step deployment 
 - `RC Card`: ₹15, selected from the Download RC options and downloaded as a clear PDF in the attached A4/reference layout with front and back faces side by side
 - Charge is deducted only after both front and back RC images are available
 - RC purchase uses server-side retry/cache plus a browser/server idempotency key, so a slow response or safe retry does not double-charge the wallet
-- Google Sheet sync is kept in a background retry outbox after the local durable mutation, so a slow Sheet cannot turn a completed RC charge into a false error response
+- SQLite commit happens before the response; Google Sheet sync/reconciliation runs asynchronously with retry, so a slow Sheet cannot turn a completed mutation into a false error response
 - Provider image normalization for base64, data-URL, URL, PNG, JPG and WEBP responses
 - `Fetching RC Card` loading popup while the provider image is being fetched
 - Horizontal public offer/festival advertisement ticker
@@ -50,8 +50,8 @@ See `DEPLOY_RAILWAY_RENDER.md` inside the final ZIP for step-by-step deployment 
 - In-app notification history, unread state and toast alerts for users and permitted admins, plus background Web Push for every separately subscribed Android/laptop device when VAPID keys are configured
 - Service worker update notice so a new deploy is never stuck behind an old cached page
 - Server-side RC provider token
-- JSON storage as a local fallback/cache
-- Optional Google Sheet mirror for accounts, wallet/RC transactions and ads
+- SQLite primary state store with automatic one-time migration from the v8 JSON file
+- Optional Google Sheet mirror/backup for accounts, wallet/RC transactions, settings, ads, rates, notifications and push subscriptions
 
 ## Run locally
 
@@ -127,17 +127,39 @@ Wallet Control me Main Admin aur sirf `recharge` permission wale Assistant Admin
 
 ## Notifications
 
-Background delivery is opt-in per installed app/device. Generate a VAPID pair with `npx web-push generate-vapid-keys`, configure `WEB_PUSH_VAPID_PUBLIC_KEY`, `WEB_PUSH_VAPID_PRIVATE_KEY` and `WEB_PUSH_SUBJECT` on Railway/Render, then have each phone/laptop account open the account menu and choose **Enable notifications**. The server stores notification history in the durable local/Sheet-backed state and sends Web Push to every saved subscription for that recipient. Admin delivery is filtered by the same `kpi`, `recharge` and `transactions` permission scopes used by the admin UI. In-app polling/toasts still work without VAPID keys while the app is open; background OS delivery is not active until keys are configured and the device subscription is accepted.
+Background delivery is opt-in per installed app/device. Generate a VAPID pair with `npx web-push generate-vapid-keys`, configure `WEB_PUSH_VAPID_PUBLIC_KEY`, `WEB_PUSH_VAPID_PRIVATE_KEY` and `WEB_PUSH_SUBJECT` on Railway/Render, then have each phone/laptop account open the account menu and choose **Enable notifications**. The server stores notification history in the durable SQLite/Sheet-backed state and sends Web Push to every saved subscription for that recipient. Admin delivery is filtered by the same `kpi`, `recharge` and `transactions` permission scopes used by the admin UI. In-app polling/toasts still work without VAPID keys while the app is open; background OS delivery is not active until keys are configured and the device subscription is accepted.
 
-If both Render and Railway are kept live, they are still separate Node instances. Set the same `CROSS_DEPLOY_SYNC_SECRET` on both and set `CROSS_DEPLOY_PRIMARY_URL` only on Render to the Railway URL. Render top-up requests are then forwarded to Railway's request list and permitted recharge-admin notifications; use one deployment for approval to avoid duplicate processing. Each PWA origin needs its own notification permission/subscription.
+If both Render and Railway are kept live, use Render as a same-origin proxy instead of maintaining two independent data writers. Set `PRIMARY_API_URL` and `PROXY_TO_PRIMARY=true` on Render. Browser API requests, sessions, top-ups, admin approvals, KPI reads and notifications then reach Railway. The older `CROSS_DEPLOY_*` one-way replication variables are retained only for legacy deployments and should be left blank in proxy mode. Each browser origin still has its own push permission; use one canonical app URL or enable notifications on each origin/device that users actually open.
 
 ## Storage and production
 
-For production, treat the private Google Sheet mirror as the durable source of truth. The Render filesystem and `data/instant-rccard.json` are only a local cache/fallback and must not be the only store on an ephemeral host. Deploy the current `apps-script/Code.gs`, run `setupInstantRCcard` once, and configure the same `SHEET_WEBHOOK_URL` and `SHEET_SYNC_SECRET` in the Node service. The Node server restores accounts, password hashes, wallets, transactions, ads, support/QR settings, global pricing, delegated admin permissions, the rate audit ledger and wallet payment requests from the Sheet snapshot at startup. The Apps Script snapshot safely imports older `Users` and `Transactions` rows into the Web mirror before restore, so creating a new account cannot replace the old account/history set. Wallet requests use stable IDs and a PENDING/APPROVED/REJECTED state; approval is locked, credits exactly once, appends one RECHARGE transaction, and mirrors the request, user and transaction before returning success. Critical writes wait for the Sheet mirror before returning success, so an immediate process replacement cannot acknowledge a change before it is durably recorded. The rate ledger also recovers custom rates if an older account row has a blank rate column.
+The free v9 storage policy is:
 
-After deployment, `GET /api/health` must report `sheetSyncConfigured: true`, `storage: "json+google-sheet"` and `durableStore: "google-sheet-mirror"`. Never upload or package `data/instant-rccard.json`. Keep `SESSION_SECRET` fixed in Render so an existing session cookie remains valid across restarts.
+```text
+Railway local SQLite      = fast live runtime store
+Google Sheet              = durable restart recovery/mirror
+Render                    = static frontend + API proxy to Railway
+```
 
-Set `ADMIN_MOBILE` before creating the admin account. The account created with that mobile number receives the owner admin role and cannot be changed through delegated access management. Set `APP_TIME_ZONE=Asia/Kolkata` (or another IANA zone) for Today/current month/last month KPI boundaries. If the provider token has been shared publicly, rotate it before production use.
+No separate database or Railway volume is required in `FREE_MODE=true`. SQLite stores the complete application state during the running service: accounts, users, wallets, transactions, top-up requests, settings, ads, rates, notifications and push subscriptions. The server enables WAL/full synchronous commits and automatically migrates an existing `data/instant-rccard.json` once when it first creates the SQLite file. Google Sheet must be configured because the local free-plan filesystem may be cleared on restart/redeploy. Keep `SESSION_SECRET` fixed across restarts.
+
+For the stronger paid/volume upgrade, mount a persistent Railway volume, keep SQLite at one running instance, and set `DATA_DIR=/data` and `SQLITE_FILE=/data/instant-rccard.db`. For higher scale, multiple Railway replicas or multiple independent writers, migrate the primary store to shared PostgreSQL rather than re-enabling two separate JSON/SQLite writers. Free mode gives fast responses but cannot guarantee zero data loss during a sudden platform kill before the asynchronous Sheet mirror completes; blocking Sheet sync can reduce that window but makes writes slower.
+
+The Google Sheet mirror is non-blocking by default (`SHEET_SYNC_BLOCKING=false`). A local database commit returns first; the server then sends all entity categories to Apps Script, retries pending RC/top-up records, and runs a startup reconciliation. Apps Script writes idempotent rows in `Web_Accounts`, `Web_Users`, `Web_Transactions`, `Web_TopupRequests`, `Web_Settings`, `Web_Ads`, `Web_RateLog`, `Web_Notifications` and `Web_PushSubscriptions`. Deploy the current `apps-script/Code.gs` and run `setupInstantRCcard` once.
+
+After deploying the free setup, `GET /api/health` should report:
+
+```text
+build: wallet-direct-v9-single-primary-sqlite
+freeMode: true
+storage: sqlite+google-sheet
+durableStore: google-sheet-recovery
+sheetSyncConfigured: true
+storageReady: true
+```
+
+On Render in proxy mode, `/api/health` is forwarded to Railway and therefore reports Railway's primary status. Never upload or package `data/instant-rccard.json`, `.db`, `.sqlite` or any `.env` file. The final ZIP includes source and dependencies metadata only; platform build installs `better-sqlite3` from `package-lock.json`.
+
 
 ### Render cold starts
 

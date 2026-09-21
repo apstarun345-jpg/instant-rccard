@@ -8,9 +8,12 @@
   "description": "Fast, smooth RC image downloader with a secure server-side API proxy.",
   "type": "module",
   "scripts": {
-    "start": "node --env-file-if-exists=.env server.js"
+    "start": "node --env-file-if-exists=.env server.js",
+    "check": "node --check server.js && node --check storage.js && node --check public/app.js && node --check public/sw.js",
+    "test": "npm run check"
   },
   "dependencies": {
+    "better-sqlite3": "^11.10.0",
     "web-push": "^3.6.7"
   }
 }
