@@ -4,18 +4,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import crypto from 'node:crypto';
 import webpush from 'web-push';
-import { createStateStore } from './storage.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(__dirname, 'public');
-const configuredDataDir = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(__dirname, 'data');
-const configuredDbFile = String(process.env.DB_FILE || '').trim();
-const storageBackend = String(process.env.DB_BACKEND || 'sqlite').trim().toLowerCase() === 'json' ? 'json' : 'sqlite';
-const legacyJsonFile = process.env.LEGACY_DB_FILE
-  || (configuredDbFile && /\.json$/i.test(configuredDbFile) ? configuredDbFile : path.join(configuredDataDir, 'instant-rccard.json'));
-const sqliteFile = process.env.SQLITE_FILE
-  || (configuredDbFile && /\.(?:db|sqlite|sqlite3)$/i.test(configuredDbFile) ? configuredDbFile : path.join(configuredDataDir, 'instant-rccard.db'));
-const dbFile = storageBackend === 'json' ? (configuredDbFile || legacyJsonFile) : sqliteFile;
+const dataDir = path.join(__dirname, 'data');
+const dbFile = process.env.DB_FILE || path.join(dataDir, 'instant-rccard.json');
 const PORT = Number(process.env.PORT || 4173);
 const RC_API_URL = process.env.RC_API_URL || 'https://api.apnirc.xyz/api/b2b/get-rc';
 const RC_API_TOKEN = process.env.RC_API_TOKEN || '';
@@ -23,14 +16,6 @@ const ADMIN_MOBILE = normalizeMobile(process.env.ADMIN_MOBILE || '');
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
 const SHEET_WEBHOOK_URL = process.env.SHEET_WEBHOOK_URL || '';
 const SHEET_SYNC_SECRET = process.env.SHEET_SYNC_SECRET || '';
-const FREE_MODE = /^(1|true|yes)$/i.test(String(process.env.FREE_MODE || 'false'));
-const SHEET_SYNC_BLOCKING = /^(1|true|yes)$/i.test(String(process.env.SHEET_SYNC_BLOCKING || 'false'));
-const PRIMARY_API_URL = String(process.env.PRIMARY_API_URL || '').trim().replace(/\/+$/, '');
-const PROXY_TO_PRIMARY = /^(1|true|yes)$/i.test(String(process.env.PROXY_TO_PRIMARY || 'false'));
-const PROXY_TIMEOUT_MS = 35_000;
-const stateStore = createStateStore({ backend: storageBackend, sqliteFile, jsonFile: legacyJsonFile });
-let storageInfo = stateStore.describe();
-let storageLoadInfo = { source: 'not-loaded', existed: false };
 const RC_PRICES = Object.freeze({
   mparivahan: 10,
   'rc-card': 15
@@ -42,14 +27,10 @@ const STATS_TIME_ZONE = process.env.APP_TIME_ZONE || 'Asia/Kolkata';
 const MAX_BODY_BYTES = 5_000_000;
 const MAX_AD_BYTES = 40_000;
 const MAX_PAYMENT_QR_BYTES = 1_500_000;
-const UPSTREAM_TIMEOUT_MS = 9_000;
-const PROVIDER_TOTAL_TIMEOUT_MS = 27_000;
-const IMAGE_DOWNLOAD_TIMEOUT_MS = 8_000;
+const UPSTREAM_TIMEOUT_MS = 12_000;
 const PROVIDER_RETRY_COUNT = 2;
-const PROVIDER_CIRCUIT_FAILURE_THRESHOLD = 4;
-const PROVIDER_CIRCUIT_COOLDOWN_MS = 30_000;
 const SHEET_SYNC_TIMEOUT_MS = 60_000;
-const BUILD_VERSION = 'wallet-direct-v9-single-primary-sqlite';
+const BUILD_VERSION = 'wallet-direct-v8-cross-sync-fast';
 const WEB_PUSH_VAPID_PUBLIC_KEY = process.env.WEB_PUSH_VAPID_PUBLIC_KEY || '';
 const WEB_PUSH_VAPID_PRIVATE_KEY = process.env.WEB_PUSH_VAPID_PRIVATE_KEY || '';
 const WEB_PUSH_SUBJECT = process.env.WEB_PUSH_SUBJECT || 'mailto:admin@example.com';
@@ -70,7 +51,6 @@ const RC_CACHE_TTL_MS = 30 * 60 * 1000;
 const RC_CACHE_MAX_ENTRIES = 64;
 const providerCache = new Map();
 const providerInflight = new Map();
-const providerHealth = { consecutiveFailures: 0, circuitOpenUntil: 0, lastSuccessAt: '', lastFailureAt: '', lastFailureMessage: '' };
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -89,9 +69,7 @@ let db = { users: [], transactions: [], ads: [], settings: {}, rateLog: [], topu
 let mutationQueue = Promise.resolve();
 let sheetSyncQueue = Promise.resolve();
 let sheetSyncFailures = [];
-let restoreState = { status: 'not-started', users: 0, transactions: 0, rcDownloads: 0, sheetAccounts: 0, sheetTransactions: 0, completedAt: '', error: '', source: '' };
-let sheetReconciliationState = { status: 'not-started', queuedAt: '', completedAt: '', error: '', operations: 0 };
-
+let restoreState = { status: 'not-started', users: 0, transactions: 0, rcDownloads: 0, sheetAccounts: 0, sheetTransactions: 0, completedAt: '', error: '' };
 const MAX_STORED_NOTIFICATIONS = 3000;
 
 function normalizeMobile(value) {
@@ -341,87 +319,6 @@ function sendError(res, status, message, code) {
   return sendJson(res, status, { success: false, message, ...(code ? { code } : {}) });
 }
 
-async function readRequestBuffer(req) {
-  const chunks = [];
-  let total = 0;
-  for await (const chunk of req) {
-    total += chunk.length;
-    if (total > MAX_BODY_BYTES) throw Object.assign(new Error('Request too large'), { status: 413 });
-    chunks.push(chunk);
-  }
-  return Buffer.concat(chunks);
-}
-
-function proxyRequestHeaders(req) {
-  const headers = {};
-  const blocked = new Set(['host', 'content-length', 'content-encoding', 'connection', 'keep-alive', 'transfer-encoding', 'upgrade', 'accept-encoding']);
-  Object.entries(req.headers || {}).forEach(([key, value]) => {
-    if (blocked.has(key.toLowerCase()) || value == null) return;
-    headers[key] = Array.isArray(value) ? value.join(', ') : String(value);
-  });
-  const forwardedFor = String(req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '').trim();
-  if (forwardedFor) headers['x-forwarded-for'] = forwardedFor;
-  headers['x-forwarded-host'] = String(req.headers.host || '');
-  headers['x-forwarded-proto'] = String(req.headers['x-forwarded-proto'] || (req.socket?.encrypted ? 'https' : 'http')).split(',')[0].trim();
-  return headers;
-}
-
-async function proxyApiRequest(req, res, url) {
-  if (!PRIMARY_API_URL) return sendError(res, 503, 'Primary Railway API configured nahi hai.', 'PRIMARY_API_NOT_CONFIGURED');
-  let target;
-  try {
-    target = new URL(`${url.pathname}${url.search}`, `${PRIMARY_API_URL}/`);
-  } catch {
-    return sendError(res, 500, 'Primary API URL invalid hai.', 'PRIMARY_API_URL_INVALID');
-  }
-  const method = String(req.method || 'GET').toUpperCase();
-  const hasBody = !['GET', 'HEAD'].includes(method);
-  const body = hasBody ? await readRequestBuffer(req) : undefined;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), PROXY_TIMEOUT_MS);
-  try {
-    const upstream = await fetch(target, {
-      method,
-      headers: proxyRequestHeaders(req),
-      body: hasBody && body?.length ? body : undefined,
-      redirect: 'manual',
-      signal: controller.signal
-    });
-    let responseBody = method === 'HEAD' ? Buffer.alloc(0) : Buffer.from(await upstream.arrayBuffer());
-    const headers = {};
-    if (url.pathname === '/api/health' && String(upstream.headers.get('content-type') || '').includes('application/json')) {
-      try {
-        const health = JSON.parse(responseBody.toString('utf8'));
-        health.proxyToPrimary = true;
-        health.primaryApiConfigured = true;
-        health.proxyOrigin = 'render';
-        responseBody = Buffer.from(JSON.stringify(health));
-      } catch {
-        // Preserve the upstream health payload if a future version changes its format.
-      }
-    }
-    upstream.headers.forEach((value, key) => {
-      if (key.toLowerCase() === 'set-cookie') return;
-      if (['content-length', 'content-encoding', 'transfer-encoding', 'connection'].includes(key.toLowerCase())) return;
-      headers[key] = value;
-    });
-    const setCookies = typeof upstream.headers.getSetCookie === 'function'
-      ? upstream.headers.getSetCookie()
-      : (upstream.headers.get('set-cookie') ? [upstream.headers.get('set-cookie')] : []);
-    if (setCookies.length) headers['set-cookie'] = setCookies;
-    headers['Content-Length'] = String(responseBody.length);
-    res.writeHead(upstream.status, headers);
-    return res.end(responseBody);
-  } catch (error) {
-    const message = error?.name === 'AbortError'
-      ? 'Primary Railway API timeout ho gaya. Dobara try karein.'
-      : 'Primary Railway API abhi available nahi hai.';
-    return sendError(res, 502, message, 'PRIMARY_API_UNAVAILABLE');
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
 async function readJson(req) {
   const chunks = [];
   let total = 0;
@@ -458,10 +355,10 @@ async function readFormOrJson(req) {
 }
 
 async function loadDatabase() {
-  const loaded = stateStore.load();
-  storageLoadInfo = { source: loaded.source || 'empty', existed: Boolean(loaded.existed) };
-  if (loaded.state && typeof loaded.state === 'object') {
-    const parsed = loaded.state;
+  await fs.mkdir(dataDir, { recursive: true });
+  try {
+    const raw = await fs.readFile(dbFile, 'utf8');
+    const parsed = JSON.parse(raw);
     db = {
       users: Array.isArray(parsed.users) ? parsed.users : [],
       transactions: Array.isArray(parsed.transactions) ? parsed.transactions : [],
@@ -472,16 +369,18 @@ async function loadDatabase() {
       notifications: Array.isArray(parsed.notifications) ? parsed.notifications : [],
       pushSubscriptions: Array.isArray(parsed.pushSubscriptions) ? parsed.pushSubscriptions : []
     };
-  } else {
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
     db = { users: [], transactions: [], ads: [], settings: {}, rateLog: [], topupRequests: [], notifications: [], pushSubscriptions: [] };
     await persistDatabase();
   }
-  storageInfo = stateStore.describe();
 }
 
 async function persistDatabase() {
-  stateStore.save(db);
-  storageInfo = stateStore.describe();
+  await fs.mkdir(path.dirname(dbFile), { recursive: true });
+  const temp = `${dbFile}.tmp`;
+  await fs.writeFile(temp, JSON.stringify(db, null, 2), 'utf8');
+  await fs.rename(temp, dbFile);
 }
 
 function withMutationLock(work) {
@@ -860,27 +759,18 @@ function queueSheetSync(action, payload) {
     console.warn('Google Sheet sync failed:', error.message);
     return null;
   });
-  // Mark the returned promise as handled as well. Callers that need the
-  // rejection can still attach their own catch; fire-and-forget mirror writes
-  // must never become unhandled-rejection crashes.
-  operation.catch(() => {});
   return operation;
 }
 
-// SQLite is the durable live store, so Sheet mirroring is asynchronous by
-// default. Set SHEET_SYNC_BLOCKING=true only for a temporary migration/debug
-// run where the HTTP response should wait for Apps Script.
+// Critical mutations await this before responding so a Render process restart
+// cannot acknowledge a rate, wallet, account, or setting change before the
+// durable Google Sheet mirror has received it.
 async function flushSheetSync() {
-  if (!SHEET_SYNC_BLOCKING) {
-    void sheetSyncQueue.catch((error) => console.warn('Google Sheet sync pending:', error.message));
-    return true;
-  }
   await sheetSyncQueue;
   if (sheetSyncFailures.length) {
     const errors = sheetSyncFailures.splice(0);
     throw new Error(errors.map((error) => error.message).join('; '));
   }
-  return true;
 }
 
 function trackTopupSheetSync(request, operation) {
@@ -1016,40 +906,13 @@ function providerImages(payload) {
   return null;
 }
 
-function providerCircuitIsOpen() {
-  if (!providerHealth.circuitOpenUntil) return false;
-  if (providerHealth.circuitOpenUntil <= Date.now()) {
-    providerHealth.circuitOpenUntil = 0;
-    providerHealth.consecutiveFailures = 0;
-    return false;
-  }
-  return true;
-}
-
-function markProviderSuccess() {
-  providerHealth.consecutiveFailures = 0;
-  providerHealth.circuitOpenUntil = 0;
-  providerHealth.lastSuccessAt = new Date().toISOString();
-  providerHealth.lastFailureMessage = '';
-}
-
-function markProviderFailure(result) {
-  if (!result?.transient) return;
-  providerHealth.consecutiveFailures += 1;
-  providerHealth.lastFailureAt = new Date().toISOString();
-  providerHealth.lastFailureMessage = String(result.message || 'Provider failure').slice(0, 180);
-  if (providerHealth.consecutiveFailures >= PROVIDER_CIRCUIT_FAILURE_THRESHOLD) {
-    providerHealth.circuitOpenUntil = Date.now() + PROVIDER_CIRCUIT_COOLDOWN_MS;
-  }
-}
-
-async function normalizeProviderImage(value, timeoutMs = IMAGE_DOWNLOAD_TIMEOUT_MS) {
+async function normalizeProviderImage(value) {
   const source = String(value || '').trim();
   if (!source) return '';
   if (/^data:image\//i.test(source)) return source;
   if (/^https?:\/\//i.test(source)) {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), Math.max(500, timeoutMs));
+    const timeout = setTimeout(() => controller.abort(), 15_000);
     try {
       const response = await fetch(source, { headers: { Accept: 'image/*', Authorization: RC_API_TOKEN }, signal: controller.signal });
       if (!response.ok) return '';
@@ -1070,13 +933,10 @@ async function normalizeProviderImage(value, timeoutMs = IMAGE_DOWNLOAD_TIMEOUT_
 
 async function fetchProviderFromApi(vrn) {
   if (!RC_API_TOKEN) return { success: false, message: 'RC_API_TOKEN server environment me configured nahi hai.' };
-  const deadline = Date.now() + PROVIDER_TOTAL_TIMEOUT_MS;
-  let lastFailure = { success: false, transient: true, message: 'RC provider se response nahi mila.' };
+  let lastFailure = { success: false, message: 'RC provider se response nahi mila.' };
   for (let attempt = 1; attempt <= PROVIDER_RETRY_COUNT; attempt += 1) {
-    const remaining = deadline - Date.now();
-    if (remaining < 500) break;
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), Math.min(UPSTREAM_TIMEOUT_MS, remaining));
+    const timeout = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
     try {
       const response = await fetch(RC_API_URL, {
         method: 'POST',
@@ -1087,7 +947,7 @@ async function fetchProviderFromApi(vrn) {
       const raw = await response.text();
       let payload;
       try { payload = JSON.parse(raw); } catch {
-        lastFailure = { success: false, transient: true, message: 'RC provider ne invalid response diya.' };
+        lastFailure = { success: false, message: 'RC provider ne invalid response diya.' };
         if (attempt === PROVIDER_RETRY_COUNT) return lastFailure;
         continue;
       }
@@ -1095,39 +955,34 @@ async function fetchProviderFromApi(vrn) {
       const retryableStatus = response.status === 408 || response.status === 425 || response.status === 429 || response.status >= 500;
       const retryableMessage = /timeout|temporar|try again|busy|unavailable|server|connection/i.test(String(providerMessage));
       if (!response.ok) {
-        lastFailure = { success: false, transient: retryableStatus, message: providerMessage };
+        lastFailure = { success: false, message: providerMessage };
         if (!retryableStatus || attempt === PROVIDER_RETRY_COUNT) return lastFailure;
         continue;
       }
       if (payload?.success === false) {
-        lastFailure = { success: false, transient: retryableMessage, message: providerMessage };
+        lastFailure = { success: false, message: providerMessage };
         if (!retryableMessage || attempt === PROVIDER_RETRY_COUNT) return lastFailure;
         continue;
       }
       const images = providerImages(payload);
       if (!images) {
-        lastFailure = { success: false, transient: true, message: 'Front aur back RC image available nahi hai.' };
+        lastFailure = { success: false, message: 'Front aur back RC image available nahi hai.' };
         if (attempt === PROVIDER_RETRY_COUNT) return lastFailure;
         continue;
       }
-      const imageRemaining = Math.max(500, deadline - Date.now());
       // Front aur back ko parallel normalize karne se provider URL responses faster complete hote hain.
       const [front, back] = await Promise.all([
-        normalizeProviderImage(images.front, Math.min(IMAGE_DOWNLOAD_TIMEOUT_MS, imageRemaining)),
-        normalizeProviderImage(images.back, Math.min(IMAGE_DOWNLOAD_TIMEOUT_MS, imageRemaining))
+        normalizeProviderImage(images.front),
+        normalizeProviderImage(images.back)
       ]);
       if (front && back) return { success: true, images: { front, back } };
-      lastFailure = { success: false, transient: true, message: 'Front aur back RC image download nahi ho paayi.' };
+      lastFailure = { success: false, message: 'Front aur back RC image download nahi ho paayi.' };
     } catch (error) {
-      lastFailure = {
-        success: false,
-        transient: true,
-        message: error.name === 'AbortError' ? 'RC provider timeout ho gaya. Thodi der baad dobara try karein.' : 'RC provider se connection nahi ho paaya.'
-      };
+      lastFailure = { success: false, message: error.name === 'AbortError' ? 'RC provider timeout ho gaya. Thodi der baad dobara try karein.' : 'RC provider se connection nahi ho paaya.' };
     } finally {
       clearTimeout(timeout);
     }
-    if (attempt < PROVIDER_RETRY_COUNT && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 250 * attempt));
+    if (attempt < PROVIDER_RETRY_COUNT) await new Promise((resolve) => setTimeout(resolve, 300 * attempt));
   }
   return lastFailure;
 }
@@ -1154,21 +1009,12 @@ function rememberProviderImages(vrn, images) {
 async function fetchProvider(vrn) {
   const cached = cachedProviderImages(vrn);
   if (cached) return { success: true, images: cached, cached: true };
-  if (providerCircuitIsOpen()) {
-    const seconds = Math.max(1, Math.ceil((providerHealth.circuitOpenUntil - Date.now()) / 1000));
-    return { success: false, transient: true, code: 'PROVIDER_COOLDOWN', message: `RC provider temporarily busy hai. ${seconds} second baad try karein.` };
-  }
   const existing = providerInflight.get(vrn);
   if (existing) return existing;
 
   const pending = fetchProviderFromApi(vrn)
     .then((result) => {
-      if (result.success && result.images) {
-        rememberProviderImages(vrn, result.images);
-        markProviderSuccess();
-      } else {
-        markProviderFailure(result);
-      }
+      if (result.success && result.images) rememberProviderImages(vrn, result.images);
       return result;
     })
     .finally(() => providerInflight.delete(vrn));
@@ -1177,28 +1023,11 @@ async function fetchProvider(vrn) {
 }
 
 async function restoreFromSheet() {
-  const hasLocalPrimaryState = Boolean(
-    db.users.length || db.transactions.length || db.topupRequests.length || db.ads.length
-      || db.notifications.length || Object.keys(db.settings || {}).length
-  );
-  if (PROXY_TO_PRIMARY) {
-    restoreState = { ...restoreState, status: 'proxy-secondary', source: 'railway-primary', error: '', users: db.users.length, transactions: db.transactions.length, rcDownloads: db.transactions.filter(isRcDownloadTransaction).length };
-    return;
-  }
-  // SQLite is the live primary store. Do not overwrite newer local wallet or
-  // transaction data with an older Sheet snapshot on every restart. Sheet
-  // restore is used for first boot, disaster recovery, and the one-time v8
-  // JSON-to-SQLite migration; normal operation reconciles local data outward.
-  const firstSqliteMigration = storageBackend === 'sqlite' && storageLoadInfo.source === 'legacy-json-migrated';
-  if (storageBackend === 'sqlite' && hasLocalPrimaryState && !firstSqliteMigration) {
-    restoreState = { ...restoreState, status: 'skipped-local-primary', source: 'sqlite', error: '', users: db.users.length, transactions: db.transactions.length, rcDownloads: db.transactions.filter(isRcDownloadTransaction).length };
-    return;
-  }
   if (!SHEET_WEBHOOK_URL || !SHEET_SYNC_SECRET) {
-    restoreState = { ...restoreState, status: 'not-configured', source: storageBackend, error: 'SHEET_WEBHOOK_URL or SHEET_SYNC_SECRET missing', users: db.users.length, transactions: db.transactions.length, rcDownloads: db.transactions.filter(isRcDownloadTransaction).length };
+    restoreState = { ...restoreState, status: 'not-configured', error: 'SHEET_WEBHOOK_URL or SHEET_SYNC_SECRET missing', users: db.users.length, transactions: db.transactions.length, rcDownloads: db.transactions.filter(isRcDownloadTransaction).length };
     return;
   }
-  restoreState = { ...restoreState, status: 'loading', source: 'google-sheet', error: '' };
+  restoreState = { ...restoreState, status: 'loading', error: '' };
   try {
     const snapshotUrl = new URL(SHEET_WEBHOOK_URL);
     snapshotUrl.searchParams.set('action', 'snapshot');
@@ -1371,13 +1200,12 @@ async function restoreFromSheet() {
       sheetAccounts: accounts.length,
       sheetTransactions: transactions.length,
       completedAt: new Date().toISOString(),
-      error: '',
-      source: 'google-sheet'
+      error: ''
     };
     console.log(`Restored ${db.users.length} account(s), ${db.transactions.length} transaction(s), ${db.ads.length} ad(s) from Google Sheet.`);
   } catch (error) {
     const restoreError = String(error && error.message || 'Unknown restore error').replace(/([?&]secret=)[^&]*/gi, '$1REDACTED').slice(0, 180);
-    restoreState = { ...restoreState, status: 'failed', source: 'google-sheet', error: restoreError, users: db.users.length, transactions: db.transactions.length, rcDownloads: db.transactions.filter(isRcDownloadTransaction).length };
+    restoreState = { ...restoreState, status: 'failed', error: restoreError, users: db.users.length, transactions: db.transactions.length, rcDownloads: db.transactions.filter(isRcDownloadTransaction).length };
     console.warn('Google Sheet restore skipped:', restoreError);
   }
 }
@@ -1579,44 +1407,6 @@ function retryPendingCrossDeployTopups() {
     .forEach((request) => { void retryTopupRequestToPrimary(request, 5); });
 }
 
-function scheduleFullSheetReconciliation() {
-  if (PROXY_TO_PRIMARY || !SHEET_WEBHOOK_URL || !SHEET_SYNC_SECRET) {
-    sheetReconciliationState = { ...sheetReconciliationState, status: PROXY_TO_PRIMARY ? 'proxy-secondary' : 'not-configured' };
-    return;
-  }
-  sheetReconciliationState = { ...sheetReconciliationState, status: 'scheduled', queuedAt: new Date().toISOString(), error: '' };
-  setTimeout(async () => {
-    const operations = [];
-    (Array.isArray(db.users) ? db.users : []).forEach((user) => operations.push(['user', sheetUserPayload(user)]));
-    (Array.isArray(db.transactions) ? db.transactions : []).forEach((transaction) => operations.push(['transaction', sheetTransactionPayload(transaction)]));
-    (Array.isArray(db.topupRequests) ? db.topupRequests : []).forEach((request) => operations.push(['topupRequest', sheetTopupRequestPayload(request)]));
-    if (db.settings && Object.keys(db.settings).length) operations.push(['settings', db.settings]);
-    (Array.isArray(db.ads) ? db.ads : []).forEach((ad) => operations.push(['ad', sheetAdPayload(ad)]));
-    (Array.isArray(db.rateLog) ? db.rateLog : []).forEach((entry) => operations.push(['rateLog', entry]));
-    (Array.isArray(db.notifications) ? db.notifications : []).forEach((notification) => operations.push(['notification', notification]));
-    (Array.isArray(db.pushSubscriptions) ? db.pushSubscriptions : []).forEach((subscription) => operations.push(['pushSubscription', subscription]));
-    sheetReconciliationState = { ...sheetReconciliationState, status: 'running', operations: operations.length };
-    try {
-      const results = await Promise.all(operations.map(([action, payload]) => queueSheetSync(action, payload)
-        .then(() => true)
-        .catch((error) => {
-          clearTrackedSheetFailure(error);
-          console.warn(`Sheet reconciliation ${action} pending:`, error.message);
-          return false;
-        })));
-      const successful = results.filter(Boolean).length;
-      sheetReconciliationState = {
-        ...sheetReconciliationState,
-        status: successful === results.length ? 'success' : 'partial',
-        completedAt: new Date().toISOString(),
-        error: successful === results.length ? '' : `${results.length - successful} mirror operation(s) failed; retry next restart.`
-      };
-    } catch (error) {
-      sheetReconciliationState = { ...sheetReconciliationState, status: 'failed', completedAt: new Date().toISOString(), error: String(error.message || error).slice(0, 180) };
-    }
-  }, 2_000).unref?.();
-}
-
 async function handleCrossDeployReplication(req, res) {
   if (!CROSS_DEPLOY_SYNC_SECRET || String(req.headers['x-cross-deploy-secret'] || '') !== CROSS_DEPLOY_SYNC_SECRET) {
     return sendError(res, 401, 'Cross-deployment sync unauthorized.');
@@ -1736,10 +1526,14 @@ async function handleNotificationSubscribe(req, res) {
     if (index >= 0) db.pushSubscriptions[index] = record;
     else db.pushSubscriptions.push(record);
     await persistDatabase();
-    void queueSheetSync('pushSubscription', record).catch((error) => {
-      clearTrackedSheetFailure(error);
+    try {
+      await queueSheetSync('pushSubscription', record);
+      await flushSheetSync();
+    } catch (error) {
+      const index = sheetSyncFailures.indexOf(error);
+      if (index >= 0) sheetSyncFailures.splice(index, 1);
       console.warn('Push subscription Sheet sync pending:', error.message);
-    });
+    }
     return sendJson(res, 200, { success: true, enabled: webPushReady, message: webPushReady ? 'Notifications on ho gaye.' : 'In-app notifications on hain; Web Push keys abhi configure nahi hain.' });
   });
 }
@@ -1753,10 +1547,14 @@ async function handleNotificationUnsubscribe(req, res) {
     if (Array.isArray(db.pushSubscriptions) && endpoint) {
       db.pushSubscriptions = db.pushSubscriptions.filter((item) => !(item.endpoint === endpoint && String(item.userId) === String(user.id)));
       await persistDatabase();
-      void queueSheetSync('pushSubscriptionDelete', { endpoint, userId: user.id }).catch((error) => {
-        clearTrackedSheetFailure(error);
+      try {
+        await queueSheetSync('pushSubscriptionDelete', { endpoint, userId: user.id });
+        await flushSheetSync();
+      } catch (error) {
+        const index = sheetSyncFailures.indexOf(error);
+        if (index >= 0) sheetSyncFailures.splice(index, 1);
         console.warn('Push unsubscribe Sheet sync pending:', error.message);
-      });
+      }
     }
     return sendJson(res, 200, { success: true });
   });
@@ -1774,12 +1572,12 @@ async function handleNotificationRead(req, res) {
       if ((!ids || ids.has(String(item.id))) && item.read !== true) { item.read = true; changed.push(item); }
     });
     await persistDatabase();
-    changed.forEach((item) => {
-      void queueSheetSync('notification', item).catch((error) => {
-        clearTrackedSheetFailure(error);
-        console.warn('Notification read Sheet sync pending:', error.message);
-      });
-    });
+    const syncs = changed.map((item) => queueSheetSync('notification', item).catch((error) => {
+      const index = sheetSyncFailures.indexOf(error);
+      if (index >= 0) sheetSyncFailures.splice(index, 1);
+      console.warn('Notification read Sheet sync pending:', error.message);
+    }));
+    try { await Promise.all(syncs); await flushSheetSync(); } catch (error) { console.warn('Notification read Sheet sync pending:', error.message); }
     return sendJson(res, 200, { success: true });
   });
 }
@@ -1843,10 +1641,15 @@ async function handlePurchase(req, res) {
       sheetSyncPending: Boolean(SHEET_WEBHOOK_URL && SHEET_SYNC_SECRET)
     });
     await persistDatabase();
-    // Wallet deduction and transaction are already durable in SQLite. Never
-    // hold the RC response on Apps Script; retry the mirror in the background.
+    const sheetOperations = [
+      queueSheetSync('user', sheetUserPayload(fresh)),
+      queueSheetSync('transaction', sheetTransactionPayload(transaction))
+    ];
+    const sheetSyncedQuickly = await runSheetSyncOperations(sheetOperations);
     if (SHEET_WEBHOOK_URL && SHEET_SYNC_SECRET) {
-      void retryPurchaseSheetSync(fresh.mobile, transaction.id);
+      transaction.sheetSyncPending = !sheetSyncedQuickly;
+      await persistDatabase();
+      if (!sheetSyncedQuickly) void retryPurchaseSheetSync(fresh.mobile, transaction.id);
     }
     notifyUserActivity(fresh, {
       type: 'rc-download',
@@ -1905,9 +1708,8 @@ async function createTopupRequestRecord(user, amount, options = {}) {
     // second pending request for the same user.
     const operation = queueSheetSync('topupRequest', sheetTopupRequestPayload(pending));
     const tracked = trackTopupSheetSync(pending, operation);
-    const shouldWaitForSheet = options.waitForSheet === true || (options.waitForSheet == null && SHEET_SYNC_BLOCKING);
-    if (!shouldWaitForSheet) {
-      void tracked;
+    if (options.waitForSheet === false) {
+      await waitForTopupSheetSync(tracked, 8_000);
       if (CROSS_DEPLOY_PRIMARY_URL && CROSS_DEPLOY_SYNC_SECRET) void retryTopupRequestToPrimary(pending);
       return { existing: true, request: pending };
     }
@@ -1929,7 +1731,7 @@ async function createTopupRequestRecord(user, amount, options = {}) {
     amountRequested: Math.round(amount),
     amountApproved: null,
     status: 'PENDING',
-    sheetSyncPending: Boolean(SHEET_WEBHOOK_URL && SHEET_SYNC_SECRET),
+    sheetSyncPending: true,
     createdAt: now,
     updatedAt: now,
     whatsappSentAt: now,
@@ -1948,11 +1750,11 @@ async function createTopupRequestRecord(user, amount, options = {}) {
   if (CROSS_DEPLOY_PRIMARY_URL && CROSS_DEPLOY_SYNC_SECRET) void retryTopupRequestToPrimary(request);
   const operation = queueSheetSync('topupRequest', sheetTopupRequestPayload(request));
   const tracked = trackTopupSheetSync(request, operation);
-  const shouldWaitForSheet = options.waitForSheet === true || (options.waitForSheet == null && SHEET_SYNC_BLOCKING);
-  if (!shouldWaitForSheet) {
-    // SQLite has already committed the request. Sheet mirroring is retried in
-    // the background so WhatsApp/top-up responses are not held by Apps Script.
-    void tracked;
+  if (options.waitForSheet === false) {
+    // Give the fast path a short opportunity to complete normally. If the
+    // provider is slow, local durable storage plus the pending outbox keeps
+    // the request recoverable while WhatsApp still opens on the first click.
+    await waitForTopupSheetSync(tracked, 8_000);
     return { existing: false, request };
   }
   const result = await tracked;
@@ -2804,13 +2606,8 @@ const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
     const pathname = url.pathname;
-    // In the recommended Render setup, Render serves the static frontend and
-    // forwards every API request to Railway. The browser keeps one same-origin
-    // session/cookie while Railway remains the only data writer.
-    if (PROXY_TO_PRIMARY && pathname.startsWith('/api/')) return await proxyApiRequest(req, res, url);
     if (req.method === 'GET' && pathname === '/api/health') {
       const sheetSyncConfigured = Boolean(SHEET_WEBHOOK_URL && SHEET_SYNC_SECRET);
-      const primaryStore = storageInfo.backend === 'sqlite' ? 'sqlite' : 'json';
       return sendJson(res, 200, {
         success: true,
         service: 'InstantRCcard',
@@ -2818,30 +2615,13 @@ const server = http.createServer(async (req, res) => {
         providerConfigured: Boolean(RC_API_TOKEN),
         adminConfigured: Boolean(ADMIN_MOBILE),
         webPushConfigured: webPushReady,
-        proxyToPrimary: PROXY_TO_PRIMARY,
-        primaryApiConfigured: Boolean(PRIMARY_API_URL),
         crossDeployPrimaryConfigured: Boolean(CROSS_DEPLOY_PRIMARY_URL),
         crossDeploySyncConfigured: Boolean(CROSS_DEPLOY_SYNC_SECRET),
-        freeMode: FREE_MODE,
         sheetSyncConfigured,
-        sheetSyncBlocking: SHEET_SYNC_BLOCKING,
-        storage: sheetSyncConfigured ? `${primaryStore}+google-sheet` : primaryStore,
-        durableStore: FREE_MODE ? (sheetSyncConfigured ? 'google-sheet-recovery' : 'ephemeral-local-only') : (primaryStore === 'sqlite' ? 'sqlite-primary' : 'local-json-only'),
-        persistenceMode: FREE_MODE ? 'ephemeral-runtime-plus-sheet-recovery' : 'persistent-primary-when-volume-is-mounted',
-        storageReady: storageInfo.ready === true,
-        storageSource: storageLoadInfo.source,
-        provider: {
-          circuitOpen: providerCircuitIsOpen(),
-          circuitOpenUntil: providerHealth.circuitOpenUntil ? new Date(providerHealth.circuitOpenUntil).toISOString() : '',
-          consecutiveFailures: providerHealth.consecutiveFailures,
-          lastSuccessAt: providerHealth.lastSuccessAt,
-          lastFailureAt: providerHealth.lastFailureAt,
-          lastFailureMessage: providerHealth.lastFailureMessage
-        },
-        sheetReconciliation: sheetReconciliationState,
+        storage: sheetSyncConfigured ? 'json+google-sheet' : 'json',
+        durableStore: sheetSyncConfigured ? 'google-sheet-mirror' : 'local-json-only',
         restore: {
           status: restoreState.status,
-          source: restoreState.source || '',
           users: db.users.length,
           transactions: db.transactions.length,
           rcDownloads: db.transactions.filter(isRcDownloadTransaction).length,
@@ -2927,7 +2707,6 @@ if (ensureLocalShortIds()) {
 retryPendingTopupSheetSyncs();
 retryPendingPurchaseSheetSyncs();
 retryPendingCrossDeployTopups();
-scheduleFullSheetReconciliation();
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`InstantRCcard running on http://0.0.0.0:${PORT}`);
   console.log(`RC provider: ${RC_API_URL}`);
@@ -2935,11 +2714,5 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`Admin mobile: ${ADMIN_MOBILE ? 'configured' : 'missing'}`);
 });
 
-function shutdown() {
-  server.close(() => {
-    try { stateStore.close(); } catch (error) { console.warn('Storage close failed:', error.message); }
-    process.exit(0);
-  });
-}
-process.on('SIGTERM', shutdown);
-process.on('SIGINT', shutdown);
+process.on('SIGTERM', () => server.close(() => process.exit(0)));
+process.on('SIGINT', () => server.close(() => process.exit(0)));
