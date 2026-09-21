@@ -30,6 +30,8 @@ See `DEPLOY_RAILWAY_RENDER.md` inside the final ZIP for step-by-step deployment 
 - `MParivahan RC`: marked **Coming Soon!** in the customer flow; the future price is ₹10
 - `RC Card`: ₹15, selected from the Download RC options and downloaded as a clear PDF in the attached A4/reference layout with front and back faces side by side
 - Charge is deducted only after both front and back RC images are available
+- RC purchase uses server-side retry/cache plus a browser/server idempotency key, so a slow response or safe retry does not double-charge the wallet
+- Google Sheet sync is kept in a background retry outbox after the local durable mutation, so a slow Sheet cannot turn a completed RC charge into a false error response
 - Provider image normalization for base64, data-URL, URL, PNG, JPG and WEBP responses
 - `Fetching RC Card` loading popup while the provider image is being fetched
 - Horizontal public offer/festival advertisement ticker
@@ -126,6 +128,8 @@ Wallet Control me Main Admin aur sirf `recharge` permission wale Assistant Admin
 ## Notifications
 
 Background delivery is opt-in per installed app/device. Generate a VAPID pair with `npx web-push generate-vapid-keys`, configure `WEB_PUSH_VAPID_PUBLIC_KEY`, `WEB_PUSH_VAPID_PRIVATE_KEY` and `WEB_PUSH_SUBJECT` on Railway/Render, then have each phone/laptop account open the account menu and choose **Enable notifications**. The server stores notification history in the durable local/Sheet-backed state and sends Web Push to every saved subscription for that recipient. Admin delivery is filtered by the same `kpi`, `recharge` and `transactions` permission scopes used by the admin UI. In-app polling/toasts still work without VAPID keys while the app is open; background OS delivery is not active until keys are configured and the device subscription is accepted.
+
+If both Render and Railway are kept live, they are still separate Node instances. Set the same `CROSS_DEPLOY_SYNC_SECRET` on both and set `CROSS_DEPLOY_PRIMARY_URL` only on Render to the Railway URL. Render top-up requests are then forwarded to Railway's request list and permitted recharge-admin notifications; use one deployment for approval to avoid duplicate processing. Each PWA origin needs its own notification permission/subscription.
 
 ## Storage and production
 

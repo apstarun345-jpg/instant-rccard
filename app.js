@@ -1,5 +1,5 @@
 
-    var state = { token: '', user: null, selectedAdminMobile: '', selectedAdminQuery: '', defaultRcCardPrice: 15, pendingVrn: '', busy: false, adminUsersQuery: '', adminAccessQuery: '', bulkConfirm: false, supportWhatsapp: '', supportPaymentQr: '', supportPaymentQrUrl: '', pendingTopupAmount: 0, adminKpiDetail: '', adminLiveBusy: false, notificationIds: {}, notifications: [], notificationUnread: 0, notificationPollTimer: null, notificationInitialised: false };
+    var state = { token: '', user: null, selectedAdminMobile: '', selectedAdminQuery: '', defaultRcCardPrice: 15, pendingVrn: '', busy: false, adminUsersQuery: '', adminAccessQuery: '', bulkConfirm: false, supportWhatsapp: '', supportPaymentQr: '', supportPaymentQrUrl: '', pendingTopupAmount: 0, adminKpiDetail: '', adminLiveBusy: false, notificationIds: {}, notifications: [], notificationUnread: 0, notificationPollTimer: null, notificationInitialised: false, purchaseRequestKey: '', purchaseRequestVrn: '', purchaseRequestType: '' };
     var DOWNLOAD_PRICES = { mparivahan: 10, 'rc-card': 15 };
     var $ = function (selector) { return document.querySelector(selector); };
     var $$ = function (selector) { return Array.prototype.slice.call(document.querySelectorAll(selector)); };
@@ -70,7 +70,7 @@
       else if (name === 'forgotPassword') { url = '/api/auth/forgot-password'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ email: args[0], mobile: args[1], newPassword: args[2], confirmPassword: args[3] }); }
       else if (name === 'logout') { url = '/api/auth/logout'; options.method = 'POST'; }
       else if (name === 'getMe') { url = '/api/auth/session'; }
-      else if (name === 'buyRc') { url = '/api/rc/purchase'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ vrn: args[0], downloadType: args[1] || 'mparivahan' }); }
+      else if (name === 'buyRc') { url = '/api/rc/purchase'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ vrn: args[0], downloadType: args[1] || 'mparivahan', idempotencyKey: args[2] || '' }); }
       else if (name === 'getMyTransactions') { url = '/api/account/transactions'; }
       else if (name === 'getAds') { url = '/api/ads'; }
       else if (name === 'getSupportSettings') { url = '/api/support-settings'; }
@@ -116,7 +116,7 @@
       else throw new Error('Unknown request');
       var requestController = null;
       var requestTimer = null;
-      var requestTimeoutMs = name === 'buyRc' ? 24_000 : (name === 'getMe' || name === 'getSupportSettings' ? 8_000 : 0);
+      var requestTimeoutMs = name === 'buyRc' ? 32_000 : (name === 'getMe' || name === 'getSupportSettings' ? 8_000 : 0);
       if (requestTimeoutMs && window.AbortController) {
         requestController = new AbortController();
         options.signal = requestController.signal;
@@ -1289,6 +1289,29 @@
       document.body.style.overflow = '';
     }
 
+    function purchaseKeyFor(vrn, downloadType) {
+      var mobile = state.user && state.user.mobile ? state.user.mobile : 'session';
+      var storageKey = 'instant-rccard-purchase:' + mobile + ':' + vrn + ':' + downloadType;
+      var key = '';
+      try { key = window.localStorage.getItem(storageKey) || ''; } catch (error) {}
+      if (!key) {
+        key = 'PURCHASE-' + Date.now().toString(36).toUpperCase() + '-' + Math.random().toString(36).slice(2, 10).toUpperCase();
+        try { window.localStorage.setItem(storageKey, key); } catch (error) {}
+      }
+      state.purchaseRequestKey = key;
+      state.purchaseRequestVrn = vrn;
+      state.purchaseRequestType = downloadType;
+      return key;
+    }
+
+    function clearPurchaseKey(vrn, downloadType) {
+      var mobile = state.user && state.user.mobile ? state.user.mobile : 'session';
+      try { window.localStorage.removeItem('instant-rccard-purchase:' + mobile + ':' + vrn + ':' + downloadType); } catch (error) {}
+      state.purchaseRequestKey = '';
+      state.purchaseRequestVrn = '';
+      state.purchaseRequestType = '';
+    }
+
     async function purchaseAndDownload(downloadType) {
       var vrn = state.pendingVrn;
       var price = priceForDownload(downloadType);
@@ -1316,8 +1339,9 @@
       setDownloadStatus('RC fetch ho rahi hai…', 'Front aur back image provider se aa rahi hai.', 'loading');
       setFetchingOverlay(true);
       hideWalletAlert();
+      var idempotencyKey = purchaseKeyFor(vrn, downloadType);
       try {
-        var response = await callServer('buyRc', [vrn, downloadType]);
+        var response = await callServer('buyRc', [vrn, downloadType, idempotencyKey]);
         if (!response.success) {
           if (response.code === 'COMING_SOON') {
             setDownloadStatus('MParivahan RC — Coming Soon!', response.message, 'error');
@@ -1344,6 +1368,7 @@
         var extension = downloadType === 'rc-card' ? 'pdf' : 'png';
         var fileName = response.data.vrn + '-' + label + '.' + extension;
         downloadData(combined, fileName);
+        clearPurchaseKey(vrn, downloadType);
         setDownloadStatus((extension === 'pdf' ? 'PDF' : 'PNG') + ' download started ✓', fileName + ' save ho rahi hai.', 'success');
         toast('Instant download ready', response.data.vrn + ' ki clear RC file download ho rahi hai.', 'success');
         $('#vrn-input').value = '';

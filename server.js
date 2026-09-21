@@ -27,12 +27,17 @@ const STATS_TIME_ZONE = process.env.APP_TIME_ZONE || 'Asia/Kolkata';
 const MAX_BODY_BYTES = 5_000_000;
 const MAX_AD_BYTES = 40_000;
 const MAX_PAYMENT_QR_BYTES = 1_500_000;
-const UPSTREAM_TIMEOUT_MS = 20_000;
+const UPSTREAM_TIMEOUT_MS = 12_000;
+const PROVIDER_RETRY_COUNT = 2;
 const SHEET_SYNC_TIMEOUT_MS = 60_000;
-const BUILD_VERSION = 'wallet-direct-v7-notifications';
+const BUILD_VERSION = 'wallet-direct-v8-cross-sync-fast';
 const WEB_PUSH_VAPID_PUBLIC_KEY = process.env.WEB_PUSH_VAPID_PUBLIC_KEY || '';
 const WEB_PUSH_VAPID_PRIVATE_KEY = process.env.WEB_PUSH_VAPID_PRIVATE_KEY || '';
 const WEB_PUSH_SUBJECT = process.env.WEB_PUSH_SUBJECT || 'mailto:admin@example.com';
+// Optional one-way replication for a secondary Render deployment. Set this
+// URL only on Render when Railway is the primary admin/request service.
+const CROSS_DEPLOY_PRIMARY_URL = process.env.CROSS_DEPLOY_PRIMARY_URL || '';
+const CROSS_DEPLOY_SYNC_SECRET = process.env.CROSS_DEPLOY_SYNC_SECRET || '';
 let webPushReady = false;
 try {
   if (WEB_PUSH_VAPID_PUBLIC_KEY && WEB_PUSH_VAPID_PRIVATE_KEY) {
@@ -42,8 +47,8 @@ try {
 } catch (error) {
   console.warn('Web Push disabled:', error.message);
 }
-const RC_CACHE_TTL_MS = 10 * 60 * 1000;
-const RC_CACHE_MAX_ENTRIES = 24;
+const RC_CACHE_TTL_MS = 30 * 60 * 1000;
+const RC_CACHE_MAX_ENTRIES = 64;
 const providerCache = new Map();
 const providerInflight = new Map();
 
@@ -569,8 +574,8 @@ function sheetTransactionPayload(transaction) {
   };
 }
 
-function appendTransaction(mobile, type, amount, balanceAfter, vrn, note, adminMobile = '') {
-  db.transactions.push({
+function appendTransaction(mobile, type, amount, balanceAfter, vrn, note, adminMobile = '', extra = {}) {
+  const transaction = {
     id: crypto.randomUUID(),
     shortId: nextShortId('T', db.transactions, 'shortId'),
     time: new Date().toISOString(),
@@ -581,8 +586,11 @@ function appendTransaction(mobile, type, amount, balanceAfter, vrn, note, adminM
     vrn: vrn || '',
     status: 'SUCCESS',
     note: note || '',
-    adminMobile
-  });
+    adminMobile,
+    ...extra
+  };
+  db.transactions.push(transaction);
+  return transaction;
 }
 
 function userTransactions(mobile, limit = 30) {
@@ -655,10 +663,17 @@ function publicNotification(notification) {
 }
 
 function queueNotificationsForUsers(users, event) {
-  const recipients = Array.from(new Map((users || []).filter(Boolean).map((user) => [String(user.id), user])).values());
-  if (!recipients.length) return;
+  const candidates = Array.from(new Map((users || []).filter(Boolean).map((user) => [String(user.id), user])).values());
+  if (!candidates.length) return;
   void withMutationLock(async () => {
     if (!Array.isArray(db.notifications)) db.notifications = [];
+    const eventId = String(event?.data?.eventId || event?.eventId || '');
+    const recipients = candidates.filter((user) => {
+      if (!eventId) return true;
+      return !db.notifications.some((notification) => String(notification.recipientUserId) === String(user.id)
+        && String(notification.data?.eventId || '') === eventId);
+    });
+    if (!recipients.length) return;
     const now = new Date().toISOString();
     const created = recipients.map((user) => ({
       id: crypto.randomUUID(),
@@ -790,6 +805,65 @@ async function waitForTopupSheetSync(trackedOperation, timeoutMs) {
   return result;
 }
 
+function clearTrackedSheetFailure(error) {
+  const index = sheetSyncFailures.indexOf(error);
+  if (index >= 0) sheetSyncFailures.splice(index, 1);
+}
+
+async function runSheetSyncOperations(operations, timeoutMs = 3_500) {
+  const work = Promise.all((operations || []).map((operation) => operation
+    .then(() => true)
+    .catch((error) => {
+      clearTrackedSheetFailure(error);
+      console.warn('Sheet sync pending retry:', error.message);
+      return false;
+    }))).then((results) => results.every(Boolean));
+  let timer;
+  const timeout = new Promise((resolve) => {
+    timer = setTimeout(() => resolve(false), timeoutMs);
+  });
+  const result = await Promise.race([work, timeout]);
+  clearTimeout(timer);
+  return result;
+}
+
+async function retryPurchaseSheetSync(userMobile, transactionId, attempts = 5) {
+  if (!SHEET_WEBHOOK_URL || !SHEET_SYNC_SECRET) return;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const user = findUser(userMobile);
+    const transaction = Array.isArray(db.transactions) ? db.transactions.find((item) => String(item.id) === String(transactionId)) : null;
+    if (!user || !transaction) return;
+    transaction.sheetSyncPending = true;
+    try {
+      await persistDatabase();
+      const synced = await runSheetSyncOperations([
+        queueSheetSync('user', sheetUserPayload(user)),
+        queueSheetSync('transaction', sheetTransactionPayload(transaction))
+      ], SHEET_SYNC_TIMEOUT_MS);
+      if (synced) {
+        await withMutationLock(async () => {
+          const current = db.transactions.find((item) => String(item.id) === String(transactionId));
+          if (current) {
+            current.sheetSyncPending = false;
+            await persistDatabase();
+          }
+        });
+        return;
+      }
+    } catch (error) {
+      console.warn(`RC transaction Sheet retry ${attempt} failed:`, error.message);
+    }
+    if (attempt < attempts) await new Promise((resolve) => setTimeout(resolve, Math.min(10_000, attempt * 2_000)));
+  }
+}
+
+function retryPendingPurchaseSheetSyncs() {
+  if (!SHEET_WEBHOOK_URL || !SHEET_SYNC_SECRET || !Array.isArray(db.transactions)) return;
+  db.transactions
+    .filter((transaction) => transaction.type === 'RC_PURCHASE' && transaction.sheetSyncPending === true)
+    .forEach((transaction) => { void retryPurchaseSheetSync(transaction.mobile, transaction.id, 5); });
+}
+
 async function syncToSheet(action, payload) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), SHEET_SYNC_TIMEOUT_MS);
@@ -859,33 +933,58 @@ async function normalizeProviderImage(value) {
 
 async function fetchProviderFromApi(vrn) {
   if (!RC_API_TOKEN) return { success: false, message: 'RC_API_TOKEN server environment me configured nahi hai.' };
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
-  try {
-    const response = await fetch(RC_API_URL, {
-      method: 'POST',
-      headers: { Authorization: RC_API_TOKEN, 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify({ vrn }),
-      signal: controller.signal
-    });
-    const raw = await response.text();
-    let payload;
-    try { payload = JSON.parse(raw); } catch { return { success: false, message: 'RC provider ne invalid response diya.' }; }
-    if (!response.ok || payload?.success === false) return { success: false, message: payload?.message || payload?.error || 'RC image nahi mili. Vehicle number check karo.' };
-    const images = providerImages(payload);
-    if (!images) return { success: false, message: 'Front aur back RC image available nahi hai.' };
-    // Front aur back ko parallel normalize karne se provider URL responses faster complete hote hain.
-    const [front, back] = await Promise.all([
-      normalizeProviderImage(images.front),
-      normalizeProviderImage(images.back)
-    ]);
-    if (!front || !back) return { success: false, message: 'Front aur back RC image download nahi ho paayi.' };
-    return { success: true, images: { front, back } };
-  } catch (error) {
-    return { success: false, message: error.name === 'AbortError' ? 'RC provider timeout ho gaya. Thodi der baad dobara try karein.' : 'RC provider se connection nahi ho paaya.' };
-  } finally {
-    clearTimeout(timeout);
+  let lastFailure = { success: false, message: 'RC provider se response nahi mila.' };
+  for (let attempt = 1; attempt <= PROVIDER_RETRY_COUNT; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
+    try {
+      const response = await fetch(RC_API_URL, {
+        method: 'POST',
+        headers: { Authorization: RC_API_TOKEN, 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ vrn }),
+        signal: controller.signal
+      });
+      const raw = await response.text();
+      let payload;
+      try { payload = JSON.parse(raw); } catch {
+        lastFailure = { success: false, message: 'RC provider ne invalid response diya.' };
+        if (attempt === PROVIDER_RETRY_COUNT) return lastFailure;
+        continue;
+      }
+      const providerMessage = payload?.message || payload?.error || 'RC image nahi mili. Vehicle number check karo.';
+      const retryableStatus = response.status === 408 || response.status === 425 || response.status === 429 || response.status >= 500;
+      const retryableMessage = /timeout|temporar|try again|busy|unavailable|server|connection/i.test(String(providerMessage));
+      if (!response.ok) {
+        lastFailure = { success: false, message: providerMessage };
+        if (!retryableStatus || attempt === PROVIDER_RETRY_COUNT) return lastFailure;
+        continue;
+      }
+      if (payload?.success === false) {
+        lastFailure = { success: false, message: providerMessage };
+        if (!retryableMessage || attempt === PROVIDER_RETRY_COUNT) return lastFailure;
+        continue;
+      }
+      const images = providerImages(payload);
+      if (!images) {
+        lastFailure = { success: false, message: 'Front aur back RC image available nahi hai.' };
+        if (attempt === PROVIDER_RETRY_COUNT) return lastFailure;
+        continue;
+      }
+      // Front aur back ko parallel normalize karne se provider URL responses faster complete hote hain.
+      const [front, back] = await Promise.all([
+        normalizeProviderImage(images.front),
+        normalizeProviderImage(images.back)
+      ]);
+      if (front && back) return { success: true, images: { front, back } };
+      lastFailure = { success: false, message: 'Front aur back RC image download nahi ho paayi.' };
+    } catch (error) {
+      lastFailure = { success: false, message: error.name === 'AbortError' ? 'RC provider timeout ho gaya. Thodi der baad dobara try karein.' : 'RC provider se connection nahi ho paaya.' };
+    } finally {
+      clearTimeout(timeout);
+    }
+    if (attempt < PROVIDER_RETRY_COUNT) await new Promise((resolve) => setTimeout(resolve, 300 * attempt));
   }
+  return lastFailure;
 }
 
 function cachedProviderImages(vrn) {
@@ -1134,8 +1233,9 @@ async function handleSignup(req, res) {
       type: 'new-user',
       title: 'New user signup',
       body: `${user.name} (+91 ${user.mobile}) ne account create kiya.`,
-      data: { mobile: user.mobile, userId: user.id }
+      data: { mobile: user.mobile, userId: user.id, eventId: `new-user:${user.id}` }
     });
+    if (CROSS_DEPLOY_PRIMARY_URL && CROSS_DEPLOY_SYNC_SECRET) void retryUserToPrimary(user);
     queueSheetSync('user', sheetUserPayload(user));
     await flushSheetSync();
     return sendJson(res, 200, { success: true, user: publicUser(user) }, { 'Set-Cookie': authCookie(user.id) });
@@ -1207,6 +1307,184 @@ async function handleForgotPassword(req, res) {
 
 function validPushSubscription(value) {
   return Boolean(value && typeof value.endpoint === 'string' && value.endpoint.length >= 20 && value.endpoint.length <= 2000 && value.keys && typeof value.keys.p256dh === 'string' && typeof value.keys.auth === 'string');
+}
+
+async function forwardUserToPrimary(user) {
+  if (!CROSS_DEPLOY_PRIMARY_URL || !CROSS_DEPLOY_SYNC_SECRET || !user) return;
+  const target = new URL('/api/internal/replicate', CROSS_DEPLOY_PRIMARY_URL).toString();
+  const eventId = `new-user:${user.id}`;
+  const notification = {
+    type: 'new-user',
+    title: 'New user signup',
+    body: `${user.name || 'User'} (+91 ${user.mobile}) ne account create kiya.`,
+    data: { mobile: user.mobile, userId: user.id, eventId }
+  };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 12_000);
+  try {
+    const response = await fetch(target, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-Cross-Deploy-Secret': CROSS_DEPLOY_SYNC_SECRET },
+      body: JSON.stringify({ eventId, eventType: 'user', user: sheetUserPayload(user), notification }),
+      signal: controller.signal
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || result.success === false) throw new Error(result.message || `Primary user sync HTTP ${response.status}`);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function retryUserToPrimary(user, attempts = 3) {
+  if (!CROSS_DEPLOY_PRIMARY_URL || !CROSS_DEPLOY_SYNC_SECRET || !user) return;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      await forwardUserToPrimary(user);
+      return;
+    } catch (error) {
+      console.warn(`Primary user sync attempt ${attempt} failed:`, error.message);
+      if (attempt < attempts) await new Promise((resolve) => setTimeout(resolve, attempt * 1_500));
+    }
+  }
+}
+
+async function forwardTopupRequestToPrimary(request) {
+  if (!CROSS_DEPLOY_PRIMARY_URL || !CROSS_DEPLOY_SYNC_SECRET || !request) return;
+  const target = new URL('/api/internal/replicate', CROSS_DEPLOY_PRIMARY_URL).toString();
+  const eventId = `topup-request:${request.id}`;
+  const notification = {
+    type: 'topup-request',
+    title: 'New wallet top-up request',
+    body: `${request.name || 'User'} (+91 ${request.mobile}) ne ₹${request.amountRequested} top-up request bheji hai.`,
+    data: { mobile: request.mobile, amount: request.amountRequested, requestId: request.id, eventId }
+  };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 12_000);
+  try {
+    const response = await fetch(target, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-Cross-Deploy-Secret': CROSS_DEPLOY_SYNC_SECRET },
+      body: JSON.stringify({
+        eventId,
+        eventType: 'topup-request',
+        request: { ...sheetTopupRequestPayload(request), amountApproved: request.amountApproved == null ? null : Number(request.amountApproved) },
+        notification
+      }),
+      signal: controller.signal
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || result.success === false) throw new Error(result.message || `Primary sync HTTP ${response.status}`);
+    await withMutationLock(async () => {
+      const current = Array.isArray(db.topupRequests) ? db.topupRequests.find((item) => String(item.id) === String(request.id)) : null;
+      if (current) {
+        current.crossDeploySyncPending = false;
+        current.crossDeploySyncedAt = new Date().toISOString();
+        await persistDatabase();
+      }
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function retryTopupRequestToPrimary(request, attempts = 3) {
+  if (!CROSS_DEPLOY_PRIMARY_URL || !CROSS_DEPLOY_SYNC_SECRET || !request) return;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      await forwardTopupRequestToPrimary(request);
+      return;
+    } catch (error) {
+      console.warn(`Primary topup sync attempt ${attempt} failed:`, error.message);
+      if (attempt < attempts) await new Promise((resolve) => setTimeout(resolve, attempt * 1_500));
+    }
+  }
+}
+
+function retryPendingCrossDeployTopups() {
+  if (!CROSS_DEPLOY_PRIMARY_URL || !CROSS_DEPLOY_SYNC_SECRET || !Array.isArray(db.topupRequests)) return;
+  db.topupRequests
+    .filter((request) => String(request.status || 'PENDING').toUpperCase() === 'PENDING' && request.crossDeploySyncPending !== false)
+    .forEach((request) => { void retryTopupRequestToPrimary(request, 5); });
+}
+
+async function handleCrossDeployReplication(req, res) {
+  if (!CROSS_DEPLOY_SYNC_SECRET || String(req.headers['x-cross-deploy-secret'] || '') !== CROSS_DEPLOY_SYNC_SECRET) {
+    return sendError(res, 401, 'Cross-deployment sync unauthorized.');
+  }
+  const body = await readJson(req);
+  if (body.eventType === 'user') {
+    const incoming = body.user;
+    if (!incoming || !incoming.mobile) return sendError(res, 422, 'User replication event invalid hai.');
+    return withMutationLock(async () => {
+      const mobile = normalizeMobile(incoming.mobile);
+      let user = findUser(mobile);
+      const existing = Boolean(user);
+      let permissions = incoming.adminPermissions || {};
+      if (typeof permissions === 'string') {
+        try { permissions = JSON.parse(permissions); } catch (error) { permissions = {}; }
+      }
+      if (!user) {
+        user = {
+          id: String(incoming.internalUserId || incoming.userId || crypto.randomUUID()),
+          shortId: /^u\d+$/i.test(String(incoming.shortUserId || incoming.userId || '')) ? String(incoming.shortUserId || incoming.userId).toLowerCase() : '',
+          username: String(incoming.username || incoming.name || ''),
+          name: String(incoming.name || ''),
+          email: normalizeEmail(incoming.email || ''),
+          mobile,
+          salt: String(incoming.salt || ''),
+          passwordHash: String(incoming.passwordHash || ''),
+          wallet: Number(incoming.wallet || 0),
+          rcCardPrice: incoming.rcCardPrice === '' || incoming.rcCardPrice == null ? null : Number(incoming.rcCardPrice),
+          rcRateUpdatedAt: String(incoming.rcRateUpdatedAt || ''),
+          rcRateUpdatedBy: String(incoming.rcRateUpdatedBy || ''),
+          role: incoming.role === 'admin' ? 'admin' : 'user',
+          adminPermissions: incoming.role === 'admin' ? normalizedAdminPermissions(permissions, permissions == null) : {},
+          createdAt: incoming.createdAt || new Date().toISOString(),
+          lastLogin: incoming.lastLogin || incoming.createdAt || new Date().toISOString(),
+          active: incoming.active !== false
+        };
+        db.users.push(user);
+      }
+      await persistDatabase();
+      const event = body.notification && typeof body.notification === 'object'
+        ? body.notification
+        : { type: 'new-user', title: 'New user signup', body: `${user.name} (+91 ${user.mobile}) ne account create kiya.`, data: { mobile: user.mobile, userId: user.id, eventId: String(body.eventId || `new-user:${user.id}`) } };
+      notifyAdminsForActivity('kpi', event);
+      return sendJson(res, 200, { success: true, replicated: true, existing, user: publicUser(user) });
+    });
+  }
+  if (body.eventType !== 'topup-request' || !body.request || !body.request.id) return sendError(res, 422, 'Replication event invalid hai.');
+  const incoming = body.request;
+  const requestId = String(incoming.id);
+  return withMutationLock(async () => {
+    if (!Array.isArray(db.topupRequests)) db.topupRequests = [];
+    const existing = db.topupRequests.find((request) => String(request.id) === requestId);
+    let record = existing;
+    if (!record) {
+      record = {
+        ...incoming,
+        userId: String(incoming.internalUserId || incoming.userId || ''),
+        userShortId: String(incoming.shortUserId || ''),
+        sheetSyncPending: false,
+        crossDeploySyncPending: false
+      };
+      db.topupRequests.push(record);
+    } else if (String(incoming.updatedAt || '') >= String(existing.updatedAt || '')) {
+      Object.assign(existing, incoming);
+      record = existing;
+    }
+    await persistDatabase();
+    const event = body.notification && typeof body.notification === 'object'
+      ? body.notification
+      : {
+          type: 'topup-request',
+          title: 'New wallet top-up request',
+          body: `${incoming.name || 'User'} (+91 ${incoming.mobile}) ne ₹${incoming.amountRequested} top-up request bheji hai.`,
+          data: { mobile: incoming.mobile, amount: incoming.amountRequested, requestId, eventId: String(body.eventId || `topup-request:${requestId}`) }
+        };
+    if (String(record.status || 'PENDING').toUpperCase() === 'PENDING') notifyAdminsForActivity('recharge', event);
+    return sendJson(res, 200, { success: true, replicated: true, existing: Boolean(existing), request: publicTopupRequest(record) });
+  });
 }
 
 async function handleNotificationPublicKey(req, res) {
@@ -1310,6 +1588,7 @@ async function handlePurchase(req, res) {
   const body = await readJson(req);
   const vrn = normalizeVrn(body.vrn);
   const downloadType = body.downloadType === 'rc-card' ? 'rc-card' : 'mparivahan';
+  const idempotencyKey = String(body.idempotencyKey || '').trim().slice(0, 120);
   if (!validVrn(vrn)) return sendError(res, 422, 'Valid vehicle number daalo, jaise RJ14AB1234.');
 
   return withMutationLock(async () => {
@@ -1319,6 +1598,28 @@ async function handlePurchase(req, res) {
     if (downloadType === 'mparivahan') {
       return sendJson(res, 200, { success: false, code: 'COMING_SOON', message: 'MParivahan RC format Coming Soon!', downloadType, requiredPrice: price });
     }
+
+    // If the browser lost the previous response, replay the same successful
+    // purchase instead of charging the wallet a second time.
+    const previous = idempotencyKey
+      ? db.transactions.find((transaction) => transaction.mobile === fresh.mobile
+        && transaction.type === 'RC_PURCHASE'
+        && transaction.idempotencyKey === idempotencyKey
+        && transaction.vrn === vrn)
+      : null;
+    if (previous) {
+      const replay = await fetchProvider(vrn);
+      if (!replay.success) return sendJson(res, 200, { success: false, message: 'RC request pehle process ho chuki hai. File dobara banane ke liye retry karein.', wallet: Number(previous.balanceAfter), requiredPrice: price, downloadType, alreadyProcessed: true });
+      return sendJson(res, 200, {
+        success: true,
+        alreadyProcessed: true,
+        data: { vrn, front: replay.images.front, back: replay.images.back, downloadType },
+        wallet: Number(previous.balanceAfter),
+        charged: 0,
+        requiredPrice: price
+      });
+    }
+
     if (Number(fresh.wallet) < price) {
       return sendJson(res, 200, {
         success: false,
@@ -1335,22 +1636,32 @@ async function handlePurchase(req, res) {
 
     fresh.wallet = Number(fresh.wallet) - price;
     const downloadLabel = downloadType === 'rc-card' ? 'RC Card PNG download' : 'MParivahan A4 PNG download';
-    appendTransaction(fresh.mobile, 'RC_PURCHASE', -price, fresh.wallet, vrn, downloadLabel);
+    const transaction = appendTransaction(fresh.mobile, 'RC_PURCHASE', -price, fresh.wallet, vrn, downloadLabel, '', {
+      idempotencyKey,
+      sheetSyncPending: Boolean(SHEET_WEBHOOK_URL && SHEET_SYNC_SECRET)
+    });
     await persistDatabase();
-    queueSheetSync('user', sheetUserPayload(fresh));
-    queueSheetSync('transaction', sheetTransactionPayload(db.transactions[db.transactions.length - 1]));
-    await flushSheetSync();
+    const sheetOperations = [
+      queueSheetSync('user', sheetUserPayload(fresh)),
+      queueSheetSync('transaction', sheetTransactionPayload(transaction))
+    ];
+    const sheetSyncedQuickly = await runSheetSyncOperations(sheetOperations);
+    if (SHEET_WEBHOOK_URL && SHEET_SYNC_SECRET) {
+      transaction.sheetSyncPending = !sheetSyncedQuickly;
+      await persistDatabase();
+      if (!sheetSyncedQuickly) void retryPurchaseSheetSync(fresh.mobile, transaction.id);
+    }
     notifyUserActivity(fresh, {
       type: 'rc-download',
       title: 'RC download complete',
       body: `${vrn} ka RC Card download ho gaya. ₹${price} wallet se deduct hua. Balance ₹${fresh.wallet}.`,
-      data: { vrn, amount: price, wallet: fresh.wallet }
+      data: { vrn, amount: price, wallet: fresh.wallet, eventId: `rc-download:${transaction.id}` }
     });
     notifyAdminsForActivity('transactions', {
       type: 'rc-download',
       title: 'User ne RC download kiya',
       body: `${fresh.name} (+91 ${fresh.mobile}) ne ${vrn} ka RC Card download kiya.`,
-      data: { mobile: fresh.mobile, vrn, amount: price }
+      data: { mobile: fresh.mobile, vrn, amount: price, eventId: `rc-download:${transaction.id}` }
     });
     return sendJson(res, 200, { success: true, data: { vrn, front: provider.images.front, back: provider.images.back, downloadType }, wallet: fresh.wallet, charged: price, requiredPrice: price });
   });
@@ -1399,15 +1710,18 @@ async function createTopupRequestRecord(user, amount, options = {}) {
     const tracked = trackTopupSheetSync(pending, operation);
     if (options.waitForSheet === false) {
       await waitForTopupSheetSync(tracked, 8_000);
+      if (CROSS_DEPLOY_PRIMARY_URL && CROSS_DEPLOY_SYNC_SECRET) void retryTopupRequestToPrimary(pending);
       return { existing: true, request: pending };
     }
     const result = await tracked;
     if (!result.ok) throw result.error;
+    if (CROSS_DEPLOY_PRIMARY_URL && CROSS_DEPLOY_SYNC_SECRET) void retryTopupRequestToPrimary(pending);
     return { existing: true, request: pending };
   }
   const now = new Date().toISOString();
   const request = {
     id: crypto.randomUUID(),
+    crossDeploySyncPending: Boolean(CROSS_DEPLOY_PRIMARY_URL && CROSS_DEPLOY_SYNC_SECRET),
     clientReference,
     userId: fresh.id,
     userShortId: fresh.shortId || '',
@@ -1431,8 +1745,9 @@ async function createTopupRequestRecord(user, amount, options = {}) {
     type: 'topup-request',
     title: 'New wallet top-up request',
     body: `${fresh.name} (+91 ${fresh.mobile}) ne ₹${request.amountRequested} top-up request bheji hai.`,
-    data: { mobile: fresh.mobile, amount: request.amountRequested, requestId: request.id }
+    data: { mobile: fresh.mobile, amount: request.amountRequested, requestId: request.id, eventId: `topup-request:${request.id}` }
   });
+  if (CROSS_DEPLOY_PRIMARY_URL && CROSS_DEPLOY_SYNC_SECRET) void retryTopupRequestToPrimary(request);
   const operation = queueSheetSync('topupRequest', sheetTopupRequestPayload(request));
   const tracked = trackTopupSheetSync(request, operation);
   if (options.waitForSheet === false) {
@@ -2300,6 +2615,8 @@ const server = http.createServer(async (req, res) => {
         providerConfigured: Boolean(RC_API_TOKEN),
         adminConfigured: Boolean(ADMIN_MOBILE),
         webPushConfigured: webPushReady,
+        crossDeployPrimaryConfigured: Boolean(CROSS_DEPLOY_PRIMARY_URL),
+        crossDeploySyncConfigured: Boolean(CROSS_DEPLOY_SYNC_SECRET),
         sheetSyncConfigured,
         storage: sheetSyncConfigured ? 'json+google-sheet' : 'json',
         durableStore: sheetSyncConfigured ? 'google-sheet-mirror' : 'local-json-only',
@@ -2325,6 +2642,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && pathname === '/api/auth/logout') return sendJson(res, 200, { success: true }, { 'Set-Cookie': clearAuthCookie() });
     if (req.method === 'GET' && pathname === '/api/ads') return await handleGetAds(req, res);
     if (req.method === 'GET' && pathname === '/api/support-settings') return await handlePublicSupportSettings(req, res);
+    if (req.method === 'POST' && pathname === '/api/internal/replicate') return await handleCrossDeployReplication(req, res);
     if (req.method === 'GET' && pathname === '/api/notifications/public-key') return await handleNotificationPublicKey(req, res);
     if (req.method === 'GET' && pathname === '/api/notifications') return await handleNotificationList(req, res);
     if (req.method === 'POST' && pathname === '/api/notifications/subscribe') return await handleNotificationSubscribe(req, res);
@@ -2387,6 +2705,8 @@ if (ensureLocalShortIds()) {
   }
 }
 retryPendingTopupSheetSyncs();
+retryPendingPurchaseSheetSyncs();
+retryPendingCrossDeployTopups();
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`InstantRCcard running on http://0.0.0.0:${PORT}`);
   console.log(`RC provider: ${RC_API_URL}`);

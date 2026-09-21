@@ -40,6 +40,23 @@ WEB_PUSH_SUBJECT=mailto:your-admin-email@example.com
 
 Each admin/user must open the installed app on each device, open the account menu and tap **Enable notifications** once. Main Admin and Assistant Admins receive events allowed by their permissions: new user, top-up request and RC download/recharge activity. A user receives their own wallet-credit and RC-download alerts. Without VAPID keys, in-app polling alerts still work while the app is open, but background OS notifications cannot be delivered.
 
+## Running Render and Railway together
+
+Two Node deployments do not share live in-memory state. Google Sheet is the durable mirror and is normally loaded at startup, so a request created on Render will not automatically appear in an already-running Railway admin list. For one-way Render-to-Railway top-up replication, add the same private `CROSS_DEPLOY_SYNC_SECRET` to both services and add this only to Render:
+
+```text
+CROSS_DEPLOY_PRIMARY_URL=https://your-railway-domain.up.railway.app
+CROSS_DEPLOY_SYNC_SECRET=the-same-private-random-secret-on-both
+```
+
+Railway needs only:
+
+```text
+CROSS_DEPLOY_SYNC_SECRET=the-same-private-random-secret-on-both
+```
+
+After redeploying both services, a Render top-up request is forwarded to Railway, upserted into Railway's admin request list, and a Railway-side admin notification is created for every permitted recharge admin. Each origin still needs its own device notification permission/subscription. This is one-way replication; use one canonical admin approval service and do not approve the same request on both deployments.
+
 ## Railway
 
 1. Create a new Railway service from the extracted package or its Git repository.
@@ -50,7 +67,10 @@ Each admin/user must open the installed app on each device, open the account men
    - `sheetSyncConfigured: true`
    - `storage: "json+google-sheet"`
    - `durableStore: "google-sheet-mirror"`
+   - `build: "wallet-direct-v8-cross-sync-fast"`
    - `webPushConfigured: true` after the three Web Push variables are saved (it is intentionally false until then)
+   - Render: `crossDeployPrimaryConfigured: true` and `crossDeploySyncConfigured: true`
+   - Railway primary: `crossDeploySyncConfigured: true` (primary URL can remain false)
 
 ## Render
 
