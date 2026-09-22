@@ -2235,7 +2235,9 @@ async function handleAdminDebit(req, res) {
     if (currentWallet < amount) {
       return sendError(res, 409, `User wallet me sirf ₹${Math.round(currentWallet)} available hai. Debit amount kam karo.`);
     }
+    if (mobile === admin.mobile) return sendError(res, 409, 'Admin apne hi wallet se debit nahi kar sakta.');
     user.wallet = currentWallet - amount;
+    admin.wallet = Number(admin.wallet || 0) + amount;
     const transaction = appendTransaction(
       user.mobile,
       'WALLET_DEBIT',
@@ -2244,6 +2246,16 @@ async function handleAdminDebit(req, res) {
       '',
       String(body.note || 'Manual admin wallet debit').slice(0, 120),
       admin.mobile
+    );
+    const adminTransaction = appendTransaction(
+      admin.mobile,
+      'ADMIN_WALLET_CREDIT',
+      amount,
+      admin.wallet,
+      '',
+      `Wallet debit credit from ${user.mobile}`,
+      admin.mobile,
+      { sourceUserMobile: user.mobile, sourceTransactionId: transaction.id }
     );
     await persistDatabase();
     await notifyUserActivity(user, {
@@ -2255,17 +2267,21 @@ async function handleAdminDebit(req, res) {
     await notifyAdminsForActivity('recharge', {
       type: 'wallet-debit',
       title: 'Wallet amount debited',
-      body: `${user.name} (+91 ${user.mobile}) ke wallet se ₹${amount} debit kiye gaye.`,
-      data: { mobile: user.mobile, amount, wallet: user.wallet, transactionId: transaction.id, eventId: `wallet-debit:${transaction.id}` }
+      body: `${user.name} (+91 ${user.mobile}) ke wallet se ₹${amount} debit kiye gaye. Admin wallet balance ₹${admin.wallet}.`,
+      data: { mobile: user.mobile, amount, wallet: user.wallet, adminWallet: admin.wallet, transactionId: transaction.id, adminTransactionId: adminTransaction.id, eventId: `wallet-debit:${transaction.id}` }
     });
     queueSheetSync('user', sheetUserPayload(user));
     queueSheetSync('transaction', sheetTransactionPayload(transaction));
+    queueSheetSync('user', sheetUserPayload(admin));
+    queueSheetSync('transaction', sheetTransactionPayload(adminTransaction));
     await flushSheetSync();
     return sendJson(res, 200, {
       success: true,
       message: `₹${amount} user wallet se debit ho gaye.`, 
       user: publicUser(user),
-      transaction: sheetTransactionPayload(transaction)
+      admin: publicUser(admin),
+      transaction: sheetTransactionPayload(transaction),
+      adminTransaction: sheetTransactionPayload(adminTransaction)
     });
   });
 }

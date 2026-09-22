@@ -643,9 +643,10 @@
         var type = String(tx.type || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
         var credit = Number(tx.amount) > 0;
         var walletDebit = ['WALLETDEBIT', 'DEBIT', 'ADMINDEBIT'].indexOf(type) >= 0;
+        var adminWalletCredit = type === 'ADMINWALLETCREDIT';
         var label = type === 'RECHARGE' || type === 'WALLETRECHARGE' || type === 'WALLETTOPUP' || type === 'TOPUP'
           ? 'Wallet recharge'
-          : walletDebit ? 'Wallet debit' : 'RC download';
+          : adminWalletCredit ? 'Admin wallet credit' : walletDebit ? 'Wallet debit' : 'RC download';
         var icon = credit ? '+' : '↓';
         return '<div class="transaction"><span class="transaction-icon ' + (credit ? 'recharge' : '') + '">' + icon + '</span><span class="transaction-copy"><b>' + escapeHtml(label) + (tx.vrn ? ' · ' + escapeHtml(tx.vrn) : '') + '</b><small>' + formatDate(tx.time) + ' • Balance ' + formatMoney(tx.balanceAfter) + '</small></span><span class="transaction-amount ' + (credit ? 'credit' : 'debit') + '">' + (credit ? '+' : '') + formatMoney(tx.amount) + '</span></div>';
       }).join('');
@@ -851,7 +852,7 @@
         freshItems.forEach(function (item) {
           toast(item.title || 'New activity', item.body || '', 'info');
           if (!result.enabled && 'Notification' in window && Notification.permission === 'granted') {
-            try { new Notification(item.title || 'InstantRCcard activity', { body: item.body || '', icon: '/instant-rccard-icon-192-v20.png' }); } catch (error) {}
+            try { new Notification(item.title || 'InstantRCcard activity', { body: item.body || '', icon: '/instant-rccard-icon-192-v21.png' }); } catch (error) {}
           }
         });
       } catch (error) {}
@@ -1784,6 +1785,8 @@
       var amount = Number($('#admin-amount').value);
       if (!state.selectedAdminMobile) { toast('Pehle user search karo', 'Mobile number se user find karo.', 'error'); return; }
       if (!amount || amount <= 0) { toast('Amount enter karo', 'Recharge amount ₹1 se zyada hona chahiye.', 'error'); return; }
+      var userName = $('#admin-user-name') ? $('#admin-user-name').textContent : 'selected user';
+      if (!window.confirm(userName + ' ke wallet me ₹' + Math.round(amount) + ' recharge karna hai?')) return;
       var button = $('#admin-recharge-button');
       setButtonLoading(button, true, 'Recharge');
       try {
@@ -1811,10 +1814,14 @@
         var response = await callServer('adminDebit', [state.selectedAdminMobile, amount, 'Manual admin wallet debit']);
         if (!response.success) { toast('Debit failed', response.message, 'error'); return; }
         $('#admin-user-balance').innerHTML = formatMoney(response.user.wallet) + '<small>current wallet</small>';
+        if (response.admin && state.user && response.admin.mobile === state.user.mobile) {
+          state.user = response.admin;
+          updateWallet(response.admin.wallet);
+        }
         $('#admin-amount').value = '';
         await loadAdminTransactions();
         loadAdminStats();
-        toast('Debit successful', response.user.name + ' ke wallet se ' + formatMoney(amount) + ' debit ho gaye.', 'success');
+        toast('Debit successful', response.user.name + ' ke wallet se ' + formatMoney(amount) + ' debit ho gaye. Admin wallet me credit hua.', 'success');
       } catch (error) { toast('Debit error', error.message, 'error'); }
       finally { setButtonLoading(button, false, 'Debit'); }
     }
@@ -1905,7 +1912,7 @@
           var credit = Number(tx.amount) > 0;
           var label = type === 'RECHARGE' || type === 'WALLETRECHARGE' || type === 'WALLETTOPUP' || type === 'TOPUP'
             ? 'Wallet recharge'
-            : (['WALLETDEBIT', 'DEBIT', 'ADMINDEBIT'].indexOf(type) >= 0 ? 'Wallet debit' : 'RC download');
+            : (type === 'ADMINWALLETCREDIT' ? 'Admin wallet credit' : (['WALLETDEBIT', 'DEBIT', 'ADMINDEBIT'].indexOf(type) >= 0 ? 'Wallet debit' : 'RC download'));
           return '<tr><td>' + escapeHtml(formatDate(tx.time)) + '</td><td>' + escapeHtml(tx.mobile) + '</td><td>' + escapeHtml(label) + '</td><td class="' + (credit ? 'credit' : 'debit') + '">' + (credit ? '+' : '') + escapeHtml(formatMoney(tx.amount)) + '</td><td>' + escapeHtml(tx.vrn || '—') + '</td></tr>';
         }).join('');
       } catch (error) { /* admin table is non-critical */ }
@@ -2006,8 +2013,9 @@
         }
         var type = String(item.type || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
         var walletDebit = ['WALLETDEBIT', 'DEBIT', 'ADMINDEBIT'].indexOf(type) >= 0;
-        var isRc = Boolean(item.vrn) && !walletDebit && type !== 'RECHARGE' && type !== 'WALLETRECHARGE' && type !== 'WALLETTOPUP' && type !== 'TOPUP';
-        var label = isRc ? 'RC download · ' + (item.vrn || '—') : (walletDebit ? 'Wallet debit' : 'Wallet topup');
+        var adminWalletCredit = type === 'ADMINWALLETCREDIT';
+        var isRc = Boolean(item.vrn) && !walletDebit && !adminWalletCredit && type !== 'RECHARGE' && type !== 'WALLETRECHARGE' && type !== 'WALLETTOPUP' && type !== 'TOPUP';
+        var label = isRc ? 'RC download · ' + (item.vrn || '—') : (adminWalletCredit ? 'Admin wallet credit' : (walletDebit ? 'Wallet debit' : 'Wallet topup'));
         var second = isRc
           ? (item.mobile || '—') + ' · ' + (item.status || 'SUCCESS')
           : (item.mobile || '—') + ' · ' + (item.note || item.status || 'SUCCESS');
@@ -2054,7 +2062,7 @@
     }
 
     async function syncAccountLiveState() {
-      if (!state.user || state.user.role === 'admin' || accountLiveBusy) return;
+      if (!state.user || accountLiveBusy) return;
       accountLiveBusy = true;
       try {
         var previousWallet = Number(state.user.wallet || 0);
@@ -2074,7 +2082,7 @@
 
     function startAccountLiveUpdates() {
       stopAccountLiveUpdates();
-      if (!state.user || state.user.role === 'admin') return;
+      if (!state.user) return;
       syncAccountLiveState();
       accountLiveTimer = window.setInterval(syncAccountLiveState, 5_000);
     }
