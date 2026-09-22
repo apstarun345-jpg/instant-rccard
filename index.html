@@ -825,6 +825,37 @@
       .fetching-progress span { animation: fetching-progress 1.15s ease-in-out infinite !important; }
       .fetching-modal strong::after { animation: fetching-dots 1.05s steps(4, end) infinite !important; }
     }
+
+    /* Wallet control refresh: separate, clear Recharge and Debit actions. */
+    .wallet-control-panel { display: grid; gap: 15px; margin-bottom: 16px; padding: 16px; border: 1px solid #d7e5fb; border-radius: 18px; background: linear-gradient(135deg, #f9fbff, #eef5ff); box-shadow: 0 10px 24px rgba(29, 78, 216, .07); }
+    .wallet-user-search { display: grid; grid-template-columns: minmax(0, 1fr) 150px; gap: 12px; align-items: end; padding-bottom: 14px; border-bottom: 1px solid #dfeafa; }
+    .wallet-control-eyebrow { display: block; margin-bottom: 5px; color: #6c86ae; font-size: 9px; font-weight: 900; letter-spacing: .12em; }
+    .wallet-user-search label, .wallet-action-card > label { display: block; margin-bottom: 6px; color: #536b91; font-size: 11px; font-weight: 850; }
+    .wallet-user-search input, .wallet-action-card input { width: 100%; height: 42px; padding: 0 12px; border: 1px solid #d5e2f5; border-radius: 11px; color: var(--ink); background: #fff; font-size: 13px; outline: 0; }
+    .wallet-user-search input:focus, .wallet-action-card input:focus { border-color: #70a0ef; box-shadow: 0 0 0 3px rgba(37,99,235,.09); }
+    .wallet-action-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; }
+    .wallet-action-card { display: grid; gap: 9px; padding: 14px; border: 1px solid #dce7f7; border-radius: 15px; background: rgba(255,255,255,.9); box-shadow: 0 8px 18px rgba(41, 77, 132, .06); }
+    .wallet-action-card.wallet-recharge-card { border-color: #bcebd4; background: linear-gradient(145deg, #ffffff, #effdf6); }
+    .wallet-action-card.wallet-debit-card { border-color: #f2c9c4; background: linear-gradient(145deg, #ffffff, #fff5f3); }
+    .wallet-action-head { display: flex; align-items: center; gap: 10px; min-height: 43px; }
+    .wallet-action-icon { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 11px; color: #087c4b; background: #dff8eb; font-size: 22px; font-weight: 800; }
+    .wallet-debit-card .wallet-action-icon { color: #b42318; background: #ffe5e1; }
+    .wallet-action-head h4 { margin: 2px 0 2px; color: #163875; font-size: 14px; }
+    .wallet-action-head p { margin: 0; color: #8798b1; font-size: 10px; line-height: 1.35; }
+    .wallet-action-button { width: 100%; min-height: 40px; border: 0; border-radius: 10px; color: #fff; font-size: 11px; font-weight: 900; cursor: pointer; transition: transform .18s ease, filter .18s ease; }
+    .wallet-action-button:hover:not(:disabled) { transform: translateY(-1px); filter: brightness(.97); }
+    .wallet-action-button:disabled { cursor: not-allowed; opacity: .45; }
+    .wallet-recharge-button { background: linear-gradient(135deg, #149b62, #087344); box-shadow: 0 8px 15px rgba(8,115,68,.16); }
+    .wallet-debit-button { background: linear-gradient(135deg, #d9534f, #a9231e); box-shadow: 0 8px 15px rgba(169,35,30,.14); }
+    .transaction-copy .transaction-route { overflow: hidden; color: #6e86a7; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+    .admin-table-sub { display: block; margin-top: 3px; color: #91a1b8; font-size: 9px; font-weight: 500; }
+    .admin-table td b { color: #526887; font-size: 10px; }
+    .admin-table td { vertical-align: top; }
+    @media (max-width: 760px) {
+      .wallet-user-search { grid-template-columns: 1fr; }
+      .wallet-action-grid { grid-template-columns: 1fr; }
+      .wallet-user-search .small-blue { width: 100%; }
+    }
   </style>
 </head>
 <body>
@@ -990,7 +1021,7 @@
             <div class="admin-content">
               <div class="admin-empty-state" id="admin-no-permission" hidden><span>♙</span><h4>Admin access pending</h4><p>Is account ko abhi koi admin capability assign nahi hui. Owner se required access select karne ko bolo.</p></div>
               <div id="admin-wallet-section">
-                <div class="admin-tools" id="admin-recharge-tools"><div><label>User mobile, email ya naam</label><input id="admin-search-mobile" type="text" placeholder="9876543210, user@email.com ya Rahul" autocomplete="off" /></div><button class="blue-button small-blue" id="admin-search-button" type="button">Find user</button><div><label>Recharge / debit amount ₹</label><input id="admin-amount" type="number" min="1" step="1" placeholder="100" /></div><div class="admin-wallet-actions"><button class="blue-button small-blue" id="admin-recharge-button" type="button" disabled>Recharge</button><button class="ghost-button small-blue debit-button" id="admin-debit-button" type="button" disabled>Debit</button></div></div>
+                <div class="wallet-control-panel" id="admin-recharge-tools"><div class="wallet-user-search"><div><span class="wallet-control-eyebrow">SELECT USER</span><label>User mobile, email ya naam</label><input id="admin-search-mobile" type="text" placeholder="9876543210, user@email.com ya Rahul" autocomplete="off" /></div><button class="blue-button small-blue" id="admin-search-button" type="button">Find user</button></div><div class="wallet-action-grid"><article class="wallet-action-card wallet-recharge-card"><div class="wallet-action-head"><span class="wallet-action-icon">＋</span><div><span class="wallet-control-eyebrow">ADD BALANCE</span><h4>Recharge wallet</h4><p>User ke wallet me amount add karein.</p></div></div><label for="admin-recharge-amount">Recharge amount ₹</label><input id="admin-recharge-amount" type="number" min="1" step="1" placeholder="100" /><button class="wallet-action-button wallet-recharge-button" id="admin-recharge-button" type="button" disabled>Confirm Recharge</button></article><article class="wallet-action-card wallet-debit-card"><div class="wallet-action-head"><span class="wallet-action-icon">−</span><div><span class="wallet-control-eyebrow">COLLECT BALANCE</span><h4>Debit wallet</h4><p>User se amount lekar admin wallet me credit karein.</p></div></div><label for="admin-debit-amount">Debit amount ₹</label><input id="admin-debit-amount" type="number" min="1" step="1" placeholder="35" /><button class="wallet-action-button wallet-debit-button" id="admin-debit-button" type="button" disabled>Confirm Debit</button></article></div></div>
                 <div class="admin-user-result" id="admin-user-result" hidden>
                   <div>
                     <h4 id="admin-user-name">User</h4>
@@ -1008,7 +1039,7 @@
                 </div>
                 <div class="admin-inline-hint" id="admin-rate-inline-hint">Sabhi users ki list ke saath rate set karne ke liye <button class="admin-link-button" type="button" data-goto-admin-section="users">Users &amp; rates</button> tab kholo.</div>
                 <div class="admin-tx" id="admin-topup-requests-block"><div class="admin-topup-heading"><h4>RC wallet payment requests · 10 per page</h4><button class="admin-topup-refresh" id="refresh-topup-requests" type="button">Refresh ↻</button></div><div class="topup-request-list" id="admin-topup-request-list"><div class="empty-list">Loading payment requests…</div></div><div class="transaction-pagination" id="admin-topup-pagination" aria-label="Wallet payment request pages"></div></div>
-                <div class="admin-tx" id="admin-transactions-block"><div class="admin-topup-heading"><h4 id="admin-transactions-title">Wallet transactions · 10 per page</h4><button class="admin-topup-refresh" id="refresh-admin-transactions" type="button">Refresh ↻</button></div><div class="transaction-tabs" role="tablist" aria-label="Admin transaction categories"><button class="transaction-tab active" data-admin-transaction-category="wallet" type="button">Wallet transactions</button><button class="transaction-tab" data-admin-transaction-category="rc" type="button">RC downloads</button><button class="transaction-tab" data-admin-transaction-category="all" type="button">All</button></div><div class="table-wrap"><table class="admin-table"><thead><tr><th>TIME</th><th>MOBILE</th><th>TYPE</th><th>AMOUNT</th><th>VRN</th></tr></thead><tbody id="admin-tx-body"><tr><td colspan="5">Transactions load ho rahe hain…</td></tr></tbody></table></div><div class="transaction-pagination" id="admin-transaction-pagination" aria-label="Admin transaction pages"></div></div>
+                <div class="admin-tx" id="admin-transactions-block"><div class="admin-topup-heading"><h4 id="admin-transactions-title">Wallet transactions · 10 per page</h4><button class="admin-topup-refresh" id="refresh-admin-transactions" type="button">Refresh ↻</button></div><div class="transaction-tabs" role="tablist" aria-label="Admin transaction categories"><button class="transaction-tab active" data-admin-transaction-category="wallet" type="button">Wallet transactions</button><button class="transaction-tab" data-admin-transaction-category="rc" type="button">RC downloads</button><button class="transaction-tab" data-admin-transaction-category="all" type="button">All</button></div><div class="table-wrap"><table class="admin-table"><thead><tr><th>TIME</th><th>FROM / USER</th><th>TO / ADMIN</th><th>TYPE</th><th>AMOUNT</th><th>BALANCE</th><th>NOTE / REFERENCE</th></tr></thead><tbody id="admin-tx-body"><tr><td colspan="7">Transactions load ho rahe hain…</td></tr></tbody></table></div><div class="transaction-pagination" id="admin-transaction-pagination" aria-label="Admin transaction pages"></div></div>
               </div>
               <div id="admin-users-section" hidden>
                 <div class="ads-manager-heading"><div><div class="section-label">USER WISE RC RATE</div><h4>Users aur unka RC Card rate · 10 per page</h4><p>Kisi bhi user ke liye alag RC Card rate set karo. Us user ke download par wahi rate dikhega aur wallet se wahi amount deduct hoga.</p></div></div>

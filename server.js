@@ -916,9 +916,9 @@ function queueSheetSync(action, payload) {
   return operation;
 }
 
-// Critical mutations await this before responding so a Render process restart
-// cannot acknowledge a rate, wallet, account, or setting change before the
-// durable Google Sheet mirror has received it.
+// Legacy/administrative mutations may await this before responding. Wallet
+// mutations deliberately use queueSheetSyncInBackground so a slow Sheet cannot
+// delay the user-visible balance, history, or notification response.
 async function flushSheetSync() {
   await sheetSyncQueue;
   if (sheetSyncFailures.length) {
@@ -2051,7 +2051,23 @@ async function handleAdminResolveTopupRequest(req, res, requestId) {
     const user = findUser(request.mobile);
     if (!user || !user.active) return sendError(res, 404, 'Request ka user account nahi mila ya blocked hai.');
     user.wallet = Number(user.wallet || 0) + Math.round(amount);
-    appendTransaction(user.mobile, 'RECHARGE', Math.round(amount), user.wallet, '', `RC wallet payment request ${request.id}`, admin.mobile);
+    appendTransaction(
+      user.mobile,
+      'RECHARGE',
+      Math.round(amount),
+      user.wallet,
+      '',
+      `RC wallet payment request ${request.id}`,
+      admin.mobile,
+      {
+        sourceMobile: admin.mobile,
+        sourceName: admin.name || '',
+        targetMobile: user.mobile,
+        targetName: user.name || '',
+        adminName: admin.name || '',
+        direction: 'ADMIN_TO_USER_CREDIT'
+      }
+    );
     request.status = 'APPROVED';
     request.amountApproved = Math.round(amount);
     request.decidedAt = now;
@@ -2062,7 +2078,7 @@ async function handleAdminResolveTopupRequest(req, res, requestId) {
     await notifyUserActivity(user, {
       type: 'wallet-credit',
       title: 'Wallet balance added',
-      body: `₹${Math.round(amount)} aapke wallet me add ho gaye. New balance ₹${user.wallet}.`,
+      body: `${admin.name || 'Admin'} (+91 ${admin.mobile}) ne ₹${Math.round(amount)} aapke wallet me add kiye. New balance ₹${user.wallet}.`,
       data: { amount: Math.round(amount), wallet: user.wallet, requestId: request.id }
     });
     queueSheetSyncInBackground('topupRequest', sheetTopupRequestPayload(request), 'Wallet request approval');
@@ -2086,7 +2102,7 @@ async function handleAdminSearch(req, res) {
     user: publicUser(user),
     adminUser: publicAdminUser(user),
     defaultRcCardPrice: defaultRcCardPrice(),
-    transactions: userTransactions(user.mobile, 10)
+    transactions: userTransactions(user.mobile, 10).map(transactionViewPayload)
   });
 }
 
@@ -2285,12 +2301,28 @@ async function handleAdminRecharge(req, res) {
     const user = findUser(mobile);
     if (!user) return sendError(res, 404, 'User account nahi mila.');
     user.wallet = Number(user.wallet) + amount;
-    appendTransaction(mobile, 'RECHARGE', amount, user.wallet, '', String(body.note || 'Manual admin recharge').slice(0, 120), admin.mobile);
+    appendTransaction(
+      mobile,
+      'RECHARGE',
+      amount,
+      user.wallet,
+      '',
+      String(body.note || 'Manual admin recharge').slice(0, 120),
+      admin.mobile,
+      {
+        sourceMobile: admin.mobile,
+        sourceName: admin.name || '',
+        targetMobile: user.mobile,
+        targetName: user.name || '',
+        adminName: admin.name || '',
+        direction: 'ADMIN_TO_USER_CREDIT'
+      }
+    );
     await persistDatabase();
     await notifyUserActivity(user, {
       type: 'wallet-credit',
       title: 'Wallet balance added',
-      body: `Admin ne ₹${Math.round(amount)} aapke wallet me add kiye. New balance ₹${user.wallet}.`,
+      body: `${admin.name || 'Admin'} (+91 ${admin.mobile}) ne ₹${Math.round(amount)} aapke wallet me add kiye. New balance ₹${user.wallet}.`,
       data: { amount: Math.round(amount), wallet: user.wallet }
     });
     await notifyAdminsForActivity('recharge', {
@@ -2332,7 +2364,15 @@ async function handleAdminDebit(req, res) {
       user.wallet,
       '',
       String(body.note || 'Manual admin wallet debit').slice(0, 120),
-      admin.mobile
+      admin.mobile,
+      {
+        sourceMobile: user.mobile,
+        sourceName: user.name || '',
+        targetMobile: admin.mobile,
+        targetName: admin.name || '',
+        adminName: admin.name || '',
+        direction: 'USER_TO_ADMIN_DEBIT'
+      }
     );
     const adminTransaction = appendTransaction(
       admin.mobile,
@@ -2342,20 +2382,29 @@ async function handleAdminDebit(req, res) {
       '',
       `Wallet debit credit from ${user.mobile}`,
       admin.mobile,
-      { sourceUserMobile: user.mobile, sourceTransactionId: transaction.id }
+      {
+        sourceUserMobile: user.mobile,
+        sourceMobile: user.mobile,
+        sourceName: user.name || '',
+        targetMobile: admin.mobile,
+        targetName: admin.name || '',
+        adminName: admin.name || '',
+        sourceTransactionId: transaction.id,
+        direction: 'USER_TO_ADMIN_CREDIT'
+      }
     );
     await persistDatabase();
     await notifyUserActivity(user, {
       type: 'wallet-debit',
       title: 'Wallet amount debited',
-      body: `Admin ne ₹${amount} aapke wallet se debit kiye. New balance ₹${user.wallet}.`,
-      data: { mobile: user.mobile, amount, wallet: user.wallet, transactionId: transaction.id, eventId: `wallet-debit:${transaction.id}` }
+      body: `${admin.name || 'Admin'} (+91 ${admin.mobile}) ne ₹${amount} aapke wallet se debit kiye. New balance ₹${user.wallet}.`,
+      data: { mobile: user.mobile, userName: user.name, sourceMobile: user.mobile, sourceName: user.name, targetMobile: admin.mobile, targetName: admin.name, amount, wallet: user.wallet, transactionId: transaction.id, eventId: `wallet-debit:${transaction.id}` }
     });
     await notifyAdminsForActivity('recharge', {
-      type: 'wallet-debit',
-      title: 'Wallet amount debited',
-      body: `${user.name} (+91 ${user.mobile}) ke wallet se ₹${amount} debit kiye gaye. Admin wallet balance ₹${admin.wallet}.`,
-      data: { mobile: user.mobile, amount, wallet: user.wallet, adminWallet: admin.wallet, transactionId: transaction.id, adminTransactionId: adminTransaction.id, eventId: `wallet-debit:${transaction.id}` }
+      type: 'admin-wallet-credit',
+      title: 'Admin wallet credit received',
+      body: `${user.name} (+91 ${user.mobile}) se ₹${amount} aapke admin wallet me credit hua. New admin balance ₹${admin.wallet}.`,
+      data: { mobile: user.mobile, userName: user.name, sourceMobile: user.mobile, sourceName: user.name, targetMobile: admin.mobile, targetName: admin.name, amount, wallet: user.wallet, adminWallet: admin.wallet, transactionId: transaction.id, adminTransactionId: adminTransaction.id, eventId: `wallet-debit:${transaction.id}` }
     });
     queueSheetSyncInBackground('user', sheetUserPayload(user), 'Wallet debit user');
     queueSheetSyncInBackground('transaction', sheetTransactionPayload(transaction), 'Wallet debit transaction');
@@ -2469,6 +2518,43 @@ function transactionTime(transaction) {
 
 function normalizedTransactionType(transaction) {
   return String(transaction?.type || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+function transactionViewPayload(transaction) {
+  const type = normalizedTransactionType(transaction);
+  const account = findUser(String(transaction?.mobile || ''));
+  const admin = findUser(String(transaction?.adminMobile || ''));
+  const sourceMobile = String(transaction?.sourceMobile
+    || transaction?.sourceUserMobile
+    || ((type === 'WALLETDEBIT' || type === 'DEBIT' || type === 'ADMINDEBIT' || type === 'ADMINWALLETDEBIT') ? transaction?.mobile : (type === 'ADMINWALLETCREDIT' ? transaction?.sourceUserMobile : transaction?.adminMobile))
+    || '');
+  const targetMobile = String(transaction?.targetMobile
+    || ((type === 'WALLETDEBIT' || type === 'DEBIT' || type === 'ADMINDEBIT' || type === 'ADMINWALLETDEBIT') ? transaction?.adminMobile : (type === 'ADMINWALLETCREDIT' ? transaction?.mobile : transaction?.mobile))
+    || '');
+  const sourceUser = findUser(sourceMobile);
+  const targetUser = findUser(targetMobile);
+  const sourceName = String(transaction?.sourceName || sourceUser?.name || (sourceMobile && admin?.mobile === sourceMobile ? admin.name : '') || '');
+  const targetName = String(transaction?.targetName || targetUser?.name || (targetMobile && admin?.mobile === targetMobile ? admin.name : '') || '');
+  const accountName = String(transaction?.userName || account?.name || '');
+  const adminName = String(transaction?.adminName || admin?.name || '');
+  let direction = String(transaction?.direction || '');
+  if (!direction) {
+    if (type === 'WALLETDEBIT' || type === 'DEBIT' || type === 'ADMINDEBIT' || type === 'ADMINWALLETDEBIT') direction = 'USER_TO_ADMIN_DEBIT';
+    else if (type === 'ADMINWALLETCREDIT') direction = 'USER_TO_ADMIN_CREDIT';
+    else if (type === 'RECHARGE' || type === 'WALLETRECHARGE' || type === 'WALLETTOPUP' || type === 'TOPUP') direction = 'ADMIN_TO_USER_CREDIT';
+    else if (transaction?.vrn) direction = 'USER_RC_PURCHASE';
+  }
+  return {
+    ...transaction,
+    userName: accountName,
+    userMobile: String(transaction?.mobile || ''),
+    adminName,
+    sourceName,
+    sourceMobile,
+    targetName,
+    targetMobile,
+    direction
+  };
 }
 
 function successfulTransaction(transaction) {
@@ -2702,15 +2788,10 @@ async function handleAdminKpiDetails(req, res, searchParams) {
     items = requests;
   } else if (type.indexOf('rc-') === 0 || type.endsWith('-rc')) {
     title = 'RC download details';
-    items = rcDownloads.slice().reverse().map((tx) => ({
-      time: tx.time, mobile: tx.mobile, amount: Number(tx.amount || 0), vrn: tx.vrn || '', status: tx.status || 'SUCCESS', note: tx.note || ''
-    }));
+    items = rcDownloads.slice().reverse().map((tx) => transactionViewPayload(tx));
   } else {
     title = 'Wallet topup details';
-    items = topups.slice().reverse().map((tx) => ({
-      time: tx.time, mobile: tx.mobile, amount: Number(tx.amount || 0), balanceAfter: Number(tx.balanceAfter || 0),
-      adminMobile: tx.adminMobile || '', note: tx.note || '', status: tx.status || 'SUCCESS'
-    }));
+    items = topups.slice().reverse().map((tx) => transactionViewPayload(tx));
   }
   const pageData = paginatedCollection(items, searchParams, 'page', false);
   return sendJson(res, 200, {
@@ -2934,7 +3015,8 @@ const server = http.createServer(async (req, res) => {
       const user = currentUser(req);
       if (!user) return sendError(res, 401, 'Session expire ho gaya.');
       const userTransactionRows = db.transactions.filter((transaction) => transaction.mobile === user.mobile);
-      return sendJson(res, 200, { success: true, ...paginatedTransactions(userTransactionRows, url.searchParams) });
+      const pageData = paginatedTransactions(userTransactionRows, url.searchParams);
+      return sendJson(res, 200, { success: true, ...pageData, transactions: pageData.transactions.map(transactionViewPayload) });
     }
     if (req.method === 'POST' && pathname === '/api/wallet/topup-request') return await handleCreateTopupRequest(req, res);
     if (req.method === 'POST' && pathname === '/api/wallet/topup-whatsapp') return await handleWalletTopupWhatsapp(req, res);
@@ -2968,7 +3050,8 @@ const server = http.createServer(async (req, res) => {
       const transactionRows = isMainAdmin(admin)
         ? db.transactions.slice()
         : db.transactions.filter((tx) => tx.adminMobile === admin.mobile);
-      return sendJson(res, 200, { success: true, ...paginatedTransactions(transactionRows, url.searchParams) });
+      const pageData = paginatedTransactions(transactionRows, url.searchParams);
+      return sendJson(res, 200, { success: true, ...pageData, transactions: pageData.transactions.map(transactionViewPayload) });
     }
     if (req.method === 'GET') return await serveStatic(req, res, pathname);
     return sendError(res, 405, 'Method not allowed');

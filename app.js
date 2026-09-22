@@ -1,5 +1,5 @@
 
-    var state = { token: '', user: null, selectedAdminMobile: '', selectedAdminQuery: '', defaultRcCardPrice: 15, pendingVrn: '', busy: false, adminUsersQuery: '', adminUsersPage: 1, adminUsersPages: 1, adminAccessQuery: '', adminAccessPage: 1, adminAccessPages: 1, adminRateLogPage: 1, adminRateLogPages: 1, adminTopupPage: 1, adminTopupPages: 1, bulkConfirm: false, supportWhatsapp: '', supportPaymentQr: '', supportPaymentQrUrl: '', pendingTopupAmount: 0, adminKpiDetail: '', adminKpiDetailPage: 1, adminKpiDetailPages: 1, adminLiveBusy: false, notificationIds: {}, notifications: [], notificationUnread: 0, notificationPollTimer: null, notificationInitialised: false, purchaseRequestKey: '', purchaseRequestVrn: '', purchaseRequestType: '', transactionCategory: 'wallet', transactionPage: 1, transactionPages: 1, adminTransactionCategory: 'wallet', adminTransactionPage: 1, adminTransactionPages: 1 };
+    var state = { token: '', user: null, selectedAdminMobile: '', selectedAdminQuery: '', defaultRcCardPrice: 15, pendingVrn: '', busy: false, adminUsersQuery: '', adminUsersPage: 1, adminUsersPages: 1, adminAccessQuery: '', adminAccessPage: 1, adminAccessPages: 1, adminRateLogPage: 1, adminRateLogPages: 1, adminTopupPage: 1, adminTopupPages: 1, bulkConfirm: false, supportWhatsapp: '', supportPaymentQr: '', supportPaymentQrUrl: '', pendingTopupAmount: 0, adminKpiDetail: '', adminKpiDetailPage: 1, adminKpiDetailPages: 1, adminLiveBusy: false, notificationIds: {}, notifications: [], notificationUnread: 0, notificationPollTimer: null, notificationInitialised: false, purchaseRequestKey: '', purchaseRequestVrn: '', purchaseRequestType: '', transactionCategory: 'wallet', transactionPage: 1, transactionPages: 1, transactionRequestSerial: 0, adminTransactionCategory: 'wallet', adminTransactionPage: 1, adminTransactionPages: 1, adminTransactionRequestSerial: 0 };
     var DOWNLOAD_PRICES = { mparivahan: 10, 'rc-card': 15 };
     var $ = function (selector) { return document.querySelector(selector); };
     var $$ = function (selector) { return Array.prototype.slice.call(document.querySelectorAll(selector)); };
@@ -73,7 +73,7 @@
       else if (name === 'logout') { url = '/api/auth/logout'; options.method = 'POST'; }
       else if (name === 'getMe') { url = '/api/auth/session'; }
       else if (name === 'buyRc') { url = '/api/rc/purchase'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ vrn: args[0], downloadType: args[1] || 'mparivahan', idempotencyKey: args[2] || '' }); }
-      else if (name === 'getMyTransactions') { url = '/api/account/transactions?category=' + encodeURIComponent(args[0] || 'wallet') + '&page=' + encodeURIComponent(args[1] || 1) + '&limit=10'; }
+      else if (name === 'getMyTransactions') { url = '/api/account/transactions?category=' + encodeURIComponent(args[0] || 'wallet') + '&page=' + encodeURIComponent(args[1] || 1) + '&limit=10' + (args[2] ? '&refresh=' + encodeURIComponent(args[2]) : ''); }
       else if (name === 'getAds') { url = '/api/ads'; }
       else if (name === 'getSupportSettings') { url = '/api/support-settings'; }
       else if (name === 'getNotificationPublicKey') { url = '/api/notifications/public-key'; }
@@ -113,7 +113,7 @@
         url = '/api/admin/wallet/topup-requests?' + topupQs.toString();
       }
       else if (name === 'adminResolveTopupRequest') { url = '/api/admin/wallet/topup-requests/' + encodeURIComponent(args[0]); options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ status: args[1], amount: args[2], reason: args[3] || '' }); }
-      else if (name === 'adminGetTransactions') { url = '/api/admin/transactions?category=' + encodeURIComponent(args[0] || 'wallet') + '&page=' + encodeURIComponent(args[1] || 1) + '&limit=10'; }
+      else if (name === 'adminGetTransactions') { url = '/api/admin/transactions?category=' + encodeURIComponent(args[0] || 'wallet') + '&page=' + encodeURIComponent(args[1] || 1) + '&limit=10' + (args[2] ? '&refresh=' + encodeURIComponent(args[2]) : ''); }
       else if (name === 'adminGetStats') {
         var qs = new URLSearchParams();
         if (args[0] && args[0].from) qs.set('from', args[0].from);
@@ -662,6 +662,8 @@
       state.adminRateLogPages = 1;
       state.adminKpiDetailPage = 1;
       state.adminKpiDetailPages = 1;
+      state.transactionRequestSerial = 0;
+      state.adminTransactionRequestSerial = 0;
       state.adminKpiDetail = '';
       if ($('#admin-kpi-detail-panel')) $('#admin-kpi-detail-panel').hidden = true;
       $('#auth-view').hidden = false;
@@ -692,6 +694,30 @@
       if (['WALLETDEBIT', 'DEBIT', 'ADMINDEBIT', 'ADMINWALLETDEBIT'].indexOf(type) >= 0) return 'Wallet debit';
       if (['RECHARGE', 'WALLETRECHARGE', 'WALLETTOPUP', 'TOPUP'].indexOf(type) >= 0) return 'Wallet recharge';
       return 'RC download';
+    }
+
+    function transactionParty(transaction, side) {
+      var type = clientTransactionType(transaction);
+      var source = side === 'source';
+      var name = source ? (transaction.sourceName || transaction.userName || transaction.adminName || transaction.mobile) : (transaction.targetName || transaction.adminName || transaction.userName || transaction.mobile);
+      var mobile = source ? (transaction.sourceMobile || transaction.userMobile || transaction.mobile) : (transaction.targetMobile || (type === 'ADMINWALLETCREDIT' ? transaction.mobile : transaction.adminMobile) || transaction.mobile);
+      if (type.indexOf('RC') >= 0 && !source) { name = 'InstantRCcard'; mobile = ''; }
+      return { name: String(name || '—'), mobile: String(mobile || '') };
+    }
+
+    function transactionRouteText(transaction, adminView) {
+      var type = clientTransactionType(transaction);
+      var from = transactionParty(transaction, 'source');
+      var to = transactionParty(transaction, 'target');
+      if (adminView) {
+        if (type.indexOf('RC') >= 0) return 'From ' + from.name + (from.mobile ? ' (+91 ' + from.mobile + ')' : '') + ' → RC service';
+        return 'From ' + from.name + (from.mobile ? ' (+91 ' + from.mobile + ')' : '') + ' → ' + to.name + (to.mobile ? ' (+91 ' + to.mobile + ')' : '');
+      }
+      if (type === 'WALLETDEBIT' || type === 'DEBIT' || type === 'ADMINDEBIT' || type === 'ADMINWALLETDEBIT') return 'Admin ' + to.name + (to.mobile ? ' (+91 ' + to.mobile + ')' : '') + ' ne wallet se debit kiya';
+      if (type === 'ADMINWALLETCREDIT') return 'User ' + from.name + (from.mobile ? ' (+91 ' + from.mobile + ')' : '') + ' se admin wallet me credit';
+      if (['RECHARGE', 'WALLETRECHARGE', 'WALLETTOPUP', 'TOPUP'].indexOf(type) >= 0) return 'Admin ' + from.name + (from.mobile ? ' (+91 ' + from.mobile + ')' : '') + ' ne wallet me add kiya';
+      if (transaction.vrn) return 'RC download payment';
+      return transaction.note || 'Wallet activity';
     }
 
     function renderPageButtons(container, page, pages, onPage) {
@@ -740,25 +766,31 @@
         var kind = clientTransactionKind(tx);
         var label = clientTransactionLabel(tx);
         var icon = kind === 'rc' ? 'RC' : (credit ? '+' : '↓');
-        return '<div class="transaction"><span class="transaction-icon ' + (credit ? 'recharge' : '') + '">' + icon + '</span><span class="transaction-copy"><b>' + escapeHtml(label) + (tx.vrn ? ' · ' + escapeHtml(tx.vrn) : '') + '</b><small>' + formatDate(tx.time) + ' • Balance ' + formatMoney(tx.balanceAfter) + '</small></span><span class="transaction-amount ' + (credit ? 'credit' : 'debit') + '">' + (credit ? '+' : '') + formatMoney(tx.amount) + '</span></div>';
+        var route = transactionRouteText(tx, false);
+        var note = tx.note ? ' • ' + tx.note : '';
+        return '<div class="transaction"><span class="transaction-icon ' + (credit ? 'recharge' : '') + '">' + icon + '</span><span class="transaction-copy"><b>' + escapeHtml(label) + (tx.vrn ? ' · ' + escapeHtml(tx.vrn) : '') + '</b><small>' + escapeHtml(formatDate(tx.time)) + ' • Balance ' + escapeHtml(formatMoney(tx.balanceAfter)) + '</small><small class="transaction-route">' + escapeHtml(route + note) + '</small></span><span class="transaction-amount ' + (credit ? 'credit' : 'debit') + '">' + (credit ? '+' : '') + escapeHtml(formatMoney(tx.amount)) + '</span></div>';
       }).join('');
       renderPageButtons($('#transaction-pagination'), payload && payload.page, payload && payload.pages, function (page) { loadTransactions(state.transactionCategory, page); });
       updateUserTransactionTabs();
     }
 
-    async function loadTransactions(category, page) {
+    async function loadTransactions(category, page, forceRefresh) {
       category = category || state.transactionCategory || 'wallet';
       page = Number(page || state.transactionPage || 1);
       state.transactionCategory = category;
       state.transactionPage = page;
+      var requestSerial = ++state.transactionRequestSerial;
       try {
-        var result = await callServer('getMyTransactions', [category, page]);
+        var result = await callServer('getMyTransactions', [category, page, forceRefresh ? Date.now() : '']);
+        if (requestSerial !== state.transactionRequestSerial) return;
         if (result.success) {
           state.transactionPage = Number(result.page || page);
           state.transactionPages = Number(result.pages || 1);
           renderTransactions(result);
+          return true;
         }
-      } catch (error) { /* keep the dashboard usable */ }
+        return false;
+      } catch (error) { return false; }
     }
 
     function renderAds(ads) {
@@ -954,6 +986,11 @@
         });
         state.notificationInitialised = true;
         setNotificationItems(items);
+        if (freshItems.some(function (item) { return /wallet|topup|debit|credit|recharge/i.test(String(item.type || '') + ' ' + String(item.title || '')); })) {
+          if (state.user.role === 'admin' && hasAdminPermission('transactions')) loadAdminTransactions(state.adminTransactionCategory, state.adminTransactionPage, true);
+          if (state.user.role === 'admin' && hasAdminPermission('recharge')) loadAdminTopupRequests(state.adminTopupPage);
+          if (state.user.role !== 'admin') syncAccountLiveState();
+        }
         freshItems.forEach(function (item) {
           toast(item.title || 'New activity', item.body || '', 'info');
           if (!result.enabled && 'Notification' in window && Notification.permission === 'granted') {
@@ -1927,7 +1964,7 @@
 
     async function rechargeAdminUser() {
       if (!hasAdminPermission('recharge')) { toast('Access restricted', 'Is admin account ko recharge access nahi diya gaya.', 'error'); return; }
-      var amount = Number($('#admin-amount').value);
+      var amount = Number($('#admin-recharge-amount').value);
       if (!state.selectedAdminMobile) { toast('Pehle user search karo', 'Mobile number se user find karo.', 'error'); return; }
       if (!amount || amount <= 0) { toast('Amount enter karo', 'Recharge amount ₹1 se zyada hona chahiye.', 'error'); return; }
       var userName = $('#admin-user-name') ? $('#admin-user-name').textContent : 'selected user';
@@ -1938,17 +1975,17 @@
         var response = await callServer('adminRecharge', [state.selectedAdminMobile, amount, 'Manual admin recharge']);
         if (!response.success) { toast('Recharge failed', response.message, 'error'); return; }
         $('#admin-user-balance').innerHTML = formatMoney(response.user.wallet) + '<small>current wallet</small>';
-        $('#admin-amount').value = '';
-        await loadAdminTransactions();
+        $('#admin-recharge-amount').value = '';
+        await loadAdminTransactions(state.adminTransactionCategory, state.adminTransactionPage, true);
         loadAdminStats();
         toast('Recharge successful', response.user.name + ' ke wallet me ' + formatMoney(amount) + ' add ho gaye.', 'success');
       } catch (error) { toast('Recharge error', error.message, 'error'); }
-      finally { setButtonLoading(button, false, 'Recharge'); }
+      finally { setButtonLoading(button, false, 'Confirm Recharge'); }
     }
 
     async function debitAdminUser() {
       if (!hasAdminPermission('recharge')) { toast('Access restricted', 'Is admin account ko wallet access nahi diya gaya.', 'error'); return; }
-      var amount = Number($('#admin-amount').value);
+      var amount = Number($('#admin-debit-amount').value);
       if (!state.selectedAdminMobile) { toast('Pehle user search karo', 'Mobile number se user find karo.', 'error'); return; }
       if (!amount || amount <= 0) { toast('Amount enter karo', 'Debit amount ₹1 se zyada hona chahiye.', 'error'); return; }
       var userName = $('#admin-user-name') ? $('#admin-user-name').textContent : 'selected user';
@@ -1963,12 +2000,12 @@
           state.user = response.admin;
           updateWallet(response.admin.wallet);
         }
-        $('#admin-amount').value = '';
-        await loadAdminTransactions();
+        $('#admin-debit-amount').value = '';
+        await loadAdminTransactions(state.adminTransactionCategory, state.adminTransactionPage, true);
         loadAdminStats();
         toast('Debit successful', response.user.name + ' ke wallet se ' + formatMoney(amount) + ' debit ho gaye. Admin wallet me credit hua.', 'success');
       } catch (error) { toast('Debit error', error.message, 'error'); }
-      finally { setButtonLoading(button, false, 'Debit'); }
+      finally { setButtonLoading(button, false, 'Confirm Debit'); }
     }
 
     async function loadAdminTopupRequests(page) {
@@ -2060,31 +2097,53 @@
       if ($('#admin-transactions-title')) $('#admin-transactions-title').textContent = (state.adminTransactionCategory === 'rc' ? 'RC download transactions' : state.adminTransactionCategory === 'all' ? 'All transactions' : 'Wallet transactions') + ' · 10 per page';
     }
 
-    async function loadAdminTransactions(category, page) {
+    async function loadAdminTransactions(category, page, forceRefresh) {
       if (!state.user || state.user.role !== 'admin' || !hasAdminPermission('transactions')) return;
       category = category || state.adminTransactionCategory || 'wallet';
       page = Number(page || state.adminTransactionPage || 1);
       state.adminTransactionCategory = category;
       state.adminTransactionPage = page;
+      var requestSerial = ++state.adminTransactionRequestSerial;
       updateAdminTransactionTabs();
       try {
-        var response = await callServer('adminGetTransactions', [category, page]);
+        var response = await callServer('adminGetTransactions', [category, page, forceRefresh ? Date.now() : '']);
+        if (requestSerial !== state.adminTransactionRequestSerial) return;
         if (!response.success) return;
         var body = $('#admin-tx-body');
         if (!response.transactions || !response.transactions.length) {
-          body.innerHTML = '<tr><td colspan="5">Is category me abhi koi transaction nahi hai.</td></tr>';
+          body.innerHTML = '<tr><td colspan="7">Is category me abhi koi transaction nahi hai.</td></tr>';
+          state.adminTransactionPage = Number(response.page || page);
+          state.adminTransactionPages = Number(response.pages || 1);
           renderPageButtons($('#admin-transaction-pagination'), response.page, response.pages, function (nextPage) { loadAdminTransactions(state.adminTransactionCategory, nextPage); });
-          return;
+          return true;
         }
         body.innerHTML = response.transactions.map(function (tx) {
           var credit = Number(tx.amount) > 0;
           var label = clientTransactionLabel(tx);
-          return '<tr><td>' + escapeHtml(formatDate(tx.time)) + '</td><td>' + escapeHtml(tx.mobile) + '</td><td>' + escapeHtml(label) + '</td><td class="' + (credit ? 'credit' : 'debit') + '">' + (credit ? '+' : '') + escapeHtml(formatMoney(tx.amount)) + '</td><td>' + escapeHtml(tx.vrn || '—') + '</td></tr>';
+          var from = transactionParty(tx, 'source');
+          var to = transactionParty(tx, 'target');
+          var note = tx.note || tx.vrn || tx.sourceTransactionId || '—';
+          return '<tr><td>' + escapeHtml(formatDate(tx.time)) + '</td><td><b>' + escapeHtml(from.name) + '</b><small class="admin-table-sub">' + escapeHtml(from.mobile ? '+91 ' + from.mobile : '—') + '</small></td><td><b>' + escapeHtml(to.name) + '</b><small class="admin-table-sub">' + escapeHtml(to.mobile ? '+91 ' + to.mobile : '—') + '</small></td><td><b>' + escapeHtml(label) + '</b><small class="admin-table-sub">' + escapeHtml(tx.direction || '') + '</small></td><td class="' + (credit ? 'credit' : 'debit') + '">' + (credit ? '+' : '') + escapeHtml(formatMoney(tx.amount)) + '</td><td>' + escapeHtml(formatMoney(tx.balanceAfter)) + '</td><td title="' + escapeHtml(String(note)) + '">' + escapeHtml(String(note)) + '</td></tr>';
         }).join('');
         state.adminTransactionPage = Number(response.page || page);
         state.adminTransactionPages = Number(response.pages || 1);
         renderPageButtons($('#admin-transaction-pagination'), response.page, response.pages, function (nextPage) { loadAdminTransactions(state.adminTransactionCategory, nextPage); });
-      } catch (error) { /* admin table is non-critical */ }
+        return true;
+      } catch (error) { return false; }
+    }
+
+    async function refreshAdminTransactions() {
+      var button = $('#refresh-admin-transactions');
+      if (button) setButtonLoading(button, true, 'Refresh ↻');
+      try {
+        var refreshed = await loadAdminTransactions(state.adminTransactionCategory, state.adminTransactionPage, true);
+        if (!refreshed) throw new Error('Latest transaction response nahi mili.');
+        toast('Transactions refreshed', 'Latest wallet history server se sync ho gayi.', 'success');
+      } catch (error) {
+        toast('Refresh failed', error.message || 'Transactions refresh nahi ho paayi.', 'error');
+      } finally {
+        if (button) setButtonLoading(button, false, 'Refresh ↻');
+      }
     }
 
     function renderAdminActivity(activity, scope) {
@@ -2181,14 +2240,12 @@
           return '<div class="admin-kpi-detail-row"><div><b>' + escapeHtml(item.name || 'User') + ' · +91 ' + escapeHtml(item.mobile || '—') + '</b><small>' + escapeHtml(item.email || 'Email not set') + ' · ' + escapeHtml(item.status || '') + '</small></div><div class="admin-kpi-detail-value">' + escapeHtml(formatMoney(item.wallet)) + '</div></div>';
         }
         var type = String(item.type || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-        var walletDebit = ['WALLETDEBIT', 'DEBIT', 'ADMINDEBIT'].indexOf(type) >= 0;
+        var walletDebit = ['WALLETDEBIT', 'DEBIT', 'ADMINDEBIT', 'ADMINWALLETDEBIT'].indexOf(type) >= 0;
         var adminWalletCredit = type === 'ADMINWALLETCREDIT';
         var isRc = Boolean(item.vrn) && !walletDebit && !adminWalletCredit && type !== 'RECHARGE' && type !== 'WALLETRECHARGE' && type !== 'WALLETTOPUP' && type !== 'TOPUP';
         var label = isRc ? 'RC download · ' + (item.vrn || '—') : (adminWalletCredit ? 'Admin wallet credit' : (walletDebit ? 'Wallet debit' : 'Wallet topup'));
-        var second = isRc
-          ? (item.mobile || '—') + ' · ' + (item.status || 'SUCCESS')
-          : (item.mobile || '—') + ' · ' + (item.note || item.status || 'SUCCESS');
-        return '<div class="admin-kpi-detail-row"><div><b>' + escapeHtml(label) + '</b><small>' + escapeHtml(formatDate(item.time)) + ' · +91 ' + escapeHtml(second) + '</small></div><div class="admin-kpi-detail-value">' + escapeHtml((Number(item.amount || 0) < 0 ? '−' : '+') + formatMoney(Math.abs(Number(item.amount || 0)))) + '</div></div>';
+        var second = transactionRouteText(item, true) + (item.note ? ' · ' + item.note : '');
+        return '<div class="admin-kpi-detail-row"><div><b>' + escapeHtml(label) + '</b><small>' + escapeHtml(formatDate(item.time)) + ' · ' + escapeHtml(second) + '</small></div><div class="admin-kpi-detail-value">' + escapeHtml((Number(item.amount || 0) < 0 ? '−' : '+') + formatMoney(Math.abs(Number(item.amount || 0)))) + '</div></div>';
       }).join('');
     }
 
@@ -2251,7 +2308,7 @@
           state.user = response.user;
           updateWallet(response.user.wallet);
           applyRcPrice(priceForDownload('rc-card'));
-          if (Number(response.user.wallet || 0) !== previousWallet) loadTransactions();
+          if (Number(response.user.wallet || 0) !== previousWallet) loadTransactions(state.transactionCategory, state.transactionPage, true);
         }
       } catch (error) {
         // A temporary poll failure must not interrupt the active session.
@@ -2654,11 +2711,24 @@
         }
       });
     });
-    $('#refresh-transactions').addEventListener('click', function () { loadTransactions(state.transactionCategory, state.transactionPage); });
+    async function refreshUserTransactions() {
+      var button = $('#refresh-transactions');
+      if (button) setButtonLoading(button, true, 'Refresh ↻');
+      try {
+        var refreshed = await loadTransactions(state.transactionCategory, state.transactionPage, true);
+        if (!refreshed) throw new Error('Latest history response nahi mili.');
+        toast('History refreshed', 'Latest wallet/RC history server se sync ho gayi.', 'success');
+      } catch (error) {
+        toast('Refresh failed', error.message || 'History refresh nahi ho paayi.', 'error');
+      } finally {
+        if (button) setButtonLoading(button, false, 'Refresh ↻');
+      }
+    }
+    $('#refresh-transactions').addEventListener('click', refreshUserTransactions);
     $$('[data-user-transaction-category]').forEach(function (button) {
       button.addEventListener('click', function () { state.transactionPage = 1; loadTransactions(button.dataset.userTransactionCategory, 1); });
     });
-    if ($('#refresh-admin-transactions')) $('#refresh-admin-transactions').addEventListener('click', function () { loadAdminTransactions(state.adminTransactionCategory, state.adminTransactionPage); });
+    if ($('#refresh-admin-transactions')) $('#refresh-admin-transactions').addEventListener('click', refreshAdminTransactions);
     $$('[data-admin-transaction-category]').forEach(function (button) {
       button.addEventListener('click', function () { state.adminTransactionPage = 1; loadAdminTransactions(button.dataset.adminTransactionCategory, 1); });
     });
