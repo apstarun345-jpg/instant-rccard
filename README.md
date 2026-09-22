@@ -1,42 +1,72 @@
-# InstantRCcard — Apps Script Sheet mirror
+# InstantRCcard — Railway-only primary release
 
-This Apps Script is the private Google Sheet mirror and durable restore source for the direct Node website. Visitors use the Render Node URL, not the Apps Script URL.
+This archive is for the Railway service only. Railway is the single canonical application, JSON writer and Google Sheet mirror for `https://instantrccard.in/`. No Render proxy configuration is included or required. The Railway-only build disables the legacy secondary-deployment and upstream-proxy targets.
 
-## Required setup
-
-1. Use a private Google Sheet, then open **Extensions → Apps Script**.
-2. Paste `Code.gs` and keep an HTML file named `Index` if you also want the legacy Apps Script page.
-3. In **Project Settings → Script properties**, set:
+## Deploy on Railway
 
 ```text
-SHEET_SYNC_SECRET = same secret used by the Node service
-ADMIN_MOBILE = your admin mobile
-RC_API_TOKEN = provider token if the legacy Apps Script UI is used
+Runtime: Node.js 20+
+Build command: npm install
+Start command: npm start
+Health check: GET /api/health
+
+Build marker: wallet-direct-v8-railway-primary
 ```
 
-4. Run `setupInstantRCcard` once and authorize permissions.
-5. Deploy as a Web App:
-   - Execute as: **Me**
-   - Who has access: **Anyone** or your organization
-6. Put the `/exec` URL in Render as `SHEET_WEBHOOK_URL`.
+The server binds to `0.0.0.0` and uses Railway's supplied `PORT`. Deploy the extracted package as a Railway service, attach the custom domain, and configure the variables in `.env.example` through Railway Variables. Do not commit a real `.env`, JSON database, provider token, Sheet secret or VAPID private key.
 
-## Sheets created
+## Required Railway variables
 
-- `Users` and `Transactions`: legacy Apps Script database
-- `Web_Users` and `Web_Transactions`: direct Node mirror
-- `Web_Accounts`: private durable account records, including password hashes/salts, recovery email and delegated admin permissions
-- `Web_Ads`: public advertisement mirror
-- `Web_Settings`: homepage rating, public counters and default RC Card rate
-- `adminPermissions` is mirrored as JSON in both `Web_Users` and `Web_Accounts`, and is restored by `webSnapshot_()`
-- `rcCardPrice`, `rcRateUpdatedAt` and `rcRateUpdatedBy` are mirrored with the account so custom user rates survive unrelated updates and restore; a blank rate is only treated as an intentional clear when its update timestamp is present
-- `supportWhatsapp` and `paymentQr` are mirrored in `Web_Settings` so Main Admin's wallet/help WhatsApp configuration survives restore
-- `Web_RateLog`: admin custom-rate audit history
-- `Web_TopupRequests`: durable wallet payment-request ledger, including the client payment reference.
-- `Web_Notifications`: durable in-app notification history and read state.
-- `Web_PushSubscriptions`: one row per subscribed user/device endpoint so background push survives a Node restart/redeploy; stale or unsubscribed endpoints are removed.
-- `Web_Accounts.userId` and `Web_Users.userId` now use short display IDs such as `u1`, `u2`; the original internal UUID is retained in `internalUserId` for safe session/data restoration.
-- `Web_Transactions.id` now uses short display IDs such as `T1`, `T2`; the original internal UUID is retained in `internalTransactionId`. Existing long IDs in all three mirror sheets are migrated when the mirror is initialized. Each row keeps request ID, user/mobile, requested amount, final approved amount, status, timestamps, approver and rejection reason. The row is upserted on creation and on every approval/rejection, so restart/redeploy cannot recreate or double-credit a request.
+```text
+RC_API_URL=https://api.apnirc.xyz/api/b2b/get-rc
+RC_API_TOKEN=your-private-provider-token
+ADMIN_MOBILE=your-owner-mobile
+SESSION_SECRET=one-long-fixed-random-secret
+SHEET_WEBHOOK_URL=your-private-Apps-Script-exec-url
+SHEET_SYNC_SECRET=the-private-Sheet-secret
+APP_TIME_ZONE=Asia/Kolkata
+```
 
-The Node service requests a private snapshot at the Apps Script `/exec` URL during startup. This restores users, wallets, transactions, advertisements, custom RC Card rates, the custom-rate audit ledger, support/QR settings, global pricing, admin settings, notification history/read state and push subscriptions after a Render/Railway restart or redeploy when the local JSON file is not persistent. On the first request after this version is deployed, `ensureWebMirrorSheets_()` also imports any older `Users` and `Transactions` rows into the direct Node mirror instead of replacing them with only newly created accounts. Legacy Apps Script SHA-256 password hashes are accepted once and upgraded to the current Node scrypt format after login. Critical Node mutations wait for the mirror response before returning success. The rate ledger is also used to recover a custom rate when an older account row has an empty `rcCardPrice` cell.
+Optional background notification delivery uses `WEB_PUSH_VAPID_PUBLIC_KEY`, `WEB_PUSH_VAPID_PRIVATE_KEY` and `WEB_PUSH_SUBJECT`. In-app notifications work without VAPID keys while the dashboard is open.
 
-After deploying a new Apps Script version, update the existing Web App deployment to that version; editing the project alone does not update the `/exec` URL. Keep the spreadsheet private. Passwords are stored only as hashes/salts, but the account mirror still contains sensitive account metadata.
+Remove or leave blank any old `PRIMARY_API_URL`, `PROXY_TO_PRIMARY`, `CROSS_DEPLOY_PRIMARY_URL` or `CROSS_DEPLOY_SYNC_SECRET` variables. This package hard-disables those secondary-deployment paths.
+
+## Google Sheet recovery and mirror
+
+1. Deploy `apps-script/Code.gs` and `apps-script/Index.html` as the private Apps Script Web App.
+2. Run `setupInstantRCcard` once using the existing Sheet.
+3. Keep the same `/exec` URL and matching `SHEET_SYNC_SECRET` in Railway.
+4. Deploy or restart the Railway service. It restores users, wallets, transactions, RC downloads, ads, settings, rates, notifications and top-up requests before accepting traffic.
+
+Production durability remains JSON plus Google Sheet mirror; SQL, SQLite, paid storage and mandatory persistent volumes are not used. The local JSON file is a cache/fallback only.
+
+## Live updates and notifications
+
+- In-app notification records are written before Google Sheet notification mirroring.
+- Web Push delivery begins immediately after notification persistence.
+- In-app notification polling runs every 5 seconds.
+- User wallet/session/transaction refresh runs every 5 seconds while the dashboard is open.
+- Admin KPI and top-up request refresh runs every 5 seconds.
+- Wallet recharge, top-up approval/rejection and RC download events are deduplicated by event data where applicable.
+
+## Health check after deployment
+
+Open `https://instantrccard.in/api/health` and confirm: 
+
+```json
+{
+  "build": "wallet-direct-v8-railway-primary",
+  "proxyToPrimary": false,
+  "primaryApiConfigured": false,
+  "storage": "json+google-sheet",
+  "durableStore": "google-sheet-mirror",
+  "sheetSyncConfigured": true,
+  "restore": { "status": "success" }
+}
+```
+
+Also confirm the restored user, transaction and RC-download counts match the Sheet before allowing new signups.
+
+## Safety
+
+The archive contains no production data, no secrets, no `.env`, no `node_modules`, no SQL/SQLite files and no `storage.js`. Keep `SESSION_SECRET` fixed across redeploys and rotate any provider, Sheet or VAPID credential that was ever exposed.
