@@ -2218,6 +2218,58 @@ async function handleAdminRecharge(req, res) {
   });
 }
 
+async function handleAdminDebit(req, res) {
+  const admin = requireAdmin(req, res, 'recharge');
+  if (!admin) return;
+  const body = await readJson(req);
+  const mobile = normalizeMobile(body.mobile);
+  const rawAmount = Number(body.amount);
+  if (!validMobile(mobile)) return sendError(res, 422, 'Valid user mobile number daalo.');
+  if (!Number.isFinite(rawAmount) || rawAmount <= 0 || rawAmount > 100000) return sendError(res, 422, 'Debit amount ₹1 se ₹100000 ke beech hona chahiye.');
+  const amount = Math.round(rawAmount);
+
+  return withMutationLock(async () => {
+    const user = findUser(mobile);
+    if (!user) return sendError(res, 404, 'User account nahi mila.');
+    const currentWallet = Number(user.wallet || 0);
+    if (currentWallet < amount) {
+      return sendError(res, 409, `User wallet me sirf ₹${Math.round(currentWallet)} available hai. Debit amount kam karo.`);
+    }
+    user.wallet = currentWallet - amount;
+    const transaction = appendTransaction(
+      user.mobile,
+      'WALLET_DEBIT',
+      -amount,
+      user.wallet,
+      '',
+      String(body.note || 'Manual admin wallet debit').slice(0, 120),
+      admin.mobile
+    );
+    await persistDatabase();
+    await notifyUserActivity(user, {
+      type: 'wallet-debit',
+      title: 'Wallet amount debited',
+      body: `Admin ne ₹${amount} aapke wallet se debit kiye. New balance ₹${user.wallet}.`,
+      data: { mobile: user.mobile, amount, wallet: user.wallet, transactionId: transaction.id, eventId: `wallet-debit:${transaction.id}` }
+    });
+    await notifyAdminsForActivity('recharge', {
+      type: 'wallet-debit',
+      title: 'Wallet amount debited',
+      body: `${user.name} (+91 ${user.mobile}) ke wallet se ₹${amount} debit kiye gaye.`,
+      data: { mobile: user.mobile, amount, wallet: user.wallet, transactionId: transaction.id, eventId: `wallet-debit:${transaction.id}` }
+    });
+    queueSheetSync('user', sheetUserPayload(user));
+    queueSheetSync('transaction', sheetTransactionPayload(transaction));
+    await flushSheetSync();
+    return sendJson(res, 200, {
+      success: true,
+      message: `₹${amount} user wallet se debit ho gaye.`, 
+      user: publicUser(user),
+      transaction: sheetTransactionPayload(transaction)
+    });
+  });
+}
+
 function publicAd(ad) {
   return {
     id: String(ad.id),
@@ -2775,6 +2827,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && pathname === '/api/admin/users/bulk-rate') return await handleAdminBulkSetRate(req, res);
     if (req.method === 'POST' && pathname === '/api/admin/users/status') return await handleAdminSetUserStatus(req, res);
     if (req.method === 'POST' && pathname === '/api/admin/recharge') return await handleAdminRecharge(req, res);
+    if (req.method === 'POST' && pathname === '/api/admin/debit') return await handleAdminDebit(req, res);
     if (req.method === 'GET' && pathname === '/api/admin/wallet/topup-requests') return await handleAdminGetTopupRequests(req, res);
     const topupRequestRoute = pathname.match(/^\/api\/admin\/wallet\/topup-requests\/([^/]+)$/);
     if (topupRequestRoute && req.method === 'POST') return await handleAdminResolveTopupRequest(req, res, decodeURIComponent(topupRequestRoute[1]));

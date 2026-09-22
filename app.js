@@ -90,6 +90,7 @@
       else if (name === 'adminBulkRate') { url = '/api/admin/users/bulk-rate'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ price: args[0], clear: args[1] === true, scope: args[2] || 'all', mobiles: args[3] || [], confirm: args[4] === true }); }
       else if (name === 'adminSetUserStatus') { url = '/api/admin/users/status'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ mobile: args[0], active: args[1] !== false }); }
       else if (name === 'adminRecharge') { url = '/api/admin/recharge'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ mobile: args[0], amount: args[1], note: args[2] }); }
+      else if (name === 'adminDebit') { url = '/api/admin/debit'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ mobile: args[0], amount: args[1], note: args[2] }); }
       else if (name === 'createWalletTopupRequest') { url = '/api/wallet/topup-request'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ amount: args[0] }); }
       else if (name === 'adminGetTopupRequests') { url = '/api/admin/wallet/topup-requests'; }
       else if (name === 'adminResolveTopupRequest') { url = '/api/admin/wallet/topup-requests/' + encodeURIComponent(args[0]); options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ status: args[1], amount: args[2], reason: args[3] || '' }); }
@@ -639,8 +640,12 @@
       var list = $('#transaction-list');
       if (!transactions || !transactions.length) { list.innerHTML = '<div class="empty-list">Abhi koi transaction nahi hai.</div>'; return; }
       list.innerHTML = transactions.map(function (tx) {
+        var type = String(tx.type || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
         var credit = Number(tx.amount) > 0;
-        var label = tx.type === 'RECHARGE' ? 'Wallet recharge' : 'RC download';
+        var walletDebit = ['WALLETDEBIT', 'DEBIT', 'ADMINDEBIT'].indexOf(type) >= 0;
+        var label = type === 'RECHARGE' || type === 'WALLETRECHARGE' || type === 'WALLETTOPUP' || type === 'TOPUP'
+          ? 'Wallet recharge'
+          : walletDebit ? 'Wallet debit' : 'RC download';
         var icon = credit ? '+' : '↓';
         return '<div class="transaction"><span class="transaction-icon ' + (credit ? 'recharge' : '') + '">' + icon + '</span><span class="transaction-copy"><b>' + escapeHtml(label) + (tx.vrn ? ' · ' + escapeHtml(tx.vrn) : '') + '</b><small>' + formatDate(tx.time) + ' • Balance ' + formatMoney(tx.balanceAfter) + '</small></span><span class="transaction-amount ' + (credit ? 'credit' : 'debit') + '">' + (credit ? '+' : '') + formatMoney(tx.amount) + '</span></div>';
       }).join('');
@@ -1404,6 +1409,7 @@
       }
       $('#admin-user-balance').innerHTML = formatMoney(user.wallet) + '<small>current wallet</small>';
       $('#admin-recharge-button').disabled = false;
+      if ($('#admin-debit-button')) $('#admin-debit-button').disabled = false;
       if ($('#admin-user-rate-tools')) {
         $('#admin-user-rate-tools').hidden = false;
         $('#admin-user-rate-input').value = personalRate;
@@ -1792,6 +1798,27 @@
       finally { setButtonLoading(button, false, 'Recharge'); }
     }
 
+    async function debitAdminUser() {
+      if (!hasAdminPermission('recharge')) { toast('Access restricted', 'Is admin account ko wallet access nahi diya gaya.', 'error'); return; }
+      var amount = Number($('#admin-amount').value);
+      if (!state.selectedAdminMobile) { toast('Pehle user search karo', 'Mobile number se user find karo.', 'error'); return; }
+      if (!amount || amount <= 0) { toast('Amount enter karo', 'Debit amount ₹1 se zyada hona chahiye.', 'error'); return; }
+      var userName = $('#admin-user-name') ? $('#admin-user-name').textContent : 'selected user';
+      if (!window.confirm(userName + ' ke wallet se ₹' + Math.round(amount) + ' debit karna hai?')) return;
+      var button = $('#admin-debit-button');
+      setButtonLoading(button, true, 'Debit');
+      try {
+        var response = await callServer('adminDebit', [state.selectedAdminMobile, amount, 'Manual admin wallet debit']);
+        if (!response.success) { toast('Debit failed', response.message, 'error'); return; }
+        $('#admin-user-balance').innerHTML = formatMoney(response.user.wallet) + '<small>current wallet</small>';
+        $('#admin-amount').value = '';
+        await loadAdminTransactions();
+        loadAdminStats();
+        toast('Debit successful', response.user.name + ' ke wallet se ' + formatMoney(amount) + ' debit ho gaye.', 'success');
+      } catch (error) { toast('Debit error', error.message, 'error'); }
+      finally { setButtonLoading(button, false, 'Debit'); }
+    }
+
     async function loadAdminTopupRequests() {
       if (!state.user || state.user.role !== 'admin' || !hasAdminPermission('recharge')) return;
       try {
@@ -1874,8 +1901,12 @@
         var body = $('#admin-tx-body');
         if (!response.transactions.length) { body.innerHTML = '<tr><td colspan="5">No transactions yet.</td></tr>'; return; }
         body.innerHTML = response.transactions.map(function (tx) {
+          var type = String(tx.type || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
           var credit = Number(tx.amount) > 0;
-          return '<tr><td>' + escapeHtml(formatDate(tx.time)) + '</td><td>' + escapeHtml(tx.mobile) + '</td><td>' + escapeHtml(tx.type) + '</td><td class="' + (credit ? 'credit' : 'debit') + '">' + (credit ? '+' : '') + escapeHtml(formatMoney(tx.amount)) + '</td><td>' + escapeHtml(tx.vrn || '—') + '</td></tr>';
+          var label = type === 'RECHARGE' || type === 'WALLETRECHARGE' || type === 'WALLETTOPUP' || type === 'TOPUP'
+            ? 'Wallet recharge'
+            : (['WALLETDEBIT', 'DEBIT', 'ADMINDEBIT'].indexOf(type) >= 0 ? 'Wallet debit' : 'RC download');
+          return '<tr><td>' + escapeHtml(formatDate(tx.time)) + '</td><td>' + escapeHtml(tx.mobile) + '</td><td>' + escapeHtml(label) + '</td><td class="' + (credit ? 'credit' : 'debit') + '">' + (credit ? '+' : '') + escapeHtml(formatMoney(tx.amount)) + '</td><td>' + escapeHtml(tx.vrn || '—') + '</td></tr>';
         }).join('');
       } catch (error) { /* admin table is non-critical */ }
     }
@@ -1973,8 +2004,10 @@
         if (isUser) {
           return '<div class="admin-kpi-detail-row"><div><b>' + escapeHtml(item.name || 'User') + ' · +91 ' + escapeHtml(item.mobile || '—') + '</b><small>' + escapeHtml(item.email || 'Email not set') + ' · ' + escapeHtml(item.status || '') + '</small></div><div class="admin-kpi-detail-value">' + escapeHtml(formatMoney(item.wallet)) + '</div></div>';
         }
-        var isRc = Object.prototype.hasOwnProperty.call(item, 'vrn');
-        var label = isRc ? 'RC download · ' + (item.vrn || '—') : 'Wallet topup';
+        var type = String(item.type || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+        var walletDebit = ['WALLETDEBIT', 'DEBIT', 'ADMINDEBIT'].indexOf(type) >= 0;
+        var isRc = Boolean(item.vrn) && !walletDebit && type !== 'RECHARGE' && type !== 'WALLETRECHARGE' && type !== 'WALLETTOPUP' && type !== 'TOPUP';
+        var label = isRc ? 'RC download · ' + (item.vrn || '—') : (walletDebit ? 'Wallet debit' : 'Wallet topup');
         var second = isRc
           ? (item.mobile || '—') + ' · ' + (item.status || 'SUCCESS')
           : (item.mobile || '—') + ' · ' + (item.note || item.status || 'SUCCESS');
@@ -2438,6 +2471,7 @@
       if (event.key === 'Enter') { event.preventDefault(); findAdminUser(); }
     });
     $('#admin-recharge-button').addEventListener('click', rechargeAdminUser);
+    if ($('#admin-debit-button')) $('#admin-debit-button').addEventListener('click', debitAdminUser);
     if ($('#refresh-topup-requests')) $('#refresh-topup-requests').addEventListener('click', loadAdminTopupRequests);
     if ($('#close-admin-kpi-details')) $('#close-admin-kpi-details').addEventListener('click', closeKpiDetails);
     $$('[data-kpi-detail]').forEach(function (card) {

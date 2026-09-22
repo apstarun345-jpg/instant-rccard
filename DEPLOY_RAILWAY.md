@@ -6,5 +6,6 @@
 4. Set `RC_API_TOKEN`, `ADMIN_MOBILE`, fixed `SESSION_SECRET`, `SHEET_WEBHOOK_URL`, `SHEET_SYNC_SECRET` and `APP_TIME_ZONE` in Railway Variables.
 5. Do not set `PRIMARY_API_URL`, `PROXY_TO_PRIMARY`, `CROSS_DEPLOY_PRIMARY_URL` or `CROSS_DEPLOY_SYNC_SECRET`.
 6. Attach `https://instantrccard.in/` and open `/api/health`.
-7. Confirm build `wallet-direct-v8-railway-primary`, `storage: json+google-sheet`, `durableStore: google-sheet-mirror`, successful restore counts, and an existing-user login before new signups.
-8. Test an admin recharge and confirm wallet, transaction list, KPI cards and notification update without manual refresh.
+7. Confirm build `wallet-direct-v8-railway-primary`, successful Sheet restore counts, and an existing-user login before new signups.
+8. Test Main Admin wallet control: search a user, recharge a test amount, then debit a smaller amount. Confirm wallet, `WALLET_DEBIT` transaction, user/admin notification, KPI/transaction list and Google Sheet mirror.
+9. For the supplied logo/PWA icon, verify `/sw.js` contains `instant-rccard-shell-v20` and reinstall any old PWA once.
