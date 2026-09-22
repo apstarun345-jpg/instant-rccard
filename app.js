@@ -66,7 +66,7 @@
 
     async function callServer(name, args) {
       var url = '';
-      var options = { credentials: 'same-origin', headers: { 'Accept': 'application/json' } };
+      var options = { credentials: 'same-origin', cache: 'no-store', headers: { 'Accept': 'application/json' } };
       if (name === 'signup') { url = '/api/auth/signup'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ name: args[0], email: args[1], mobile: args[2], password: args[3] }); }
       else if (name === 'login') { url = '/api/auth/login'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ identifier: args[0], password: args[1] }); }
       else if (name === 'forgotPassword') { url = '/api/auth/forgot-password'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ email: args[0], mobile: args[1], newPassword: args[2], confirmPassword: args[3] }); }
@@ -698,7 +698,6 @@
       if (!container) return;
       page = Number(page || 1);
       pages = Number(pages || 1);
-      if (pages <= 1) { container.innerHTML = ''; return; }
       var items = [];
       function addPage(number) { if (items.indexOf(number) < 0) items.push(number); }
       if (pages <= 7) {
@@ -973,7 +972,7 @@
       updateNotificationUnread();
       renderNotificationList();
       syncNotifications(true);
-      state.notificationPollTimer = window.setInterval(function () { syncNotifications(false); }, 5_000);
+      state.notificationPollTimer = window.setInterval(function () { syncNotifications(false); }, 1_500);
       if ('Notification' in window && Notification.permission === 'granted') setNotificationButton('✓ App alerts ready');
     }
 
@@ -2265,7 +2264,7 @@
       stopAccountLiveUpdates();
       if (!state.user) return;
       syncAccountLiveState();
-      accountLiveTimer = window.setInterval(syncAccountLiveState, 5_000);
+      accountLiveTimer = window.setInterval(syncAccountLiveState, 1_000);
     }
 
     function stopAdminLiveUpdates() {
@@ -2290,7 +2289,7 @@
         } finally {
           state.adminLiveBusy = false;
         }
-      }, 5000);
+      }, 2_000);
     }
 
     async function loadAdminStats(range, options) {

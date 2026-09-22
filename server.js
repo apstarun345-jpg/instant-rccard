@@ -313,6 +313,7 @@ function sendJson(res, status, payload, extraHeaders = {}) {
   const body = JSON.stringify(payload);
   res.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
+    'Cache-Control': 'no-store, max-age=0',
     'Content-Length': Buffer.byteLength(body),
     ...securityHeaders(),
     ...extraHeaders
@@ -845,8 +846,8 @@ async function persistNotificationsForUsers(users, event) {
     const pushPayload = {
       title: String(event.title || 'InstantRCcard activity'),
       body: String(event.body || ''),
-      icon: '/icon-192.png',
-      badge: '/icon-192.png',
+      icon: '/instant-rccard-icon-192-v21.png',
+      badge: '/instant-rccard-icon-192-v21.png',
       tag: String(event.type || 'instant-rccard'),
       data: { ...(event.data || {}), url: '/' }
     };
@@ -924,6 +925,24 @@ async function flushSheetSync() {
     const errors = sheetSyncFailures.splice(0);
     throw new Error(errors.map((error) => error.message).join('; '));
   }
+}
+
+// Wallet mutations respond as soon as local JSON and in-app notifications are
+// durable. Google Sheet mirroring continues in the background so a slow Apps
+// Script request cannot make the user wait for a balance or history update.
+function queueSheetSyncInBackground(action, payload, label = 'Background', attempt = 1) {
+  const operation = queueSheetSync(action, payload);
+  void operation.catch((error) => {
+    clearTrackedSheetFailure(error);
+    if (attempt < 4) {
+      const delay = Math.min(10_000, attempt * 2_000);
+      console.warn(`${label} Sheet sync retry ${attempt} pending:`, error.message);
+      setTimeout(() => queueSheetSyncInBackground(action, payload, label, attempt + 1), delay).unref?.();
+    } else {
+      console.warn(`${label} Sheet sync pending after retries:`, error.message);
+    }
+  });
+  return operation;
 }
 
 function trackTopupSheetSync(request, operation) {
@@ -2021,8 +2040,7 @@ async function handleAdminResolveTopupRequest(req, res, requestId) {
         body: `Aapka ₹${request.amountRequested} wallet top-up reject ho gaya. ${request.rejectReason}`,
         data: { amount: request.amountRequested, requestId: request.id }
       });
-      queueSheetSync('topupRequest', sheetTopupRequestPayload(request));
-      await flushSheetSync();
+      queueSheetSyncInBackground('topupRequest', sheetTopupRequestPayload(request), 'Wallet request rejection');
       return sendJson(res, 200, { success: true, request: publicTopupRequest(request), message: 'Wallet payment request reject ho gayi.' });
     }
 
@@ -2047,10 +2065,9 @@ async function handleAdminResolveTopupRequest(req, res, requestId) {
       body: `₹${Math.round(amount)} aapke wallet me add ho gaye. New balance ₹${user.wallet}.`,
       data: { amount: Math.round(amount), wallet: user.wallet, requestId: request.id }
     });
-    queueSheetSync('topupRequest', sheetTopupRequestPayload(request));
-    queueSheetSync('user', sheetUserPayload(user));
-    queueSheetSync('transaction', sheetTransactionPayload(db.transactions[db.transactions.length - 1]));
-    await flushSheetSync();
+    queueSheetSyncInBackground('topupRequest', sheetTopupRequestPayload(request), 'Wallet request approval');
+    queueSheetSyncInBackground('user', sheetUserPayload(user), 'Wallet request user');
+    queueSheetSyncInBackground('transaction', sheetTransactionPayload(db.transactions[db.transactions.length - 1]), 'Wallet request transaction');
     return sendJson(res, 200, { success: true, request: publicTopupRequest(request), user: publicUser(user), message: `₹${Math.round(amount)} wallet me add ho gaye.` });
   });
 }
@@ -2282,9 +2299,8 @@ async function handleAdminRecharge(req, res) {
       body: `${user.name} (+91 ${user.mobile}) ke wallet me ₹${Math.round(amount)} add kiye gaye.`,
       data: { mobile: user.mobile, amount: Math.round(amount), wallet: user.wallet }
     });
-    queueSheetSync('user', sheetUserPayload(user));
-    queueSheetSync('transaction', sheetTransactionPayload(db.transactions[db.transactions.length - 1]));
-    await flushSheetSync();
+    queueSheetSyncInBackground('user', sheetUserPayload(user), 'Wallet recharge user');
+    queueSheetSyncInBackground('transaction', sheetTransactionPayload(db.transactions[db.transactions.length - 1]), 'Wallet recharge transaction');
     return sendJson(res, 200, { success: true, message: 'Wallet recharge successful.', user: publicUser(user) });
   });
 }
@@ -2341,11 +2357,10 @@ async function handleAdminDebit(req, res) {
       body: `${user.name} (+91 ${user.mobile}) ke wallet se ₹${amount} debit kiye gaye. Admin wallet balance ₹${admin.wallet}.`,
       data: { mobile: user.mobile, amount, wallet: user.wallet, adminWallet: admin.wallet, transactionId: transaction.id, adminTransactionId: adminTransaction.id, eventId: `wallet-debit:${transaction.id}` }
     });
-    queueSheetSync('user', sheetUserPayload(user));
-    queueSheetSync('transaction', sheetTransactionPayload(transaction));
-    queueSheetSync('user', sheetUserPayload(admin));
-    queueSheetSync('transaction', sheetTransactionPayload(adminTransaction));
-    await flushSheetSync();
+    queueSheetSyncInBackground('user', sheetUserPayload(user), 'Wallet debit user');
+    queueSheetSyncInBackground('transaction', sheetTransactionPayload(transaction), 'Wallet debit transaction');
+    queueSheetSyncInBackground('user', sheetUserPayload(admin), 'Admin wallet credit user');
+    queueSheetSyncInBackground('transaction', sheetTransactionPayload(adminTransaction), 'Admin wallet credit transaction');
     return sendJson(res, 200, {
       success: true,
       message: `₹${amount} user wallet se debit ho gaye.`, 
