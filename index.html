@@ -9,8 +9,8 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="InstantRCcard" />
   <link rel="manifest" href="/manifest.webmanifest" />
-  <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
-  <link rel="apple-touch-icon" href="/icon-192.png" />
+  <link rel="icon" type="image/png" sizes="192x192" href="/instant-rccard-icon-192-v20.png" />
+  <link rel="apple-touch-icon" href="/instant-rccard-icon-192-v20.png" />
   <title>InstantRCcard — RC Download</title>
   <style>
     :root {
@@ -48,8 +48,11 @@
     .page { width: 100%; min-height: 100vh; }
 
     .brand { display: inline-flex; align-items: center; gap: 11px; }
-    .brand-mark { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 14px; color: white; background: linear-gradient(135deg, #76a7ff, #1e4fc2 58%, #112b6f); box-shadow: 0 10px 24px rgba(37,99,235,.25); }
-    .brand-mark svg { width: 24px; height: 24px; }
+    .brand-mark { display: grid; place-items: center; overflow: hidden; width: 44px; height: 44px; border-radius: 14px; background: #fff; box-shadow: 0 10px 24px rgba(37,99,235,.25); }
+    .brand-mark img { display: block; width: 100%; height: 100%; object-fit: cover; }
+    .auth-brand-logo { display: block; width: 196px; height: 196px; border-radius: 24px; object-fit: contain; background: #fff; box-shadow: 0 18px 38px rgba(24,65,145,.16); }
+    .auth-brand { display: inline-flex; }
+    @media (max-width: 650px) { .auth-brand-logo { width: 154px; height: 154px; } }
     .brand-name { display: flex; flex-direction: column; line-height: 1; gap: 4px; }
     .brand-name strong { color: var(--blue-950); font-size: 18px; letter-spacing: -.06em; }
     .brand-name strong span { color: var(--blue); }
@@ -795,8 +798,7 @@
     <section class="auth-shell" id="auth-view" hidden>
       <div class="auth-copy">
         <a class="brand auth-brand" href="#">
-          <span class="brand-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M6 6h12M6 10h8M6 14h6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M16.5 14.5v4M14.5 16.5h4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>
-          <span class="brand-name"><strong>Instant<span>RC</span>card</strong><small>RC DOWNLOAD PLATFORM</small></span>
+          <img class="auth-brand-logo" src="/instant-rccard-logo.png" alt="InstantRCcard — Simple Secure Faster" />
         </a>
         <div class="eyebrow">FAST RC GATEWAY • BLUE &amp; SECURE</div>
         <h1>Instant RC Card ke saath,<br /><em>RC download kijiye.</em></h1>
@@ -850,7 +852,7 @@
     </section>
 
     <header class="topbar" id="topbar" hidden>
-      <a class="brand" href="#app"><span class="brand-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M6 6h12M6 10h8M6 14h6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M16.5 14.5v4M14.5 16.5h4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span><span class="brand-name"><strong>Instant<span>RC</span>card</strong><small>RC DOWNLOAD PLATFORM</small></span></a>
+      <a class="brand" href="#app"><span class="brand-mark"><img src="/instant-rccard-mark.png" alt="InstantRCcard logo" /></span><span class="brand-name"><strong>Instant<span>RC</span>card</strong><small>SIMPLE • SECURE • FASTER</small></span></a>
       <nav class="topbar-nav"><button class="active" data-scroll="app" type="button">RC Download</button><button data-scroll="transactions" type="button">My history</button><button data-scroll="admin-card" id="admin-nav" type="button" hidden>Admin panel</button><button data-scroll="admin-card" id="admin-rates-nav" type="button" hidden>User rates</button><button data-scroll="admin-card" id="admin-access-nav" type="button" hidden>Admin access</button></nav>
       <div class="top-actions"><button class="install-button compact" id="install-dashboard-button" type="button" hidden>＋ Install app</button><button class="wallet-pill wallet-trigger" id="wallet-top-trigger" type="button" aria-label="Open wallet topup"><span class="wallet-icon">₹</span><span><b id="wallet-amount">₹0</b><small> wallet</small></span></button>
         <div class="user-menu-wrap" id="user-menu-wrap">

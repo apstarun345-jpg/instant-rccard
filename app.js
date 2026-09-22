@@ -846,7 +846,7 @@
         freshItems.forEach(function (item) {
           toast(item.title || 'New activity', item.body || '', 'info');
           if (!result.enabled && 'Notification' in window && Notification.permission === 'granted') {
-            try { new Notification(item.title || 'InstantRCcard activity', { body: item.body || '', icon: '/icon-192.png' }); } catch (error) {}
+            try { new Notification(item.title || 'InstantRCcard activity', { body: item.body || '', icon: '/instant-rccard-icon-192-v20.png' }); } catch (error) {}
           }
         });
       } catch (error) {}

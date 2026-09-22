@@ -1,5 +1,5 @@
-const CACHE = 'instant-rccard-shell-v18';
-const SHELL = ['/', '/index.html', '/app.js', '/manifest.webmanifest', '/icon-192.png', '/icon-512.png', '/whatsapp.png'];
+const CACHE = 'instant-rccard-shell-v20';
+const SHELL = ['/', '/index.html', '/app.js', '/manifest.webmanifest', '/instant-rccard-logo.png', '/instant-rccard-mark.png', '/instant-rccard-icon-192-v20.png', '/instant-rccard-icon-512-v20.png', '/whatsapp.png'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)));
@@ -19,8 +19,8 @@ self.addEventListener('push', (event) => {
   var title = payload.title || 'InstantRCcard activity';
   var options = {
     body: payload.body || 'New activity received.',
-    icon: payload.icon || '/icon-192.png',
-    badge: payload.badge || '/icon-192.png',
+    icon: payload.icon || '/instant-rccard-icon-192-v20.png',
+    badge: payload.badge || '/instant-rccard-icon-192-v20.png',
     tag: payload.tag || 'instant-rccard-activity',
     data: payload.data || { url: '/' },
     requireInteraction: false
