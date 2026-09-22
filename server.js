@@ -684,6 +684,38 @@ function userTransactions(mobile, limit = 30) {
   return db.transactions.filter((item) => item.mobile === mobile).slice(-limit).reverse();
 }
 
+function transactionMatchesCategory(transaction, category) {
+  const normalized = String(category || 'all').toLowerCase();
+  if (normalized === 'wallet') return isWalletBalanceTransaction(transaction);
+  if (normalized === 'rc') return isRcDownloadTransaction(transaction);
+  return true;
+}
+
+function paginatedTransactions(transactions, searchParams) {
+  const category = ['wallet', 'rc', 'all'].includes(String(searchParams.get('category') || 'all').toLowerCase())
+    ? String(searchParams.get('category') || 'all').toLowerCase()
+    : 'all';
+  // Transaction views intentionally use a fixed ten-row page to keep wallet and
+  // admin histories fast even when the account has a large history.
+  const limit = 10;
+  const requestedPage = Number(searchParams.get('page') || 1);
+  const page = Number.isFinite(requestedPage) ? Math.max(1, Math.round(requestedPage)) : 1;
+  const filtered = transactions.filter((transaction) => transactionMatchesCategory(transaction, category));
+  const total = filtered.length;
+  const pages = Math.max(1, Math.ceil(total / limit));
+  const safePage = Math.min(page, pages);
+  const end = total - ((safePage - 1) * limit);
+  const start = Math.max(0, end - limit);
+  return {
+    category,
+    page: safePage,
+    pages,
+    total,
+    limit,
+    transactions: filtered.slice(start, end).reverse()
+  };
+}
+
 function sheetUserPayload(user) {
   return {
     userId: user.shortId || user.id,
@@ -2191,7 +2223,7 @@ async function handleAdminRecharge(req, res) {
   const mobile = normalizeMobile(body.mobile);
   const amount = Number(body.amount);
   if (!validMobile(mobile)) return sendError(res, 422, 'Valid user mobile number daalo.');
-  if (!Number.isFinite(amount) || amount <= 0 || amount > 100000) return sendError(res, 422, 'Recharge amount ₹1 se ₹100000 ke beech hona chahiye.');
+  if (!Number.isFinite(amount) || amount < 1 || amount > 100000) return sendError(res, 422, 'Recharge amount ₹1 se ₹100000 ke beech hona chahiye.');
 
   return withMutationLock(async () => {
     const user = findUser(mobile);
@@ -2225,17 +2257,17 @@ async function handleAdminDebit(req, res) {
   const mobile = normalizeMobile(body.mobile);
   const rawAmount = Number(body.amount);
   if (!validMobile(mobile)) return sendError(res, 422, 'Valid user mobile number daalo.');
-  if (!Number.isFinite(rawAmount) || rawAmount <= 0 || rawAmount > 100000) return sendError(res, 422, 'Debit amount ₹1 se ₹100000 ke beech hona chahiye.');
+  if (!Number.isFinite(rawAmount) || rawAmount < 1 || rawAmount > 100000) return sendError(res, 422, 'Debit amount ₹1 se ₹100000 ke beech hona chahiye.');
   const amount = Math.round(rawAmount);
 
   return withMutationLock(async () => {
     const user = findUser(mobile);
     if (!user) return sendError(res, 404, 'User account nahi mila.');
+    if (mobile === admin.mobile) return sendError(res, 409, 'Admin apne hi wallet se debit nahi kar sakta.');
     const currentWallet = Number(user.wallet || 0);
     if (currentWallet < amount) {
       return sendError(res, 409, `User wallet me sirf ₹${Math.round(currentWallet)} available hai. Debit amount kam karo.`);
     }
-    if (mobile === admin.mobile) return sendError(res, 409, 'Admin apne hi wallet se debit nahi kar sakta.');
     user.wallet = currentWallet - amount;
     admin.wallet = Number(admin.wallet || 0) + amount;
     const transaction = appendTransaction(
@@ -2394,13 +2426,18 @@ function isRechargeTransaction(transaction) {
   return ['RECHARGE', 'WALLETRECHARGE', 'WALLETTOPUP', 'TOPUP'].includes(normalizedTransactionType(transaction));
 }
 
+function isWalletBalanceTransaction(transaction) {
+  return isRechargeTransaction(transaction)
+    || ['WALLETDEBIT', 'DEBIT', 'ADMINDEBIT', 'ADMINWALLETDEBIT', 'ADMINWALLETCREDIT', 'WALLETCREDIT'].includes(normalizedTransactionType(transaction));
+}
+
 function isRcDownloadTransaction(transaction) {
   const type = normalizedTransactionType(transaction);
   if (!successfulTransaction(transaction)) return false;
   if (['RCPURCHASE', 'RCDOWNLOAD', 'RCCARDDOWNLOAD', 'DOWNLOADRC', 'RCCARD'].includes(type)) return true;
   // Accept older mirror rows that recorded a vehicle number and a debit but
   // used a different display type. Never classify wallet/recharge rows here.
-  return Boolean(transaction?.vrn) && Number(transaction?.amount || 0) < 0 && !isRechargeTransaction(transaction);
+  return Boolean(transaction?.vrn) && Number(transaction?.amount || 0) < 0 && !isWalletBalanceTransaction(transaction);
 }
 
 function sumAmount(list) {
@@ -2830,7 +2867,8 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && pathname === '/api/account/transactions') {
       const user = currentUser(req);
       if (!user) return sendError(res, 401, 'Session expire ho gaya.');
-      return sendJson(res, 200, { success: true, transactions: userTransactions(user.mobile, 30) });
+      const userTransactionRows = db.transactions.filter((transaction) => transaction.mobile === user.mobile);
+      return sendJson(res, 200, { success: true, ...paginatedTransactions(userTransactionRows, url.searchParams) });
     }
     if (req.method === 'POST' && pathname === '/api/wallet/topup-request') return await handleCreateTopupRequest(req, res);
     if (req.method === 'POST' && pathname === '/api/wallet/topup-whatsapp') return await handleWalletTopupWhatsapp(req, res);
@@ -2861,10 +2899,10 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && pathname === '/api/admin/transactions') {
       const admin = requireAdmin(req, res, 'transactions');
       if (!admin) return;
-      const transactions = isMainAdmin(admin)
-        ? db.transactions.slice(-50).reverse()
-        : db.transactions.filter((tx) => tx.adminMobile === admin.mobile).slice(-50).reverse();
-      return sendJson(res, 200, { success: true, transactions });
+      const transactionRows = isMainAdmin(admin)
+        ? db.transactions.slice()
+        : db.transactions.filter((tx) => tx.adminMobile === admin.mobile);
+      return sendJson(res, 200, { success: true, ...paginatedTransactions(transactionRows, url.searchParams) });
     }
     if (req.method === 'GET') return await serveStatic(req, res, pathname);
     return sendError(res, 405, 'Method not allowed');

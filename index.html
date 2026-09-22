@@ -458,7 +458,17 @@
     .account-row b { color: #566883; font-size: 10px; }
     .account-row span { color: #98a7ba; font-size: 9px; margin-top: 2px; }
     .account-icon { display: grid; place-items: center; width: 29px; height: 29px; border-radius: 9px; color: var(--blue); background: var(--blue-50); font-size: 13px; }
-    .transaction-list { display: grid; gap: 2px; }
+    .transaction-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: -3px 0 12px; }
+    .transaction-tab { border: 1px solid #dce8f8; padding: 7px 10px; border-radius: 999px; color: #7c8da6; background: #f7faff; font-size: 10px; font-weight: 800; }
+    .transaction-tab:hover { border-color: #a9c5f2; color: var(--blue); }
+    .transaction-tab.active { border-color: #9dbcf0; color: var(--blue); background: #eaf2ff; box-shadow: 0 5px 12px rgba(37,99,235,.08); }
+    .transaction-list { display: grid; gap: 2px; min-height: 92px; }
+    .transaction-pagination { display: flex; align-items: center; justify-content: center; gap: 5px; flex-wrap: wrap; margin-top: 12px; }
+    .pagination-button { min-width: 29px; height: 28px; border: 1px solid #dce8f8; border-radius: 8px; color: #7183a0; background: #fff; font-size: 10px; font-weight: 800; }
+    .pagination-button:hover:not(:disabled) { border-color: #9dbcf0; color: var(--blue); background: #f2f7ff; }
+    .pagination-button.active { border-color: var(--blue); color: #fff; background: var(--blue); }
+    .pagination-button:disabled { cursor: not-allowed; opacity: .45; }
+    .pagination-summary { color: #9aaac0; font-size: 9px; margin-inline: 4px; }
     .transaction { display: flex; align-items: center; gap: 9px; padding: 8px 0; border-bottom: 1px solid #eef3f9; }
     .transaction:last-child { border-bottom: 0; }
     .transaction-icon { display: grid; place-items: center; width: 27px; height: 27px; border-radius: 8px; color: var(--blue); background: var(--blue-50); font-size: 12px; }
@@ -966,7 +976,7 @@
 
       <div class="content-grid">
         <div class="side-stack"><section class="panel balance-card wallet-card wallet-trigger" id="wallet-card-trigger" role="button" tabindex="0" aria-label="Open wallet topup"><div class="section-label">CURRENT WALLET</div><div class="balance-amount" id="balance-large">₹0</div><p>Tap karke wallet topup request bhejo.</p></section><section class="panel account-card"><div class="card-heading"><h3>Account details</h3></div><div class="account-row"><span class="account-icon">◉</span><span><b id="account-name">User</b><span>Registered name</span></span></div><div class="account-row"><span class="account-icon">⌕</span><span><b id="account-mobile">+91 —</b><span>Mobile account</span></span></div><div class="account-row"><span class="account-icon">@</span><span><b id="account-email">Email not set</b><span>Recovery email</span></span></div><div class="account-row"><span class="account-icon">₹</span><span><b id="account-rc-price">RC Card ₹15</b><span id="account-rc-note">MParivahan format Coming Soon</span></span></div><div class="account-row" id="account-role-row" hidden><span class="account-icon">♙</span><span><b id="account-role">Main Admin</b><span>Access level</span></span></div></section></div>
-        <section class="panel transactions-card" id="transactions"><div class="card-heading"><h3>Recent wallet history</h3><button id="refresh-transactions" type="button">Refresh ↻</button></div><div class="transaction-list" id="transaction-list"><div class="empty-list">Abhi koi transaction nahi hai.</div></div></section>
+        <section class="panel transactions-card" id="transactions"><div class="card-heading"><h3>Wallet &amp; RC history</h3><button id="refresh-transactions" type="button">Refresh ↻</button></div><div class="transaction-tabs" role="tablist" aria-label="Transaction categories"><button class="transaction-tab active" data-user-transaction-category="wallet" type="button">Wallet transactions</button><button class="transaction-tab" data-user-transaction-category="rc" type="button">RC downloads</button><button class="transaction-tab" data-user-transaction-category="all" type="button">All</button></div><div class="transaction-list" id="transaction-list"><div class="empty-list">Transactions load ho rahe hain…</div></div><div class="transaction-pagination" id="transaction-pagination" aria-label="Wallet transaction pages"></div></section>
         <section class="panel admin-card" id="admin-card" hidden>
           <div class="admin-header"><div><div class="section-label" id="admin-role-label">MAIN ADMIN ACCESS</div><h3>Admin control center</h3></div><span class="admin-tag" id="admin-scope-tag">ALL PLATFORM</span></div>
           <div class="admin-layout">
@@ -997,7 +1007,7 @@
                 </div>
                 <div class="admin-inline-hint" id="admin-rate-inline-hint">Sabhi users ki list ke saath rate set karne ke liye <button class="admin-link-button" type="button" data-goto-admin-section="users">Users &amp; rates</button> tab kholo.</div>
                 <div class="admin-tx" id="admin-topup-requests-block"><div class="admin-topup-heading"><h4>RC wallet payment requests</h4><button class="admin-topup-refresh" id="refresh-topup-requests" type="button">Refresh ↻</button></div><div class="topup-request-list" id="admin-topup-request-list"><div class="empty-list">Loading payment requests…</div></div></div>
-                <div class="admin-tx" id="admin-transactions-block"><h4 id="admin-transactions-title">Latest platform transactions</h4><div class="table-wrap"><table class="admin-table"><thead><tr><th>TIME</th><th>MOBILE</th><th>TYPE</th><th>AMOUNT</th><th>VRN</th></tr></thead><tbody id="admin-tx-body"><tr><td colspan="5">No transactions yet.</td></tr></tbody></table></div></div>
+                <div class="admin-tx" id="admin-transactions-block"><div class="admin-topup-heading"><h4 id="admin-transactions-title">Wallet transactions</h4><button class="admin-topup-refresh" id="refresh-admin-transactions" type="button">Refresh ↻</button></div><div class="transaction-tabs" role="tablist" aria-label="Admin transaction categories"><button class="transaction-tab active" data-admin-transaction-category="wallet" type="button">Wallet transactions</button><button class="transaction-tab" data-admin-transaction-category="rc" type="button">RC downloads</button><button class="transaction-tab" data-admin-transaction-category="all" type="button">All</button></div><div class="table-wrap"><table class="admin-table"><thead><tr><th>TIME</th><th>MOBILE</th><th>TYPE</th><th>AMOUNT</th><th>VRN</th></tr></thead><tbody id="admin-tx-body"><tr><td colspan="5">Transactions load ho rahe hain…</td></tr></tbody></table></div><div class="transaction-pagination" id="admin-transaction-pagination" aria-label="Admin transaction pages"></div></div>
               </div>
               <div id="admin-users-section" hidden>
                 <div class="ads-manager-heading"><div><div class="section-label">USER WISE RC RATE</div><h4>Users aur unka RC Card rate</h4><p>Kisi bhi user ke liye alag RC Card rate set karo. Us user ke download par wahi rate dikhega aur wallet se wahi amount deduct hoga.</p></div></div>
