@@ -10,6 +10,8 @@
     var roboGreetingLocked = false;
     var fetchingMessageTimer = null;
     var adminLiveTimer = null;
+    var accountLiveTimer = null;
+    var accountLiveBusy = false;
     // Keeps the A4/card reference layout crisp while reducing canvas/PDF work on mobile browsers.
     var RENDER_DPI = 240;
 
@@ -579,6 +581,7 @@
       if ($('#account-email')) $('#account-email').textContent = user.email || 'Email not set';
       startRoboAssistant(user);
       startNotificationPolling();
+      startAccountLiveUpdates();
       if ($('#admin-transactions-title')) $('#admin-transactions-title').textContent = isMainAdminUser(user) ? 'Latest platform transactions' : 'Your recharge transactions';
       applyAdminAccessUi(user);
       applyRcPrice(priceForDownload('rc-card'));
@@ -614,6 +617,7 @@
       closeWelcomePopup();
       stopRoboAssistant();
       stopNotificationPolling();
+      stopAccountLiveUpdates();
       stopAdminLiveUpdates();
       if (typeof closeUserDropdown === 'function') closeUserDropdown();
       state.token = '';
@@ -857,7 +861,7 @@
       updateNotificationUnread();
       renderNotificationList();
       syncNotifications(true);
-      state.notificationPollTimer = window.setInterval(function () { syncNotifications(false); }, 20_000);
+      state.notificationPollTimer = window.setInterval(function () { syncNotifications(false); }, 5_000);
       if ('Notification' in window && Notification.permission === 'granted') setNotificationButton('✓ App alerts ready');
     }
 
@@ -2008,6 +2012,38 @@
       state.adminKpiDetail = '';
       var panel = $('#admin-kpi-detail-panel');
       if (panel) panel.hidden = true;
+    }
+
+    function stopAccountLiveUpdates() {
+      if (accountLiveTimer) window.clearInterval(accountLiveTimer);
+      accountLiveTimer = null;
+      accountLiveBusy = false;
+    }
+
+    async function syncAccountLiveState() {
+      if (!state.user || state.user.role === 'admin' || accountLiveBusy) return;
+      accountLiveBusy = true;
+      try {
+        var previousWallet = Number(state.user.wallet || 0);
+        var response = await callServer('getMe', []);
+        if (response.success && response.user && response.user.mobile === state.user.mobile) {
+          state.user = response.user;
+          updateWallet(response.user.wallet);
+          applyRcPrice(priceForDownload('rc-card'));
+          if (Number(response.user.wallet || 0) !== previousWallet) loadTransactions();
+        }
+      } catch (error) {
+        // A temporary poll failure must not interrupt the active session.
+      } finally {
+        accountLiveBusy = false;
+      }
+    }
+
+    function startAccountLiveUpdates() {
+      stopAccountLiveUpdates();
+      if (!state.user || state.user.role === 'admin') return;
+      syncAccountLiveState();
+      accountLiveTimer = window.setInterval(syncAccountLiveState, 5_000);
     }
 
     function stopAdminLiveUpdates() {

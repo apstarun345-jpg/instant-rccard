@@ -30,14 +30,19 @@ const MAX_PAYMENT_QR_BYTES = 1_500_000;
 const UPSTREAM_TIMEOUT_MS = 12_000;
 const PROVIDER_RETRY_COUNT = 2;
 const SHEET_SYNC_TIMEOUT_MS = 60_000;
-const BUILD_VERSION = 'wallet-direct-v8-cross-sync-fast';
+const BUILD_VERSION = 'wallet-direct-v8-railway-primary';
 const WEB_PUSH_VAPID_PUBLIC_KEY = process.env.WEB_PUSH_VAPID_PUBLIC_KEY || '';
 const WEB_PUSH_VAPID_PRIVATE_KEY = process.env.WEB_PUSH_VAPID_PRIVATE_KEY || '';
 const WEB_PUSH_SUBJECT = process.env.WEB_PUSH_SUBJECT || 'mailto:admin@example.com';
 // Optional one-way replication for a secondary Render deployment. Set this
 // URL only on Render when Railway is the primary admin/request service.
-const CROSS_DEPLOY_PRIMARY_URL = process.env.CROSS_DEPLOY_PRIMARY_URL || '';
-const CROSS_DEPLOY_SYNC_SECRET = process.env.CROSS_DEPLOY_SYNC_SECRET || '';
+const CROSS_DEPLOY_PRIMARY_URL = ''; // Railway-only release: no secondary writer or replication target.
+const CROSS_DEPLOY_SYNC_SECRET = ''; // Railway-only release: legacy cross-deploy sync disabled.
+// Recommended no-SQL cross-deployment mode: Render serves the static app and
+// forwards every API request to Railway, so Railway remains the single writer.
+const PRIMARY_API_URL = ''; // Railway-only release: no upstream API target.
+const PROXY_TO_PRIMARY = false; // Railway-only release: Railway handles its own API directly.
+const PRIMARY_PROXY_TIMEOUT_MS = 35_000;
 let webPushReady = false;
 try {
   if (WEB_PUSH_VAPID_PUBLIC_KEY && WEB_PUSH_VAPID_PRIVATE_KEY) {
@@ -317,6 +322,88 @@ function sendJson(res, status, payload, extraHeaders = {}) {
 
 function sendError(res, status, message, code) {
   return sendJson(res, status, { success: false, message, ...(code ? { code } : {}) });
+}
+
+async function readRequestBuffer(req) {
+  const chunks = [];
+  let total = 0;
+  for await (const chunk of req) {
+    total += chunk.length;
+    if (total > MAX_BODY_BYTES) throw Object.assign(new Error('Request too large'), { status: 413 });
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks);
+}
+
+function proxyRequestHeaders(req) {
+  const headers = {};
+  const blocked = new Set(['host', 'content-length', 'content-encoding', 'connection', 'keep-alive', 'transfer-encoding', 'upgrade', 'accept-encoding']);
+  Object.entries(req.headers || {}).forEach(([key, value]) => {
+    if (blocked.has(key.toLowerCase()) || value == null) return;
+    headers[key] = Array.isArray(value) ? value.join(', ') : String(value);
+  });
+  const forwardedFor = String(req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '').trim();
+  if (forwardedFor) headers['x-forwarded-for'] = forwardedFor;
+  headers['x-forwarded-host'] = String(req.headers.host || '');
+  headers['x-forwarded-proto'] = String(req.headers['x-forwarded-proto'] || (req.socket?.encrypted ? 'https' : 'http')).split(',')[0].trim();
+  return headers;
+}
+
+async function proxyApiRequest(req, res, url) {
+  if (!PRIMARY_API_URL) return sendError(res, 503, 'Primary Railway API configured nahi hai.', 'PRIMARY_API_NOT_CONFIGURED');
+  let target;
+  try {
+    target = new URL(`${url.pathname}${url.search}`, `${PRIMARY_API_URL}/`);
+  } catch {
+    return sendError(res, 500, 'Primary API URL invalid hai.', 'PRIMARY_API_URL_INVALID');
+  }
+  const method = String(req.method || 'GET').toUpperCase();
+  const hasBody = !['GET', 'HEAD'].includes(method);
+  const body = hasBody ? await readRequestBuffer(req) : undefined;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), PRIMARY_PROXY_TIMEOUT_MS);
+  try {
+    const upstream = await fetch(target, {
+      method,
+      headers: proxyRequestHeaders(req),
+      body: hasBody && body?.length ? body : undefined,
+      redirect: 'manual',
+      signal: controller.signal
+    });
+    let responseBody = method === 'HEAD' ? Buffer.alloc(0) : Buffer.from(await upstream.arrayBuffer());
+    const headers = {};
+    upstream.headers.forEach((value, key) => {
+      const lower = key.toLowerCase();
+      if (['set-cookie', 'content-length', 'content-encoding', 'transfer-encoding', 'connection'].includes(lower)) return;
+      headers[key] = value;
+    });
+    const setCookies = typeof upstream.headers.getSetCookie === 'function'
+      ? upstream.headers.getSetCookie()
+      : (upstream.headers.get('set-cookie') ? [upstream.headers.get('set-cookie')] : []);
+    if (setCookies.length) headers['set-cookie'] = setCookies;
+    // Make Render health visibly report that it is proxying Railway.
+    if (url.pathname === '/api/health' && String(upstream.headers.get('content-type') || '').includes('application/json')) {
+      try {
+        const health = JSON.parse(responseBody.toString('utf8'));
+        health.proxyToPrimary = true;
+        health.primaryApiConfigured = true;
+        health.proxyOrigin = 'render';
+        responseBody = Buffer.from(JSON.stringify(health));
+      } catch {
+        // Preserve the upstream payload if a future health format changes.
+      }
+    }
+    headers['Content-Length'] = String(responseBody.length);
+    res.writeHead(upstream.status, headers);
+    return res.end(responseBody);
+  } catch (error) {
+    const message = error?.name === 'AbortError'
+      ? 'Primary Railway API timeout ho gaya. Dobara try karein.'
+      : 'Primary Railway API abhi available nahi hai.';
+    return sendError(res, 502, message, 'PRIMARY_API_UNAVAILABLE');
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function readJson(req) {
@@ -662,10 +749,10 @@ function publicNotification(notification) {
   };
 }
 
-function queueNotificationsForUsers(users, event) {
+async function persistNotificationsForUsers(users, event) {
   const candidates = Array.from(new Map((users || []).filter(Boolean).map((user) => [String(user.id), user])).values());
   if (!candidates.length) return;
-  void withMutationLock(async () => {
+  const work = (async () => {
     if (!Array.isArray(db.notifications)) db.notifications = [];
     const eventId = String(event?.data?.eventId || event?.eventId || '');
     const recipients = candidates.filter((user) => {
@@ -685,15 +772,22 @@ function queueNotificationsForUsers(users, event) {
       createdAt: now,
       read: false
     }));
+    // Persist the in-app notification before doing any Sheet/network work so
+    // the next poll can show it immediately after the triggering mutation.
     db.notifications.push(...created);
     if (db.notifications.length > MAX_STORED_NOTIFICATIONS) db.notifications = db.notifications.slice(-MAX_STORED_NOTIFICATIONS);
     await persistDatabase();
+
+    // Sheet mirroring is deliberately fire-and-forget. A slow Apps Script
+    // request must not delay an in-app notification or push delivery.
     if (SHEET_WEBHOOK_URL && SHEET_SYNC_SECRET) {
-      await Promise.all(created.map((notification) => queueSheetSync('notification', notification).catch((error) => {
-        const index = sheetSyncFailures.indexOf(error);
-        if (index >= 0) sheetSyncFailures.splice(index, 1);
-        console.warn('Notification Sheet sync pending:', error.message);
-      })));
+      created.forEach((notification) => {
+        void queueSheetSync('notification', notification).catch((error) => {
+          const index = sheetSyncFailures.indexOf(error);
+          if (index >= 0) sheetSyncFailures.splice(index, 1);
+          console.warn('Notification Sheet sync pending:', error.message);
+        });
+      });
     }
     if (!webPushReady || !Array.isArray(db.pushSubscriptions)) return;
     const recipientIds = new Set(recipients.map((user) => String(user.id)));
@@ -711,22 +805,31 @@ function queueNotificationsForUsers(users, event) {
         if (error && (error.statusCode === 404 || error.statusCode === 410)) {
           db.pushSubscriptions = db.pushSubscriptions.filter((saved) => saved.endpoint !== item.endpoint);
           void persistDatabase();
-          queueSheetSync('pushSubscriptionDelete', { endpoint: item.endpoint, userId: item.userId });
+          void queueSheetSync('pushSubscriptionDelete', { endpoint: item.endpoint, userId: item.userId }).catch((syncError) => {
+            clearTrackedSheetFailure(syncError);
+          });
         } else {
           console.warn('Web Push delivery failed:', error.message);
         }
       });
     });
+  })();
+  return work.catch((error) => {
+    console.warn('Notification persistence failed:', error.message);
   });
 }
 
+function queueNotificationsForUsers(users, event) {
+  return withMutationLock(() => persistNotificationsForUsers(users, event));
+}
+
 function notifyUserActivity(user, event) {
-  if (user) queueNotificationsForUsers([user], event);
+  return user ? persistNotificationsForUsers([user], event) : Promise.resolve();
 }
 
 function notifyAdminsForActivity(permission, event) {
   const admins = db.users.filter((user) => user.role === 'admin' && hasAdminPermission(user, permission));
-  queueNotificationsForUsers(admins, event);
+  return persistNotificationsForUsers(admins, event);
 }
 
 function sheetTopupRequestPayload(request) {
@@ -1229,7 +1332,7 @@ async function handleSignup(req, res) {
     const user = { id: crypto.randomUUID(), shortId: nextShortId('u', db.users, 'shortId'), username: name, name, email, mobile, salt, passwordHash: passwordHash(password, salt), wallet: 0, rcCardPrice: null, role: isOwner ? 'admin' : 'user', adminPermissions: isOwner ? { ...FULL_ADMIN_PERMISSIONS } : {}, createdAt: new Date().toISOString(), lastLogin: new Date().toISOString(), active: true };
     db.users.push(user);
     await persistDatabase();
-    notifyAdminsForActivity('kpi', {
+      await notifyAdminsForActivity('kpi', {
       type: 'new-user',
       title: 'New user signup',
       body: `${user.name} (+91 ${user.mobile}) ne account create kiya.`,
@@ -1449,7 +1552,7 @@ async function handleCrossDeployReplication(req, res) {
       const event = body.notification && typeof body.notification === 'object'
         ? body.notification
         : { type: 'new-user', title: 'New user signup', body: `${user.name} (+91 ${user.mobile}) ne account create kiya.`, data: { mobile: user.mobile, userId: user.id, eventId: String(body.eventId || `new-user:${user.id}`) } };
-      notifyAdminsForActivity('kpi', event);
+      await notifyAdminsForActivity('kpi', event);
       return sendJson(res, 200, { success: true, replicated: true, existing, user: publicUser(user) });
     });
   }
@@ -1482,7 +1585,7 @@ async function handleCrossDeployReplication(req, res) {
           body: `${incoming.name || 'User'} (+91 ${incoming.mobile}) ne ₹${incoming.amountRequested} top-up request bheji hai.`,
           data: { mobile: incoming.mobile, amount: incoming.amountRequested, requestId, eventId: String(body.eventId || `topup-request:${requestId}`) }
         };
-    if (String(record.status || 'PENDING').toUpperCase() === 'PENDING') notifyAdminsForActivity('recharge', event);
+    if (String(record.status || 'PENDING').toUpperCase() === 'PENDING') await notifyAdminsForActivity('recharge', event);
     return sendJson(res, 200, { success: true, replicated: true, existing: Boolean(existing), request: publicTopupRequest(record) });
   });
 }
@@ -1641,6 +1744,18 @@ async function handlePurchase(req, res) {
       sheetSyncPending: Boolean(SHEET_WEBHOOK_URL && SHEET_SYNC_SECRET)
     });
     await persistDatabase();
+    await notifyUserActivity(fresh, {
+      type: 'rc-download',
+      title: 'RC download complete',
+      body: `${vrn} ka RC Card download ho gaya. ₹${price} wallet se deduct hua. Balance ₹${fresh.wallet}.`,
+      data: { vrn, amount: price, wallet: fresh.wallet, eventId: `rc-download:${transaction.id}` }
+    });
+    await notifyAdminsForActivity('transactions', {
+      type: 'rc-download',
+      title: 'User ne RC download kiya',
+      body: `${fresh.name} (+91 ${fresh.mobile}) ne ${vrn} ka RC Card download kiya.`,
+      data: { mobile: fresh.mobile, vrn, amount: price, eventId: `rc-download:${transaction.id}` }
+    });
     const sheetOperations = [
       queueSheetSync('user', sheetUserPayload(fresh)),
       queueSheetSync('transaction', sheetTransactionPayload(transaction))
@@ -1651,18 +1766,6 @@ async function handlePurchase(req, res) {
       await persistDatabase();
       if (!sheetSyncedQuickly) void retryPurchaseSheetSync(fresh.mobile, transaction.id);
     }
-    notifyUserActivity(fresh, {
-      type: 'rc-download',
-      title: 'RC download complete',
-      body: `${vrn} ka RC Card download ho gaya. ₹${price} wallet se deduct hua. Balance ₹${fresh.wallet}.`,
-      data: { vrn, amount: price, wallet: fresh.wallet, eventId: `rc-download:${transaction.id}` }
-    });
-    notifyAdminsForActivity('transactions', {
-      type: 'rc-download',
-      title: 'User ne RC download kiya',
-      body: `${fresh.name} (+91 ${fresh.mobile}) ne ${vrn} ka RC Card download kiya.`,
-      data: { mobile: fresh.mobile, vrn, amount: price, eventId: `rc-download:${transaction.id}` }
-    });
     return sendJson(res, 200, { success: true, data: { vrn, front: provider.images.front, back: provider.images.back, downloadType }, wallet: fresh.wallet, charged: price, requiredPrice: price });
   });
 }
@@ -1741,7 +1844,7 @@ async function createTopupRequestRecord(user, amount, options = {}) {
   };
   db.topupRequests.push(request);
   await persistDatabase();
-  notifyAdminsForActivity('recharge', {
+  await notifyAdminsForActivity('recharge', {
     type: 'topup-request',
     title: 'New wallet top-up request',
     body: `${fresh.name} (+91 ${fresh.mobile}) ne ₹${request.amountRequested} top-up request bheji hai.`,
@@ -1852,14 +1955,14 @@ async function handleAdminResolveTopupRequest(req, res, requestId) {
       request.decidedBy = admin.mobile;
       request.updatedAt = now;
       await persistDatabase();
-      queueSheetSync('topupRequest', sheetTopupRequestPayload(request));
-      await flushSheetSync();
-      notifyUserActivity(findUser(request.mobile), {
+      await notifyUserActivity(findUser(request.mobile), {
         type: 'topup-rejected',
         title: 'Wallet top-up rejected',
         body: `Aapka ₹${request.amountRequested} wallet top-up reject ho gaya. ${request.rejectReason}`,
         data: { amount: request.amountRequested, requestId: request.id }
       });
+      queueSheetSync('topupRequest', sheetTopupRequestPayload(request));
+      await flushSheetSync();
       return sendJson(res, 200, { success: true, request: publicTopupRequest(request), message: 'Wallet payment request reject ho gayi.' });
     }
 
@@ -1878,16 +1981,16 @@ async function handleAdminResolveTopupRequest(req, res, requestId) {
     request.updatedAt = now;
     request.rejectReason = '';
     await persistDatabase();
-    queueSheetSync('topupRequest', sheetTopupRequestPayload(request));
-    queueSheetSync('user', sheetUserPayload(user));
-    queueSheetSync('transaction', sheetTransactionPayload(db.transactions[db.transactions.length - 1]));
-    await flushSheetSync();
-    notifyUserActivity(user, {
+    await notifyUserActivity(user, {
       type: 'wallet-credit',
       title: 'Wallet balance added',
       body: `₹${Math.round(amount)} aapke wallet me add ho gaye. New balance ₹${user.wallet}.`,
       data: { amount: Math.round(amount), wallet: user.wallet, requestId: request.id }
     });
+    queueSheetSync('topupRequest', sheetTopupRequestPayload(request));
+    queueSheetSync('user', sheetUserPayload(user));
+    queueSheetSync('transaction', sheetTransactionPayload(db.transactions[db.transactions.length - 1]));
+    await flushSheetSync();
     return sendJson(res, 200, { success: true, request: publicTopupRequest(request), user: publicUser(user), message: `₹${Math.round(amount)} wallet me add ho gaye.` });
   });
 }
@@ -2096,21 +2199,21 @@ async function handleAdminRecharge(req, res) {
     user.wallet = Number(user.wallet) + amount;
     appendTransaction(mobile, 'RECHARGE', amount, user.wallet, '', String(body.note || 'Manual admin recharge').slice(0, 120), admin.mobile);
     await persistDatabase();
-    queueSheetSync('user', sheetUserPayload(user));
-    queueSheetSync('transaction', sheetTransactionPayload(db.transactions[db.transactions.length - 1]));
-    await flushSheetSync();
-    notifyUserActivity(user, {
+    await notifyUserActivity(user, {
       type: 'wallet-credit',
       title: 'Wallet balance added',
       body: `Admin ne ₹${Math.round(amount)} aapke wallet me add kiye. New balance ₹${user.wallet}.`,
       data: { amount: Math.round(amount), wallet: user.wallet }
     });
-    notifyAdminsForActivity('recharge', {
+    await notifyAdminsForActivity('recharge', {
       type: 'wallet-recharge',
       title: 'Wallet recharge complete',
       body: `${user.name} (+91 ${user.mobile}) ke wallet me ₹${Math.round(amount)} add kiye gaye.`,
       data: { mobile: user.mobile, amount: Math.round(amount), wallet: user.wallet }
     });
+    queueSheetSync('user', sheetUserPayload(user));
+    queueSheetSync('transaction', sheetTransactionPayload(db.transactions[db.transactions.length - 1]));
+    await flushSheetSync();
     return sendJson(res, 200, { success: true, message: 'Wallet recharge successful.', user: publicUser(user) });
   });
 }
@@ -2606,6 +2709,10 @@ const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
     const pathname = url.pathname;
+    // In all-data proxy mode Render never reads/writes its own local JSON.
+    // Every API category (wallet, transactions, notifications, settings,
+    // ads, KPI and RC purchases) is handled by the Railway primary service.
+    if (PROXY_TO_PRIMARY && pathname.startsWith('/api/')) return await proxyApiRequest(req, res, url);
     if (req.method === 'GET' && pathname === '/api/health') {
       const sheetSyncConfigured = Boolean(SHEET_WEBHOOK_URL && SHEET_SYNC_SECRET);
       return sendJson(res, 200, {
@@ -2615,6 +2722,8 @@ const server = http.createServer(async (req, res) => {
         providerConfigured: Boolean(RC_API_TOKEN),
         adminConfigured: Boolean(ADMIN_MOBILE),
         webPushConfigured: webPushReady,
+        proxyToPrimary: PROXY_TO_PRIMARY,
+        primaryApiConfigured: Boolean(PRIMARY_API_URL),
         crossDeployPrimaryConfigured: Boolean(CROSS_DEPLOY_PRIMARY_URL),
         crossDeploySyncConfigured: Boolean(CROSS_DEPLOY_SYNC_SECRET),
         sheetSyncConfigured,
