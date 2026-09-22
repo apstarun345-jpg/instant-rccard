@@ -1,4 +1,4 @@
-const CACHE = 'instant-rccard-shell-v21';
+const CACHE = 'instant-rccard-shell-v22';
 const SHELL = ['/', '/index.html', '/app.js', '/manifest.webmanifest', '/instant-rccard-logo.png', '/instant-rccard-mark.png', '/instant-rccard-icon-192-v21.png', '/instant-rccard-icon-512-v21.png', '/whatsapp.png'];
 
 self.addEventListener('install', (event) => {

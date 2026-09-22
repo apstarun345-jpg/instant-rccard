@@ -716,6 +716,24 @@ function paginatedTransactions(transactions, searchParams) {
   };
 }
 
+function paginatedCollection(items, searchParams, pageKey = 'page', newestFirst = false) {
+  const limit = 10;
+  const requestedPage = Number(searchParams.get(pageKey) || 1);
+  const page = Number.isFinite(requestedPage) ? Math.max(1, Math.round(requestedPage)) : 1;
+  const total = items.length;
+  const pages = Math.max(1, Math.ceil(total / limit));
+  const safePage = Math.min(page, pages);
+  const ordered = newestFirst ? items.slice().reverse() : items.slice();
+  const start = (safePage - 1) * limit;
+  return {
+    page: safePage,
+    pages,
+    total,
+    limit,
+    items: ordered.slice(start, start + limit)
+  };
+}
+
 function sheetUserPayload(user) {
   return {
     userId: user.shortId || user.id,
@@ -1955,16 +1973,26 @@ async function handleWalletTopupWhatsapp(req, res) {
   return res.end();
 }
 
-async function handleAdminGetTopupRequests(req, res) {
+async function handleAdminGetTopupRequests(req, res, searchParams) {
   const admin = requireAdmin(req, res, 'recharge');
   if (!admin) return;
-  const status = String(new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`).searchParams.get('status') || 'ALL').toUpperCase();
-  const requests = (Array.isArray(db.topupRequests) ? db.topupRequests : [])
-    .filter((request) => !status || status === 'ALL' || request.status === status)
-    .slice(-100)
-    .reverse()
-    .map(publicTopupRequest);
-  return sendJson(res, 200, { success: true, requests, pending: requests.filter((request) => request.status === 'PENDING').length });
+  const status = String(searchParams.get('status') || 'ALL').toUpperCase();
+  const allRequests = (Array.isArray(db.topupRequests) ? db.topupRequests : [])
+    .filter((request) => !status || status === 'ALL' || request.status === status);
+  const pageData = paginatedCollection(allRequests, searchParams, 'page', true);
+  const requests = pageData.items.map(publicTopupRequest);
+  const pending = (Array.isArray(db.topupRequests) ? db.topupRequests : [])
+    .filter((request) => String(request.status || 'PENDING').toUpperCase() === 'PENDING').length;
+  return sendJson(res, 200, {
+    success: true,
+    requests,
+    pending,
+    status,
+    page: pageData.page,
+    pages: pageData.pages,
+    total: pageData.total,
+    limit: pageData.limit
+  });
 }
 
 async function handleAdminResolveTopupRequest(req, res, requestId) {
@@ -2079,10 +2107,11 @@ async function handleAdminListUsers(req, res, searchParams) {
   const admin = requireAdmin(req, res, 'rates');
   if (!admin) return;
   const query = String(searchParams.get('q') || '').trim();
-  const limitRaw = Number(searchParams.get('limit'));
-  const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 300) : 100;
   const matches = sortAdminUsers(searchAdminUsers(query));
-  const users = matches.slice(0, limit).map(publicAdminUser);
+  const userPage = paginatedCollection(matches, searchParams, 'page', false);
+  const rateLogRows = (Array.isArray(db.rateLog) ? db.rateLog : []).slice(-300);
+  const rateLogPage = paginatedCollection(rateLogRows, searchParams, 'ratePage', true);
+  const users = userPage.items.map(publicAdminUser);
   const customRateCount = db.users.filter(hasCustomRcCardRate).length;
   return sendJson(res, 200, {
     success: true,
@@ -2094,7 +2123,14 @@ async function handleAdminListUsers(req, res, searchParams) {
     activeUsers: db.users.filter((user) => user.active !== false).length,
     customRateCount,
     defaultRcCardPrice: defaultRcCardPrice(),
-    rateLog: (Array.isArray(db.rateLog) ? db.rateLog : []).slice(-15).reverse()
+    page: userPage.page,
+    pages: userPage.pages,
+    limit: userPage.limit,
+    rateLog: rateLogPage.items,
+    ratePage: rateLogPage.page,
+    ratePages: rateLogPage.pages,
+    rateTotal: rateLogPage.total,
+    rateLimit: rateLogPage.limit
   });
 }
 
@@ -2147,14 +2183,17 @@ async function handleAdminAccessUsers(req, res, searchParams) {
   const admin = requireAdmin(req, res, 'access');
   if (!admin) return;
   const query = String(searchParams.get('q') || '').trim();
-  const limitRaw = Number(searchParams.get('limit'));
-  const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 300) : 100;
   const matches = sortAdminUsers(searchAdminUsers(query));
+  const pageData = paginatedCollection(matches, searchParams, 'page', false);
   return sendJson(res, 200, {
     success: true,
-    users: matches.slice(0, limit).map(publicAdminUser),
+    users: pageData.items.map(publicAdminUser),
     query,
     matched: matches.length,
+    page: pageData.page,
+    pages: pageData.pages,
+    total: pageData.total,
+    limit: pageData.limit,
     permissionKeys: ADMIN_PERMISSION_KEYS
   });
 }
@@ -2634,7 +2673,7 @@ async function handleAdminKpiDetails(req, res, searchParams) {
     : db.users.filter((user) => user.role !== 'admin' && scopedUserMobiles.has(user.mobile)))
     .filter((user) => inRange(user.createdAt));
   const requestSource = hasAdminPermission(admin, 'recharge') ? (Array.isArray(db.topupRequests) ? db.topupRequests : []) : [];
-  const requests = requestSource.filter((request) => inRange(request.createdAt)).slice(-150).reverse().map(publicTopupRequest);
+  const requests = requestSource.filter((request) => inRange(request.createdAt)).reverse().map(publicTopupRequest);
   let items = [];
   let title = 'KPI details';
   if (type === 'users' || type === 'active-users') {
@@ -2658,7 +2697,19 @@ async function handleAdminKpiDetails(req, res, searchParams) {
       adminMobile: tx.adminMobile || '', note: tx.note || '', status: tx.status || 'SUCCESS'
     }));
   }
-  return sendJson(res, 200, { success: true, type, title, from, to, items });
+  const pageData = paginatedCollection(items, searchParams, 'page', false);
+  return sendJson(res, 200, {
+    success: true,
+    type,
+    title,
+    from,
+    to,
+    items: pageData.items,
+    page: pageData.page,
+    pages: pageData.pages,
+    total: pageData.total,
+    limit: pageData.limit
+  });
 }
 
 async function handleAdminUpdateRating(req, res) {
@@ -2882,7 +2933,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && pathname === '/api/admin/users/status') return await handleAdminSetUserStatus(req, res);
     if (req.method === 'POST' && pathname === '/api/admin/recharge') return await handleAdminRecharge(req, res);
     if (req.method === 'POST' && pathname === '/api/admin/debit') return await handleAdminDebit(req, res);
-    if (req.method === 'GET' && pathname === '/api/admin/wallet/topup-requests') return await handleAdminGetTopupRequests(req, res);
+    if (req.method === 'GET' && pathname === '/api/admin/wallet/topup-requests') return await handleAdminGetTopupRequests(req, res, url.searchParams);
     const topupRequestRoute = pathname.match(/^\/api\/admin\/wallet\/topup-requests\/([^/]+)$/);
     if (topupRequestRoute && req.method === 'POST') return await handleAdminResolveTopupRequest(req, res, decodeURIComponent(topupRequestRoute[1]));
     if (req.method === 'GET' && pathname === '/api/admin/ads') return await handleAdminGetAds(req, res);

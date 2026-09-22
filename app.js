@@ -1,5 +1,5 @@
 
-    var state = { token: '', user: null, selectedAdminMobile: '', selectedAdminQuery: '', defaultRcCardPrice: 15, pendingVrn: '', busy: false, adminUsersQuery: '', adminAccessQuery: '', bulkConfirm: false, supportWhatsapp: '', supportPaymentQr: '', supportPaymentQrUrl: '', pendingTopupAmount: 0, adminKpiDetail: '', adminLiveBusy: false, notificationIds: {}, notifications: [], notificationUnread: 0, notificationPollTimer: null, notificationInitialised: false, purchaseRequestKey: '', purchaseRequestVrn: '', purchaseRequestType: '', transactionCategory: 'wallet', transactionPage: 1, transactionPages: 1, adminTransactionCategory: 'wallet', adminTransactionPage: 1, adminTransactionPages: 1 };
+    var state = { token: '', user: null, selectedAdminMobile: '', selectedAdminQuery: '', defaultRcCardPrice: 15, pendingVrn: '', busy: false, adminUsersQuery: '', adminUsersPage: 1, adminUsersPages: 1, adminAccessQuery: '', adminAccessPage: 1, adminAccessPages: 1, adminRateLogPage: 1, adminRateLogPages: 1, adminTopupPage: 1, adminTopupPages: 1, bulkConfirm: false, supportWhatsapp: '', supportPaymentQr: '', supportPaymentQrUrl: '', pendingTopupAmount: 0, adminKpiDetail: '', adminKpiDetailPage: 1, adminKpiDetailPages: 1, adminLiveBusy: false, notificationIds: {}, notifications: [], notificationUnread: 0, notificationPollTimer: null, notificationInitialised: false, purchaseRequestKey: '', purchaseRequestVrn: '', purchaseRequestType: '', transactionCategory: 'wallet', transactionPage: 1, transactionPages: 1, adminTransactionCategory: 'wallet', adminTransactionPage: 1, adminTransactionPages: 1 };
     var DOWNLOAD_PRICES = { mparivahan: 10, 'rc-card': 15 };
     var $ = function (selector) { return document.querySelector(selector); };
     var $$ = function (selector) { return Array.prototype.slice.call(document.querySelectorAll(selector)); };
@@ -84,15 +84,34 @@
       else if (name === 'getStats') { url = '/api/public/stats'; }
       else if (name === 'adminFindUser') { url = '/api/admin/users/search'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ query: args[0] }); }
       else if (name === 'adminSetUserRate') { url = '/api/admin/users/set-rate'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ query: args[0], price: args[1], clear: args[2] === true }); }
-      else if (name === 'adminListUsers') { url = '/api/admin/users' + (args[0] ? '?q=' + encodeURIComponent(args[0]) : ''); }
-      else if (name === 'adminListAccess') { url = '/api/admin/users/access' + (args[0] ? '?q=' + encodeURIComponent(args[0]) : ''); }
+      else if (name === 'adminListUsers') {
+        var userListQs = new URLSearchParams();
+        if (args[0]) userListQs.set('q', args[0]);
+        userListQs.set('page', args[1] || 1);
+        userListQs.set('ratePage', args[2] || 1);
+        userListQs.set('limit', 10);
+        url = '/api/admin/users?' + userListQs.toString();
+      }
+      else if (name === 'adminListAccess') {
+        var accessListQs = new URLSearchParams();
+        if (args[0]) accessListQs.set('q', args[0]);
+        accessListQs.set('page', args[1] || 1);
+        accessListQs.set('limit', 10);
+        url = '/api/admin/users/access?' + accessListQs.toString();
+      }
       else if (name === 'adminUpdateAccess') { url = '/api/admin/users/access'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ query: args[0], makeAdmin: args[1] !== false, permissions: args[2] || {} }); }
       else if (name === 'adminBulkRate') { url = '/api/admin/users/bulk-rate'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ price: args[0], clear: args[1] === true, scope: args[2] || 'all', mobiles: args[3] || [], confirm: args[4] === true }); }
       else if (name === 'adminSetUserStatus') { url = '/api/admin/users/status'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ mobile: args[0], active: args[1] !== false }); }
       else if (name === 'adminRecharge') { url = '/api/admin/recharge'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ mobile: args[0], amount: args[1], note: args[2] }); }
       else if (name === 'adminDebit') { url = '/api/admin/debit'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ mobile: args[0], amount: args[1], note: args[2] }); }
       else if (name === 'createWalletTopupRequest') { url = '/api/wallet/topup-request'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ amount: args[0] }); }
-      else if (name === 'adminGetTopupRequests') { url = '/api/admin/wallet/topup-requests'; }
+      else if (name === 'adminGetTopupRequests') {
+        var topupQs = new URLSearchParams();
+        topupQs.set('status', args[0] || 'ALL');
+        topupQs.set('page', args[1] || 1);
+        topupQs.set('limit', 10);
+        url = '/api/admin/wallet/topup-requests?' + topupQs.toString();
+      }
       else if (name === 'adminResolveTopupRequest') { url = '/api/admin/wallet/topup-requests/' + encodeURIComponent(args[0]); options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ status: args[1], amount: args[2], reason: args[3] || '' }); }
       else if (name === 'adminGetTransactions') { url = '/api/admin/transactions?category=' + encodeURIComponent(args[0] || 'wallet') + '&page=' + encodeURIComponent(args[1] || 1) + '&limit=10'; }
       else if (name === 'adminGetStats') {
@@ -106,6 +125,8 @@
         detailQs.set('type', args[0] || 'wallet-requests');
         if (args[1] && args[1].from) detailQs.set('from', args[1].from);
         if (args[1] && args[1].to) detailQs.set('to', args[1].to);
+        detailQs.set('page', args[2] || 1);
+        detailQs.set('limit', 10);
         url = '/api/admin/stats/details?' + detailQs.toString();
       }
       else if (name === 'adminSetRating') { url = '/api/admin/settings/rating'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ rating: args[0] }); }
@@ -623,10 +644,24 @@
       if (typeof closeUserDropdown === 'function') closeUserDropdown();
       state.token = '';
       state.user = null;
+      state.selectedAdminMobile = '';
+      state.selectedAdminQuery = '';
+      state.adminUsersQuery = '';
+      state.adminAccessQuery = '';
       state.transactionCategory = 'wallet';
       state.transactionPage = 1;
       state.adminTransactionCategory = 'wallet';
       state.adminTransactionPage = 1;
+      state.adminTopupPage = 1;
+      state.adminTopupPages = 1;
+      state.adminUsersPage = 1;
+      state.adminUsersPages = 1;
+      state.adminAccessPage = 1;
+      state.adminAccessPages = 1;
+      state.adminRateLogPage = 1;
+      state.adminRateLogPages = 1;
+      state.adminKpiDetailPage = 1;
+      state.adminKpiDetailPages = 1;
       state.adminKpiDetail = '';
       if ($('#admin-kpi-detail-panel')) $('#admin-kpi-detail-panel').hidden = true;
       $('#auth-view').hidden = false;
@@ -1112,6 +1147,7 @@
       if (section === 'users') loadAdminUsers(state.adminUsersQuery || '', { silent: true });
       if (section === 'access' && !state.adminAccessQuery) {
         $('#admin-access-list').innerHTML = '<div class="empty-list">Search karke existing user select karo.</div>';
+        renderPageButtons($('#admin-access-pagination'), 1, 1, function () {});
       }
     }
 
@@ -1591,18 +1627,28 @@
       }).join('');
     }
 
-    function renderAdminRateLog(log) {
+    function renderAdminRateLog(log, payload) {
       var body = $('#admin-rate-log-body');
       if (!body) return;
-      if (!log || !log.length) { body.innerHTML = '<tr><td colspan="4">Abhi koi rate change nahi hua.</td></tr>'; return; }
-      body.innerHTML = log.map(function (entry) {
-        return '<tr><td>' + escapeHtml(formatDate(entry.time)) + '</td><td>' + escapeHtml((entry.name || 'User') + ' • +91 ' + entry.mobile) + '</td><td>' + escapeHtml(entry.from == null ? 'Default' : formatMoney(entry.from)) + '</td><td>' + escapeHtml(entry.to == null ? 'Default' : formatMoney(entry.to)) + '</td></tr>';
-      }).join('');
+      if (!log || !log.length) {
+        body.innerHTML = '<tr><td colspan="4">Abhi koi rate change nahi hua.</td></tr>';
+      } else {
+        body.innerHTML = log.map(function (entry) {
+          return '<tr><td>' + escapeHtml(formatDate(entry.time)) + '</td><td>' + escapeHtml((entry.name || 'User') + ' • +91 ' + entry.mobile) + '</td><td>' + escapeHtml(entry.from == null ? 'Default' : formatMoney(entry.from)) + '</td><td>' + escapeHtml(entry.to == null ? 'Default' : formatMoney(entry.to)) + '</td></tr>';
+        }).join('');
+      }
+      renderPageButtons($('#admin-rate-log-pagination'), payload && payload.ratePage, payload && payload.ratePages, function (page) {
+        loadAdminUsers(state.adminUsersQuery, { silent: true, page: state.adminUsersPage, ratePage: page });
+      });
     }
 
     function renderAdminUsers(response) {
       adminUsersCache = Array.isArray(response.users) ? response.users : [];
       state.adminUsersQuery = response.query || '';
+      state.adminUsersPage = Number(response.page || 1);
+      state.adminUsersPages = Number(response.pages || 1);
+      state.adminRateLogPage = Number(response.ratePage || 1);
+      state.adminRateLogPages = Number(response.ratePages || 1);
       state.defaultRcCardPrice = Number(response.defaultRcCardPrice || state.defaultRcCardPrice || 15);
       if ($('#admin-rate-default')) $('#admin-rate-default').textContent = formatMoney(state.defaultRcCardPrice);
       if ($('#admin-rate-total-users')) $('#admin-rate-total-users').textContent = Number(response.total || 0).toLocaleString('en-IN');
@@ -1618,7 +1664,10 @@
         }
       }
       renderAdminUsersTable();
-      renderAdminRateLog(response.rateLog);
+      renderPageButtons($('#admin-users-pagination'), response.page, response.pages, function (page) {
+        loadAdminUsers(state.adminUsersQuery, { silent: true, page: page, ratePage: state.adminRateLogPage });
+      });
+      renderAdminRateLog(response.rateLog, response);
     }
 
     // ---------- Admin: delegated access tab ----------
@@ -1630,6 +1679,8 @@
       if (!list) return;
       adminAccessCache = Array.isArray(response.users) ? response.users : [];
       state.adminAccessQuery = response.query || '';
+      state.adminAccessPage = Number(response.page || 1);
+      state.adminAccessPages = Number(response.pages || 1);
       var labels = {
         kpi: 'KPI dashboard',
         recharge: 'Add payment / recharge',
@@ -1640,6 +1691,7 @@
       };
       if (!adminAccessCache.length) {
         list.innerHTML = '<div class="empty-list">Is search ka koi existing account nahi mila.</div>';
+        renderPageButtons($('#admin-access-pagination'), response.page, response.pages, function (page) { loadAdminAccessUsers(state.adminAccessQuery, { silent: true, page: page }); });
         return;
       }
       var currentMobile = state.user && state.user.mobile;
@@ -1666,15 +1718,18 @@
       $$('#admin-access-list [data-access-remove]').forEach(function (button) {
         button.addEventListener('click', function () { updateAdminAccess(button, false); });
       });
+      renderPageButtons($('#admin-access-pagination'), response.page, response.pages, function (page) { loadAdminAccessUsers(state.adminAccessQuery, { silent: true, page: page }); });
     }
 
     async function loadAdminAccessUsers(query, options) {
       if (!state.user || state.user.role !== 'admin' || !hasAdminPermission('access')) return;
+      var settings = options || {};
       var value = String(query == null ? '' : query).trim();
-      var button = options && options.silent ? null : $('#admin-access-search-button');
+      var page = Number(settings.page || state.adminAccessPage || 1);
+      var button = settings.silent ? null : $('#admin-access-search-button');
       if (button) setButtonLoading(button, true, 'Find users');
       try {
-        var response = await callServer('adminListAccess', [value]);
+        var response = await callServer('adminListAccess', [value, page]);
         if (!response.success) { toast('Access search failed', response.message || 'User list load nahi hui.', 'error'); return; }
         renderAdminAccessUsers(response);
       } catch (error) {
@@ -1720,11 +1775,13 @@
     async function loadAdminUsers(query, options) {
       if (!state.user || state.user.role !== 'admin' || !hasAdminPermission('rates')) return;
       var settings = options || {};
+      var page = Number(settings.page || state.adminUsersPage || 1);
+      var ratePage = Number(settings.ratePage || state.adminRateLogPage || 1);
       var button = settings.silent ? null : (query ? $('#admin-users-search-button') : $('#admin-users-all-button'));
       if (button) setButtonLoading(button, true, query ? 'Search users' : 'Show all');
       var response = null;
       try {
-        response = await callServer('adminListUsers', [query == null ? '' : query]);
+        response = await callServer('adminListUsers', [query == null ? '' : query, page, ratePage]);
         if (!response.success) { toast('Users load failed', response.message || 'List load nahi ho paayi.', 'error'); return; }
         renderAdminUsers(response);
       } catch (error) {
@@ -1736,12 +1793,16 @@
 
     async function searchAdminUsersList() {
       var query = String($('#admin-users-search').value || '').trim();
-      await loadAdminUsers(query);
+      state.adminUsersPage = 1;
+      state.adminRateLogPage = 1;
+      await loadAdminUsers(query, { page: 1, ratePage: 1 });
     }
 
     async function showAllAdminUsers() {
       $('#admin-users-search').value = '';
-      await loadAdminUsers('');
+      state.adminUsersPage = 1;
+      state.adminRateLogPage = 1;
+      await loadAdminUsers('', { page: 1, ratePage: 1 });
     }
 
     async function saveAdminRowRate(mobile, clear, button) {
@@ -1820,11 +1881,25 @@
       }
     }
 
-    function exportAdminUsersCsv() {
+    async function exportAdminUsersCsv() {
       if (!state.user || state.user.role !== 'admin') return;
       if (!adminUsersCache.length) { toast('CSV export', 'Pehle user list load karo.', 'error'); return; }
+      var users = adminUsersCache.slice();
+      try {
+        var pages = Number(state.adminUsersPages || 1);
+        if (pages > 1) {
+          var pageResults = await Promise.all(Array.from({ length: pages }, function (_, index) {
+            return callServer('adminListUsers', [state.adminUsersQuery, index + 1, state.adminRateLogPage]);
+          }));
+          users = pageResults.reduce(function (all, response) {
+            return all.concat(response && response.success && Array.isArray(response.users) ? response.users : []);
+          }, []);
+        }
+      } catch (error) {
+        users = adminUsersCache.slice();
+      }
       var rows = [['Name', 'Email', 'Mobile', 'Wallet', 'RC Card Rate', 'Rate Type', 'Status', 'Created']];
-      adminUsersCache.forEach(function (user) {
+      users.forEach(function (user) {
         rows.push([
           user.name || '',
           user.email || '',
@@ -1848,7 +1923,7 @@
       link.click();
       link.remove();
       setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
-      toast('CSV ready', adminUsersCache.length + ' user(s) ka CSV download ho raha hai.', 'success');
+      toast('CSV ready', users.length + ' user(s) ka CSV download ho raha hai.', 'success');
     }
 
     async function rechargeAdminUser() {
@@ -1897,14 +1972,21 @@
       finally { setButtonLoading(button, false, 'Debit'); }
     }
 
-    async function loadAdminTopupRequests() {
+    async function loadAdminTopupRequests(page) {
       if (!state.user || state.user.role !== 'admin' || !hasAdminPermission('recharge')) return;
+      page = Number(page || state.adminTopupPage || 1);
+      state.adminTopupPage = page;
       try {
-        var response = await callServer('adminGetTopupRequests', []);
-        if (response.success) renderAdminTopupRequests(response.requests || []);
+        var response = await callServer('adminGetTopupRequests', ['ALL', page]);
+        if (response.success) {
+          state.adminTopupPage = Number(response.page || page);
+          state.adminTopupPages = Number(response.pages || 1);
+          renderAdminTopupRequests(response.requests || [], response);
+        }
       } catch (error) {
         var list = $('#admin-topup-request-list');
         if (list) list.innerHTML = '<div class="empty-list">Payment requests load nahi ho paayi.</div>';
+        renderPageButtons($('#admin-topup-pagination'), 1, 1, function () {});
       }
     }
 
@@ -1927,15 +2009,16 @@
       Array.prototype.slice.call(root.querySelectorAll('[data-topup-reject]')).forEach(function (button) { button.addEventListener('click', function () { resolveAdminTopup(button.dataset.topupReject, 'REJECTED', button); }); });
     }
 
-    function renderAdminTopupRequests(requests) {
+    function renderAdminTopupRequests(requests, payload) {
       var list = $('#admin-topup-request-list');
       if (!list) return;
       if (!requests.length) {
         list.innerHTML = '<div class="empty-list">Koi wallet payment request nahi hai.</div>';
-        return;
+      } else {
+        list.innerHTML = requests.map(topupRequestMarkup).join('');
+        wireTopupRequestButtons(list);
       }
-      list.innerHTML = requests.map(topupRequestMarkup).join('');
-      wireTopupRequestButtons(list);
+      renderPageButtons($('#admin-topup-pagination'), payload && payload.page, payload && payload.pages, function (page) { loadAdminTopupRequests(page); });
     }
 
     async function resolveAdminTopup(requestId, decision, sourceButton) {
@@ -1975,7 +2058,7 @@
       $$('[data-admin-transaction-category]').forEach(function (button) {
         button.classList.toggle('active', button.dataset.adminTransactionCategory === state.adminTransactionCategory);
       });
-      if ($('#admin-transactions-title')) $('#admin-transactions-title').textContent = state.adminTransactionCategory === 'rc' ? 'RC download transactions' : state.adminTransactionCategory === 'all' ? 'All transactions' : 'Wallet transactions';
+      if ($('#admin-transactions-title')) $('#admin-transactions-title').textContent = (state.adminTransactionCategory === 'rc' ? 'RC download transactions' : state.adminTransactionCategory === 'all' ? 'All transactions' : 'Wallet transactions') + ' · 10 per page';
     }
 
     async function loadAdminTransactions(category, page) {
@@ -2110,34 +2193,45 @@
       }).join('');
     }
 
-    async function loadKpiDetails(type, silent) {
+    async function loadKpiDetails(type, silent, page) {
       if (!state.user || state.user.role !== 'admin' || !hasAdminPermission('kpi')) return;
       var panel = $('#admin-kpi-detail-panel');
       var list = $('#admin-kpi-detail-list');
       if (!panel || !list) return;
-      state.adminKpiDetail = type || 'wallet-requests';
+      var nextType = type || state.adminKpiDetail || 'wallet-requests';
+      if (nextType !== state.adminKpiDetail) state.adminKpiDetailPage = 1;
+      state.adminKpiDetail = nextType;
+      page = Number(page || state.adminKpiDetailPage || 1);
+      state.adminKpiDetailPage = page;
       panel.hidden = false;
       if (!silent) list.innerHTML = '<div class="empty-list">Details load ho rahe hain…</div>';
       try {
-        var response = await callServer('adminGetKpiDetails', [state.adminKpiDetail, currentAdminStatsRange()]);
+        var response = await callServer('adminGetKpiDetails', [state.adminKpiDetail, currentAdminStatsRange(), page]);
         if (!response.success) throw new Error(response.message || 'Details load nahi ho paayi.');
+        state.adminKpiDetailPage = Number(response.page || page);
+        state.adminKpiDetailPages = Number(response.pages || 1);
         $('#admin-kpi-detail-title').textContent = response.title || 'KPI details';
         var range = response.from && response.to ? 'Date range: ' + response.from + ' → ' + response.to + ' · ' : '';
-        $('#admin-kpi-detail-subtitle').textContent = range + Number(response.items ? response.items.length : 0).toLocaleString('en-IN') + ' record(s)';
+        $('#admin-kpi-detail-subtitle').textContent = range + Number(response.total || 0).toLocaleString('en-IN') + ' record(s)';
         renderKpiDetailItems(state.adminKpiDetail, response.items || []);
+        renderPageButtons($('#admin-kpi-detail-pagination'), response.page, response.pages, function (nextPage) { loadKpiDetails(state.adminKpiDetail, true, nextPage); });
       } catch (error) {
         if (!silent) list.innerHTML = '<div class="empty-list">Details load nahi ho paayi.</div>';
+        renderPageButtons($('#admin-kpi-detail-pagination'), 1, 1, function () {});
       }
     }
 
     function openKpiDetails(type) {
-      loadKpiDetails(type, false);
+      state.adminKpiDetailPage = 1;
+      loadKpiDetails(type, false, 1);
       var panel = $('#admin-kpi-detail-panel');
       if (panel) window.setTimeout(function () { panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }, 40);
     }
 
     function closeKpiDetails() {
       state.adminKpiDetail = '';
+      state.adminKpiDetailPage = 1;
+      state.adminKpiDetailPages = 1;
       var panel = $('#admin-kpi-detail-panel');
       if (panel) panel.hidden = true;
     }
@@ -2575,7 +2669,7 @@
     });
     $('#admin-recharge-button').addEventListener('click', rechargeAdminUser);
     if ($('#admin-debit-button')) $('#admin-debit-button').addEventListener('click', debitAdminUser);
-    if ($('#refresh-topup-requests')) $('#refresh-topup-requests').addEventListener('click', loadAdminTopupRequests);
+    if ($('#refresh-topup-requests')) $('#refresh-topup-requests').addEventListener('click', function () { loadAdminTopupRequests(state.adminTopupPage); });
     if ($('#close-admin-kpi-details')) $('#close-admin-kpi-details').addEventListener('click', closeKpiDetails);
     $$('[data-kpi-detail]').forEach(function (card) {
       card.addEventListener('click', function () { openKpiDetails(card.dataset.kpiDetail); });
@@ -2594,7 +2688,8 @@
     if ($('#admin-access-search-button')) $('#admin-access-search-button').addEventListener('click', function () {
       var query = String($('#admin-access-search').value || '').trim();
       if (!query) { toast('Search check karo', 'Existing user ka mobile, email ya naam daalo.', 'error'); return; }
-      loadAdminAccessUsers(query);
+      state.adminAccessPage = 1;
+      loadAdminAccessUsers(query, { page: 1 });
     });
     if ($('#admin-access-search')) $('#admin-access-search').addEventListener('keydown', function (event) {
       if (event.key === 'Enter') { event.preventDefault(); $('#admin-access-search-button').click(); }

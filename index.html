@@ -934,6 +934,7 @@
         <div class="admin-kpi-detail-panel" id="admin-kpi-detail-panel" hidden>
           <div class="admin-kpi-detail-heading"><div><h3 id="admin-kpi-detail-title">KPI details</h3><small id="admin-kpi-detail-subtitle">Click any row for more information.</small></div><button class="admin-kpi-detail-close" id="close-admin-kpi-details" type="button">Hide details</button></div>
           <div class="admin-kpi-detail-list" id="admin-kpi-detail-list"><div class="empty-list">Details load ho rahe hain…</div></div>
+          <div class="transaction-pagination" id="admin-kpi-detail-pagination" aria-label="KPI detail pages"></div>
         </div>
         <div class="admin-activity-panel" id="admin-activity-panel">
           <div class="admin-activity-heading"><div><div class="section-label">ADMIN-WISE RECHARGE</div><h3>Payment activity by admin</h3><p>Har admin ne kitne users ko wallet payment diya aur kitna amount add kiya.</p></div></div>
@@ -976,7 +977,7 @@
 
       <div class="content-grid">
         <div class="side-stack"><section class="panel balance-card wallet-card wallet-trigger" id="wallet-card-trigger" role="button" tabindex="0" aria-label="Open wallet topup"><div class="section-label">CURRENT WALLET</div><div class="balance-amount" id="balance-large">₹0</div><p>Tap karke wallet topup request bhejo.</p></section><section class="panel account-card"><div class="card-heading"><h3>Account details</h3></div><div class="account-row"><span class="account-icon">◉</span><span><b id="account-name">User</b><span>Registered name</span></span></div><div class="account-row"><span class="account-icon">⌕</span><span><b id="account-mobile">+91 —</b><span>Mobile account</span></span></div><div class="account-row"><span class="account-icon">@</span><span><b id="account-email">Email not set</b><span>Recovery email</span></span></div><div class="account-row"><span class="account-icon">₹</span><span><b id="account-rc-price">RC Card ₹15</b><span id="account-rc-note">MParivahan format Coming Soon</span></span></div><div class="account-row" id="account-role-row" hidden><span class="account-icon">♙</span><span><b id="account-role">Main Admin</b><span>Access level</span></span></div></section></div>
-        <section class="panel transactions-card" id="transactions"><div class="card-heading"><h3>Wallet &amp; RC history</h3><button id="refresh-transactions" type="button">Refresh ↻</button></div><div class="transaction-tabs" role="tablist" aria-label="Transaction categories"><button class="transaction-tab active" data-user-transaction-category="wallet" type="button">Wallet transactions</button><button class="transaction-tab" data-user-transaction-category="rc" type="button">RC downloads</button><button class="transaction-tab" data-user-transaction-category="all" type="button">All</button></div><div class="transaction-list" id="transaction-list"><div class="empty-list">Transactions load ho rahe hain…</div></div><div class="transaction-pagination" id="transaction-pagination" aria-label="Wallet transaction pages"></div></section>
+        <section class="panel transactions-card" id="transactions"><div class="card-heading"><h3>Wallet &amp; RC history · 10 per page</h3><button id="refresh-transactions" type="button">Refresh ↻</button></div><div class="transaction-tabs" role="tablist" aria-label="Transaction categories"><button class="transaction-tab active" data-user-transaction-category="wallet" type="button">Wallet transactions</button><button class="transaction-tab" data-user-transaction-category="rc" type="button">RC downloads</button><button class="transaction-tab" data-user-transaction-category="all" type="button">All</button></div><div class="transaction-list" id="transaction-list"><div class="empty-list">Transactions load ho rahe hain…</div></div><div class="transaction-pagination" id="transaction-pagination" aria-label="Wallet transaction pages"></div></section>
         <section class="panel admin-card" id="admin-card" hidden>
           <div class="admin-header"><div><div class="section-label" id="admin-role-label">MAIN ADMIN ACCESS</div><h3>Admin control center</h3></div><span class="admin-tag" id="admin-scope-tag">ALL PLATFORM</span></div>
           <div class="admin-layout">
@@ -1006,11 +1007,11 @@
                   <small id="admin-user-rate-help">Is user ke liye alag rate set karo. Download par yahi rate dikhega aur wallet se yahi deduct hoga.</small>
                 </div>
                 <div class="admin-inline-hint" id="admin-rate-inline-hint">Sabhi users ki list ke saath rate set karne ke liye <button class="admin-link-button" type="button" data-goto-admin-section="users">Users &amp; rates</button> tab kholo.</div>
-                <div class="admin-tx" id="admin-topup-requests-block"><div class="admin-topup-heading"><h4>RC wallet payment requests</h4><button class="admin-topup-refresh" id="refresh-topup-requests" type="button">Refresh ↻</button></div><div class="topup-request-list" id="admin-topup-request-list"><div class="empty-list">Loading payment requests…</div></div></div>
-                <div class="admin-tx" id="admin-transactions-block"><div class="admin-topup-heading"><h4 id="admin-transactions-title">Wallet transactions</h4><button class="admin-topup-refresh" id="refresh-admin-transactions" type="button">Refresh ↻</button></div><div class="transaction-tabs" role="tablist" aria-label="Admin transaction categories"><button class="transaction-tab active" data-admin-transaction-category="wallet" type="button">Wallet transactions</button><button class="transaction-tab" data-admin-transaction-category="rc" type="button">RC downloads</button><button class="transaction-tab" data-admin-transaction-category="all" type="button">All</button></div><div class="table-wrap"><table class="admin-table"><thead><tr><th>TIME</th><th>MOBILE</th><th>TYPE</th><th>AMOUNT</th><th>VRN</th></tr></thead><tbody id="admin-tx-body"><tr><td colspan="5">Transactions load ho rahe hain…</td></tr></tbody></table></div><div class="transaction-pagination" id="admin-transaction-pagination" aria-label="Admin transaction pages"></div></div>
+                <div class="admin-tx" id="admin-topup-requests-block"><div class="admin-topup-heading"><h4>RC wallet payment requests · 10 per page</h4><button class="admin-topup-refresh" id="refresh-topup-requests" type="button">Refresh ↻</button></div><div class="topup-request-list" id="admin-topup-request-list"><div class="empty-list">Loading payment requests…</div></div><div class="transaction-pagination" id="admin-topup-pagination" aria-label="Wallet payment request pages"></div></div>
+                <div class="admin-tx" id="admin-transactions-block"><div class="admin-topup-heading"><h4 id="admin-transactions-title">Wallet transactions · 10 per page</h4><button class="admin-topup-refresh" id="refresh-admin-transactions" type="button">Refresh ↻</button></div><div class="transaction-tabs" role="tablist" aria-label="Admin transaction categories"><button class="transaction-tab active" data-admin-transaction-category="wallet" type="button">Wallet transactions</button><button class="transaction-tab" data-admin-transaction-category="rc" type="button">RC downloads</button><button class="transaction-tab" data-admin-transaction-category="all" type="button">All</button></div><div class="table-wrap"><table class="admin-table"><thead><tr><th>TIME</th><th>MOBILE</th><th>TYPE</th><th>AMOUNT</th><th>VRN</th></tr></thead><tbody id="admin-tx-body"><tr><td colspan="5">Transactions load ho rahe hain…</td></tr></tbody></table></div><div class="transaction-pagination" id="admin-transaction-pagination" aria-label="Admin transaction pages"></div></div>
               </div>
               <div id="admin-users-section" hidden>
-                <div class="ads-manager-heading"><div><div class="section-label">USER WISE RC RATE</div><h4>Users aur unka RC Card rate</h4><p>Kisi bhi user ke liye alag RC Card rate set karo. Us user ke download par wahi rate dikhega aur wallet se wahi amount deduct hoga.</p></div></div>
+                <div class="ads-manager-heading"><div><div class="section-label">USER WISE RC RATE</div><h4>Users aur unka RC Card rate · 10 per page</h4><p>Kisi bhi user ke liye alag RC Card rate set karo. Us user ke download par wahi rate dikhega aur wallet se wahi amount deduct hoga.</p></div></div>
                 <div class="admin-tools admin-users-tools">
                   <div><label>User search — naam, mobile ya email</label><input id="admin-users-search" type="text" placeholder="Rahul, 9876543210 ya user@email.com" autocomplete="off" /></div>
                   <button class="blue-button small-blue" id="admin-users-search-button" type="button">Search users</button>
@@ -1030,13 +1031,14 @@
                   <small>Bulk apply sirf normal users par lagta hai (admin account chhoot jaata hai). Button dobara click karne par hi confirm hota hai.</small>
                 </div>
                 <div class="admin-tx">
-                  <h4>User list — yahin se per-user rate set karo</h4>
+                  <h4>User list — yahin se per-user rate set karo · 10 per page</h4>
                   <div class="table-wrap">
                     <table class="admin-table admin-users-table">
                       <thead><tr><th>USER</th><th>MOBILE</th><th>WALLET</th><th>RC RATE ₹</th><th>RATE ACTION</th><th>STATUS</th></tr></thead>
                       <tbody id="admin-users-body"><tr><td colspan="6">Users load ho rahe hain…</td></tr></tbody>
                     </table>
                   </div>
+                  <div class="transaction-pagination" id="admin-users-pagination" aria-label="Users and RC rate pages"></div>
                 </div>
                 <div class="admin-tx">
                   <h4>Recent rate changes</h4>
@@ -1046,6 +1048,7 @@
                       <tbody id="admin-rate-log-body"><tr><td colspan="4">Abhi koi rate change nahi hua.</td></tr></tbody>
                     </table>
                   </div>
+                  <div class="transaction-pagination" id="admin-rate-log-pagination" aria-label="Rate change pages"></div>
                 </div>
               </div>
               <div id="admin-ads-section" hidden>
@@ -1062,6 +1065,7 @@
                 </div>
                 <div class="admin-help">KPI, recharge, rates, ads, transactions aur access capabilities alag-alag select karke delegated admin ko sirf required access do.</div>
                 <div class="admin-access-list" id="admin-access-list"><div class="empty-list">Search karke existing user select karo.</div></div>
+                <div class="transaction-pagination" id="admin-access-pagination" aria-label="Admin access user pages"></div>
               </div>
             </div>
           </div>
