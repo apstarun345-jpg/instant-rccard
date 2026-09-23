@@ -2,9 +2,15 @@
   "name": "instant-rc-download",
   "version": "1.0.0",
   "private": true,
+  "engines": {
+    "node": ">=20"
+  },
   "description": "Fast, smooth RC image downloader with a secure server-side API proxy.",
   "type": "module",
   "scripts": {
     "start": "node --env-file-if-exists=.env server.js"
+  },
+  "dependencies": {
+    "web-push": "^3.6.7"
   }
 }

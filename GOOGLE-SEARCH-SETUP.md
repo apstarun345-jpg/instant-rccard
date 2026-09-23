@@ -1,32 +1,24 @@
-# Google par InstantRCcard list karwane ka poora tarika
+# instantrccard.in ko Google par list karwane ka poora tarika
 
 Website ka code ab search engines ke liye ready hai. Google par listing ke liye neeche wale steps **ek baar** karne hote hain. Poora process free hai aur sirf aapke Google account se hota hai.
 
 > Sabse important baat: **Google apne aap kisi bhi website ko kabhi bhi "sitemap" me nahi jodta.** Aap Google Search Console me apni website ka sitemap submit karte ho, tab Google use crawl karke apne search results me dikhata hai.
 
+Aapka setup: **Domain** `instantrccard.in` → **Cloudflare** (DNS + proxy) → **Railway** (Node server).
+
 ---
 
 ## Step 0 — Deploy karo aur check karo (2 minute)
 
-Render par latest code deploy hone ke baad browser me ye 3 URL kholo (apna domain lagao):
+Is branch ko `main` me merge karo; Railway khud deploy kar dega. Deploy ke baad browser me ye 3 URL kholo:
 
 | URL | Kya dikhna chahiye |
 | --- | --- |
-| `https://APKA-DOMAIN/sitemap.xml` | XML jisme `<loc>https://APKA-DOMAIN/</loc>` likha ho |
-| `https://APKA-DOMAIN/robots.txt` | `Allow: /` aur `Sitemap: https://APKA-DOMAIN/sitemap.xml` |
-| `https://APKA-DOMAIN/og-image.png` | Blue InstantRCcard banner image |
+| <https://instantrccard.in/sitemap.xml> | XML jisme `<loc>https://instantrccard.in/</loc>` likha ho |
+| <https://instantrccard.in/robots.txt> | `Allow: /` aur `Sitemap: https://instantrccard.in/sitemap.xml` (upar Cloudflare ki `# content signals` wali comment lines bhi dikh sakti hain — wo theek hai) |
+| <https://instantrccard.in/og-image.png> | Blue InstantRCCard banner image |
 
-Agar teeno khul rahe hain, aage badho.
-
-### Custom domain hai? `SITE_URL` set karo
-
-Agar aapki site `xyz.onrender.com` ke alawa apne domain (jaise `www.instantrccard.com`) par bhi chalti hai, to Render Dashboard → aapki service → **Environment** me ye variable add karo:
-
-```text
-SITE_URL = https://www.instantrccard.com
-```
-
-Isse sitemap, canonical link aur social preview hamesha asli domain ka URL dikhayenge, aur Google do alag copies (onrender + custom domain) ko duplicate nahi maanega. Sirf `onrender.com` use kar rahe ho to ye optional hai.
+Agar teeno khul rahe hain, aage badho. Domain code me pehle se `https://instantrccard.in` set hai, koi variable dalna zaroori nahi.
 
 ---
 
@@ -34,37 +26,41 @@ Isse sitemap, canonical link aur social preview hamesha asli domain ka URL dikha
 
 1. <https://search.google.com/search-console> kholo aur apne Gmail se login karo.
 2. **Add property** (Property jodein) par click karo.
-3. Do option dikhenge — **URL prefix** wala chuno aur apna poora URL dalo, bilkul waise hi jaise browser me khulta hai:
-   `https://APKA-DOMAIN/`  (https:// zaroori hai; www hai to www ke saath)
-4. **Continue** dabao. Ab Google ownership verify karne ke tarike dikhayega.
+3. Do option dikhenge:
+   - **Domain** (recommended) → `instantrccard.in` likho. Ye www / non-www / http / https sab ek saath cover karta hai. Verification DNS se hoti hai (Step 2 – Tarika A).
+   - **URL prefix** → `https://instantrccard.in/` likho. Verification meta tag se hoti hai (Step 2 – Tarika B).
+4. **Continue** dabao.
 
 ## Step 2 — Ownership verify karo
 
-Koi bhi **ek** tarika kaafi hai. Sabse aasan **HTML tag** wala hai:
+### Tarika A — DNS record in Cloudflare (Domain property ke liye)
 
-### Tarika A — HTML tag (recommended, sirf 1 env variable)
+1. Search Console ek TXT record dega, jaise `google-site-verification=AbCdEf123...` — use **Copy** karo.
+2. <https://dash.cloudflare.com> → `instantrccard.in` → **DNS** → **Records** → **Add record**:
+
+   | Type | Name | Content | Proxy status | TTL |
+   | --- | --- | --- | --- | --- |
+   | `TXT` | `@` | `google-site-verification=AbCdEf123...` | DNS only | Auto |
+
+3. **Save** karo, 2–5 minute ruko, phir Search Console me **Verify** dabao. ✅ Verified aa jayega.
+
+### Tarika B — HTML tag (URL prefix property ke liye)
 
 1. Search Console me **HTML tag** option kholo. Aisa kuch dikhega:
    `<meta name="google-site-verification" content="AbCdEf123456..." />`
 2. Sirf `content="..."` ke andar wala code copy karo (`AbCdEf123456...`).
-3. Render Dashboard → aapki service → **Environment** → **Add Environment Variable**:
+3. **Railway** → aapka project → service → **Variables** → **New Variable**:
 
    ```text
    GOOGLE_SITE_VERIFICATION = AbCdEf123456...
    ```
 
-4. Save karo; Render service khud restart ho jayegi (1–2 minute).
-5. Search Console me wapas aakar **Verify** dabao. ✅ Verified aa jayega.
+4. Save karte hi Railway redeploy karega (1–2 minute).
+5. Search Console me wapas aakar **Verify** dabao.
 
-### Tarika B — HTML file upload
+### Tarika C — HTML file upload
 
-1. Search Console se `google1234abcd.html` file download karo.
-2. Us file ko is repository ke root me (jahan `index.html` hai) daal kar commit/push karo.
-3. Deploy ke baad `https://APKA-DOMAIN/google1234abcd.html` khul jayega → Search Console me **Verify** dabao.
-
-### Tarika C — DNS record (agar apna domain hai)
-
-Search Console jo TXT record dega, use apne domain provider (GoDaddy / Hostinger / Namecheap / Cloudflare) ke DNS me add karo aur Verify dabao. Isme 10 minute se kuch ghante lag sakte hain.
+Search Console se `google1234abcd.html` file download karke is repository ke root me (jahan `index.html` hai) daal kar commit/push karo. Deploy ke baad `https://instantrccard.in/google1234abcd.html` khul jayega → **Verify** dabao.
 
 ## Step 3 — Sitemap submit karo (1 minute)
 
@@ -74,10 +70,30 @@ Search Console jo TXT record dega, use apne domain provider (GoDaddy / Hostinger
 
 ## Step 4 — Homepage ki indexing turant request karo (1 minute)
 
-1. Upar search bar me (**URL Inspection**) apna homepage URL paste karo: `https://APKA-DOMAIN/`
+1. Upar search bar me (**URL Inspection**) paste karo: `https://instantrccard.in/`
 2. **Request indexing** par click karo. Google 1–2 din me page crawl kar leta hai (kabhi kabhi 1–2 hafte).
 
 Bas! Google par listing ka kaam yahin poora ho gaya. 🎉
+
+---
+
+## Optional (recommended) — Railway wale URL ko domain par redirect karo
+
+Aapki site `xxxx.up.railway.app` URL par bhi khulti hai. Google use duplicate copy na maane, iske liye code me canonical tag pehle se hai. Aur pakka karne ke liye Railway **Variables** me ye add karo:
+
+```text
+CANONICAL_REDIRECT = 1
+```
+
+Ab `railway.app` wala URL (aur `www.instantrccard.in`, agar Cloudflare me add hai) apne aap `https://instantrccard.in` par 301 redirect ho jayega. `/api/...` requests aur Railway ka healthcheck kabhi redirect nahi hote.
+
+**www ke liye:** Cloudflare DNS me `www` ka CNAME `instantrccard.in` par (Proxied) add karo, taaki `www.instantrccard.in` bhi khule aur redirect ho jaye.
+
+## Cloudflare me dhyaan rakhne wali baatein
+
+- **Security → Settings → Security level** ko `Medium` ya usse kam rakho; **"I'm Under Attack" mode** permanently ON mat rakho, warna Googlebot ko challenge page mil sakta hai.
+- **Bot Fight Mode** ON ho to bhi theek hai (verified Googlebot allowed rehta hai), lekin agar Search Console me "blocked" ya "5xx/403" errors dikhen to use OFF karke check karo.
+- Cloudflare ka **Managed robots.txt** feature ON hai — wo sirf apni comment lines upar jodta hai; hamara `Allow` / `Sitemap` neeche waise hi rehta hai.
 
 ---
 
@@ -86,7 +102,7 @@ Bas! Google par listing ka kaam yahin poora ho gaya. 🎉
 | Kaam | Samay |
 | --- | --- |
 | Google pehli baar site crawl kare | 1–7 din |
-| `site:APKA-DOMAIN` search par site dikhne lage | 3–14 din |
+| `site:instantrccard.in` search par site dikhne lage | 3–14 din |
 | Brand name "InstantRCcard" search par top par aana | 2–4 hafte |
 | "RC download online" jaise competitive keywords par upar aana | mahine lagte hain — neeche wale tips follow karo |
 
@@ -98,9 +114,9 @@ Progress dekhne ke liye Search Console → **Performance** report kholo. Waha cl
 
 Code me jo ho sakta tha wo ho gaya — title, description, canonical, structured data, FAQ content aur sitemap. Ranking ab in cheezon par depend karegi:
 
-1. **Bing Webmaster Tools** (<https://www.bing.com/webmasters>) me bhi site add karo — "Import from Google Search Console" ek click me ho jata hai. Yahi listing DuckDuckGo aur Yahoo par bhi dikhati hai. Verification ke liye `BING_SITE_VERIFICATION` env variable support pehle se hai.
+1. **Bing Webmaster Tools** (<https://www.bing.com/webmasters>) me bhi site add karo — "Import from Google Search Console" ek click me ho jata hai. Yahi listing DuckDuckGo aur Yahoo par bhi dikhati hai. Verification ke liye `BING_SITE_VERIFICATION` variable support pehle se hai.
 2. **Google Business Profile** banao (<https://business.google.com>) — brand name search par right side me card dikhega, WhatsApp number aur website link ke saath.
-3. **Backlinks / mentions** — Instagram, Facebook page, YouTube video description, JustDial, IndiaMART, Quora answers, WhatsApp status me apni website ka link dalo. Naye domain ke liye yahi sabse bada signal hai.
+3. **Backlinks / mentions** — Instagram, Facebook page, YouTube video description, JustDial, IndiaMART, Quora answers, WhatsApp status me `instantrccard.in` ka link dalo. Naye domain ke liye yahi sabse bada signal hai.
 4. **Alag pages banao** — jaise `/rc-download-online`, `/rc-card-print`, `/about`, `/contact`, `/privacy-policy`, `/terms`. Har page ek keyword target kare. Privacy policy aur Terms paid service ke liye Google ka trust bhi badhate hain. Naya page banane ke baad `server.js` me `PUBLIC_PAGES` list me uska path add kar do — sitemap me apne aap aa jayega.
 5. **Reviews** — users se Google Business Profile par review lo; homepage ki rating ke saath ye real trust banata hai.
 6. **Speed & mobile** — site pehle se fast aur PWA hai. Search Console me **Core Web Vitals** aur **Page Experience** report kabhi kabhi check karte raho.
@@ -110,7 +126,8 @@ Code me jo ho sakta tha wo ho gaya — title, description, canonical, structured
 
 | Problem | Hal |
 | --- | --- |
-| Search Console: "Sitemap could not be read" | Pehle `https://APKA-DOMAIN/sitemap.xml` browser me kholo. Render free plan par pehli request slow ho sakti hai — 1–2 baar retry karo. |
-| Verification fail | `GOOGLE_SITE_VERIFICATION` value me sirf code hona chahiye, poora `<meta ...>` tag nahi. Deploy complete hone ke baad hi Verify dabao. |
+| Search Console: "Sitemap could not be read" | Pehle `https://instantrccard.in/sitemap.xml` browser me kholo. Railway service sleep me ho to pehli request slow ho sakti hai — 1–2 baar retry karo. |
+| Verification fail | `GOOGLE_SITE_VERIFICATION` value me sirf code hona chahiye, poora `<meta ...>` tag nahi. Deploy complete hone ke baad hi Verify dabao. DNS wale tarike me 5–10 minute ruk kar dobara try karo. |
 | "Discovered – currently not indexed" | Normal hai, naye site ke liye Google kuch din leta hai. Step 4 wali Request indexing 1 baar aur karo aur backlinks banao. |
-| `onrender.com` aur custom domain dono index ho gaye | `SITE_URL` env variable set karo (upar Step 0). |
+| `railway.app` URL bhi Google me dikh raha hai | Upar wala `CANONICAL_REDIRECT = 1` variable set karo. |
+| Google me purana title "InstantRCcard — RC Download" dikh raha hai | Google apne cache ko kuch din me refresh karta hai; URL Inspection → Request indexing dobara karo. |
