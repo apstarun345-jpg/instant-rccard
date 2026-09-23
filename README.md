@@ -33,3 +33,35 @@ Wallet recharge/debit/credit rows remain in the Wallet transactions tab; RC rows
 Expected health: `build=wallet-direct-v8-railway-primary`, `proxyToPrimary=false`, `primaryApiConfigured=false`, `storage=json+google-sheet`, `durableStore=google-sheet-mirror`, `restore.status=success`.
 
 No production data, secrets, `.env`, `node_modules`, SQL/SQLite files or `storage.js` are included.
+
+## SEO / Google Search Console
+
+The server generates everything a search engine needs for `https://instantrccard.in/`; nothing has to be edited by hand when the domain changes.
+
+| URL | Purpose |
+| --- | --- |
+| `/sitemap.xml` | Sitemap built from the `PUBLIC_PAGES` list in `server.js` (`lastmod` = last deploy of `index.html`) |
+| `/robots.txt` | Allows all crawlers, blocks `/api/` and the stray `/Index.html` copy, points to the sitemap |
+| `/` | `index.html` is served with an injected `<link rel="canonical">`, `og:url`, `og:image`, optional verification meta tags and JSON-LD (`Organization`, `WebSite`, `WebApplication`) at the `<!--SEO_HEAD-->` marker. A public "how it works" + FAQ section (with `FAQPage` JSON-LD) sits under the login hero and is hidden after login. |
+| `/og-image.png` | 1200×630 preview image used by Google, WhatsApp, Facebook and X link previews |
+
+Server code and deployment notes (`server.js`, `storage.js`, `Code.gs`, `*.md`, `*.patch`, `package*.json`, dotfiles) are no longer downloadable from the static file server.
+
+Environment variables (all optional):
+
+| Variable | Description |
+| --- | --- |
+| `SITE_URL` | Canonical origin; defaults to `https://instantrccard.in`. Change it only if the domain changes. |
+| `GOOGLE_SITE_VERIFICATION` | Content value of the Search Console "HTML tag" method. Rendered as `<meta name="google-site-verification">`. Not needed when the property is verified through Cloudflare DNS. |
+| `BING_SITE_VERIFICATION` | Content value for Bing Webmaster Tools (`msvalidate.01`). |
+| `CANONICAL_REDIRECT` | Set to `1` to 301-redirect other public hostnames (the `*.up.railway.app` URL, `www.`) to `SITE_URL`. `/api/*`, localhost and `healthcheck.railway.app` are never redirected. |
+
+Alternatively, drop the `googleXXXX.html` verification file from Search Console into the repository root; static files are served from there automatically.
+
+Submit the site (step-by-step Hinglish guide in [GOOGLE-SEARCH-SETUP.md](GOOGLE-SEARCH-SETUP.md)):
+
+1. Deploy, then open `https://instantrccard.in/sitemap.xml` and `https://instantrccard.in/robots.txt` to confirm both respond.
+2. Go to <https://search.google.com/search-console>, add a **Domain** property `instantrccard.in` and verify it with the DNS TXT record in Cloudflare (or a **URL prefix** property with `GOOGLE_SITE_VERIFICATION`).
+3. **Sitemaps → Add a new sitemap →** enter `sitemap.xml` → Submit.
+4. **URL Inspection →** paste `https://instantrccard.in/` → **Request indexing**.
+5. Add a new entry to `PUBLIC_PAGES` whenever a new public page is added; the sitemap updates automatically.

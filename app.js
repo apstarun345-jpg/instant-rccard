@@ -58,8 +58,10 @@
     }
 
     // Refresh par pehle cookie session verify hota hai, isliye login flash nahi dikhega.
+    // #seo-info visible rehta hai (full-screen startup loader use cover karta hai) taaki search engines ko hamesha public content mile.
     $('#auth-view').hidden = true;
     $('#session-loading').hidden = false;
+    if ($('#seo-year')) $('#seo-year').textContent = String(new Date().getFullYear());
     window.setTimeout(function () {
       if (!$('#session-loading').hidden) clearSession();
     }, 12_000);
@@ -461,7 +463,7 @@
       // Logged-in users always see their personal rate. Public/auth marketing
       // numbers stay on the default global rate so other users aren't confused.
       var personalSelectors = ['#price-note-amount', '#format-option-price'];
-      var publicSelectors = ['#form-footnote-price', '#auth-benefit-price', '#auth-float-price'];
+      var publicSelectors = ['#form-footnote-price', '#auth-benefit-price', '#auth-float-price', '#seo-faq-price'];
       personalSelectors.forEach(function (selector) {
         var el = $(selector);
         if (el) el.textContent = amount;
@@ -483,7 +485,7 @@
 
     function applyPublicDefaultPrice(price) {
       var amount = formatMoney(price);
-      ['#form-footnote-price', '#auth-benefit-price', '#auth-float-price'].forEach(function (selector) {
+      ['#form-footnote-price', '#auth-benefit-price', '#auth-float-price', '#seo-faq-price'].forEach(function (selector) {
         var el = $(selector);
         if (el) el.textContent = amount;
       });
@@ -585,6 +587,7 @@
       applyAdminIdentityUi(user);
       $('#session-loading').hidden = true;
       $('#auth-view').hidden = true;
+      if ($('#seo-info')) $('#seo-info').hidden = true;
       $('#topbar').hidden = false;
       $('#dashboard').hidden = false;
       var initials = String(user.name || 'U').trim().charAt(0).toUpperCase();
@@ -667,6 +670,7 @@
       state.adminKpiDetail = '';
       if ($('#admin-kpi-detail-panel')) $('#admin-kpi-detail-panel').hidden = true;
       $('#auth-view').hidden = false;
+      if ($('#seo-info')) $('#seo-info').hidden = false;
       $('#topbar').hidden = true;
       $('#dashboard').hidden = true;
       $('#admin-card').hidden = true;
