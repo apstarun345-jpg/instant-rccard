@@ -24,16 +24,36 @@ const MAX_BODY_BYTES = 5_000_000;
 const MAX_AD_BYTES = 40_000;
 const UPSTREAM_TIMEOUT_MS = 30_000;
 
+// SEO / search engine settings.
+// SITE_URL pins the canonical origin (e.g. https://www.instantrccard.com). When it is empty the
+// origin is derived from the incoming request (Render forwards the real scheme/host in headers).
+const SITE_URL = String(process.env.SITE_URL || '').trim().replace(/\/+$/, '');
+const GOOGLE_SITE_VERIFICATION = String(process.env.GOOGLE_SITE_VERIFICATION || '').trim();
+const BING_SITE_VERIFICATION = String(process.env.BING_SITE_VERIFICATION || '').trim();
+const SITE_NAME = 'InstantRCcard';
+const SITE_TAGLINE = 'Online RC Download – Vehicle RC Card PNG';
+const SITE_DESCRIPTION = 'InstantRCcard par vehicle number dalte hi RC ka front aur back ek hi PNG me instantly download karo. Secure wallet, compact RC Card format aur WhatsApp support.';
+const SUPPORT_PHONE = '+91-9057838589';
+const SUPPORT_EMAIL = 'Apstarun345@gmail.com';
+// Every crawlable public page. Add an entry here whenever a new public page is created.
+const PUBLIC_PAGES = Object.freeze([
+  { path: '/', changefreq: 'weekly', priority: '1.0' }
+]);
+const SEO_HEAD_MARKER = '<!--SEO_HEAD-->';
+
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
+  '.xml': 'application/xml; charset=utf-8',
+  '.txt': 'text/plain; charset=utf-8',
   '.svg': 'image/svg+xml',
   '.webmanifest': 'application/manifest+json; charset=utf-8',
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
   '.ico': 'image/x-icon'
 };
 
@@ -881,22 +901,185 @@ async function handleAdminToggleAd(req, res, adId) {
   return sendJson(res, 200, { success: true, ad: publicAd(ad) });
 }
 
-async function serveStatic(req, res, pathname) {
-  const requested = pathname === '/' ? '/index.html' : pathname;
-  // Supports both the packaged public/ layout and the flat GitHub upload layout.
-  let staticRoot = publicDir;
+// ---------------------------------------------------------------------------
+// SEO: sitemap.xml, robots.txt and search-engine head tags
+// ---------------------------------------------------------------------------
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+}
+
+// Canonical origin for absolute URLs (sitemap, canonical link, Open Graph, structured data).
+function siteOrigin(req) {
+  if (SITE_URL) return SITE_URL;
+  const forwardedProto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
+  const forwardedHost = String(req.headers['x-forwarded-host'] || '').split(',')[0].trim();
+  const rawHost = forwardedHost || String(req.headers.host || '').trim();
+  // Only accept a well-formed host so a crafted Host header can never be reflected into the HTML.
+  const host = /^[a-z0-9.-]+(?::\d{1,5})?$/i.test(rawHost) ? rawHost.toLowerCase() : `localhost:${PORT}`;
+  const proto = forwardedProto === 'https' || forwardedProto === 'http'
+    ? forwardedProto
+    : (req.socket && req.socket.encrypted ? 'https' : 'http');
+  return `${proto}://${host}`;
+}
+
+// Supports both the packaged public/ layout and the flat GitHub upload layout.
+async function resolveStaticRoot() {
   try {
     await fs.access(path.join(publicDir, 'index.html'));
+    return publicDir;
   } catch {
-    staticRoot = __dirname;
+    return __dirname;
   }
+}
+
+async function siteLastModified() {
+  try {
+    const stat = await fs.stat(path.join(await resolveStaticRoot(), 'index.html'));
+    return stat.mtime.toISOString().slice(0, 10);
+  } catch {
+    return new Date().toISOString().slice(0, 10);
+  }
+}
+
+function sendText(res, status, body, contentType, extraHeaders = {}) {
+  const buffer = Buffer.from(body, 'utf8');
+  res.writeHead(status, {
+    'Content-Type': contentType,
+    'Content-Length': buffer.length,
+    'Cache-Control': 'public, max-age=3600',
+    ...securityHeaders(),
+    ...extraHeaders
+  });
+  res.end(buffer);
+}
+
+async function handleSitemap(req, res) {
+  const origin = siteOrigin(req);
+  const lastmod = await siteLastModified();
+  const entries = PUBLIC_PAGES.map((page) => [
+    '  <url>',
+    `    <loc>${escapeHtml(origin + page.path)}</loc>`,
+    `    <lastmod>${lastmod}</lastmod>`,
+    `    <changefreq>${page.changefreq}</changefreq>`,
+    `    <priority>${page.priority}</priority>`,
+    '  </url>'
+  ].join('\n'));
+  const xml = [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
+    ...entries,
+    '</urlset>',
+    ''
+  ].join('\n');
+  return sendText(res, 200, xml, 'application/xml; charset=utf-8');
+}
+
+function handleRobots(req, res) {
+  const origin = siteOrigin(req);
+  const body = [
+    'User-agent: *',
+    'Allow: /',
+    'Disallow: /api/',
+    '',
+    `Sitemap: ${origin}/sitemap.xml`,
+    ''
+  ].join('\n');
+  return sendText(res, 200, body, 'text/plain; charset=utf-8');
+}
+
+// Head tags that need the absolute site URL. Injected into index.html at the SEO_HEAD_MARKER.
+function seoHeadTags(origin) {
+  const url = `${origin}/`;
+  const image = `${origin}/og-image.png`;
+  const logo = `${origin}/icon-512.png`;
+  const structuredData = {
+    '@context': 'https://schema.org',
+    '@graph': [
+      {
+        '@type': 'Organization',
+        '@id': `${url}#organization`,
+        name: SITE_NAME,
+        url,
+        logo: { '@type': 'ImageObject', url: logo, width: 512, height: 512 },
+        email: SUPPORT_EMAIL,
+        telephone: SUPPORT_PHONE,
+        contactPoint: [{
+          '@type': 'ContactPoint',
+          contactType: 'customer support',
+          telephone: SUPPORT_PHONE,
+          email: SUPPORT_EMAIL,
+          areaServed: 'IN',
+          availableLanguage: ['Hindi', 'English']
+        }]
+      },
+      {
+        '@type': 'WebSite',
+        '@id': `${url}#website`,
+        url,
+        name: SITE_NAME,
+        description: SITE_DESCRIPTION,
+        inLanguage: 'en-IN',
+        publisher: { '@id': `${url}#organization` }
+      },
+      {
+        '@type': 'WebApplication',
+        '@id': `${url}#webapp`,
+        name: `${SITE_NAME} – RC Download`,
+        url,
+        image,
+        description: SITE_DESCRIPTION,
+        applicationCategory: 'UtilitiesApplication',
+        operatingSystem: 'Any',
+        browserRequirements: 'Requires JavaScript and an internet connection',
+        inLanguage: 'en-IN',
+        publisher: { '@id': `${url}#organization` },
+        offers: {
+          '@type': 'Offer',
+          name: 'RC Card download (front + back PNG)',
+          price: String(defaultRcCardPrice()),
+          priceCurrency: 'INR',
+          availability: 'https://schema.org/InStock',
+          url
+        }
+      }
+    ]
+  };
+  const lines = [
+    `<link rel="canonical" href="${escapeHtml(url)}" />`,
+    `<meta property="og:url" content="${escapeHtml(url)}" />`,
+    `<meta property="og:image" content="${escapeHtml(image)}" />`,
+    '<meta property="og:image:width" content="1200" />',
+    '<meta property="og:image:height" content="630" />',
+    `<meta property="og:image:alt" content="${escapeHtml(`${SITE_NAME} – ${SITE_TAGLINE}`)}" />`,
+    `<meta name="twitter:image" content="${escapeHtml(image)}" />`
+  ];
+  if (GOOGLE_SITE_VERIFICATION) lines.push(`<meta name="google-site-verification" content="${escapeHtml(GOOGLE_SITE_VERIFICATION)}" />`);
+  if (BING_SITE_VERIFICATION) lines.push(`<meta name="msvalidate.01" content="${escapeHtml(BING_SITE_VERIFICATION)}" />`);
+  // JSON-LD is a data block, not executable script, so the strict CSP does not block it.
+  lines.push(`<script type="application/ld+json">${JSON.stringify(structuredData).replace(/</g, '\\u003c')}</script>`);
+  return lines.map((line) => `  ${line}`).join('\n');
+}
+
+function injectSeoHead(html, req) {
+  const tags = seoHeadTags(siteOrigin(req));
+  if (html.includes(SEO_HEAD_MARKER)) return html.replace(SEO_HEAD_MARKER, tags.trimStart());
+  return html.replace('</head>', `${tags}\n</head>`);
+}
+
+async function serveStatic(req, res, pathname) {
+  const requested = pathname === '/' ? '/index.html' : pathname;
+  const staticRoot = await resolveStaticRoot();
   const candidate = path.normalize(path.join(staticRoot, decodeURIComponent(requested)));
   if (!candidate.startsWith(staticRoot)) return sendError(res, 403, 'Forbidden');
   try {
     const stat = await fs.stat(candidate);
     if (!stat.isFile()) throw new Error('not file');
-    const content = await fs.readFile(candidate);
+    let content = await fs.readFile(candidate);
     const extension = path.extname(candidate).toLowerCase();
+    if (path.basename(candidate) === 'index.html') {
+      content = Buffer.from(injectSeoHead(content.toString('utf8'), req), 'utf8');
+    }
     res.writeHead(200, { 'Content-Type': MIME_TYPES[extension] || 'application/octet-stream', 'Content-Length': content.length, 'Cache-Control': extension === '.html' ? 'no-cache' : 'public, max-age=3600', ...securityHeaders() });
     return res.end(content);
   } catch {
@@ -908,6 +1091,8 @@ const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
     const pathname = url.pathname;
+    if ((req.method === 'GET' || req.method === 'HEAD') && pathname === '/sitemap.xml') return await handleSitemap(req, res);
+    if ((req.method === 'GET' || req.method === 'HEAD') && pathname === '/robots.txt') return handleRobots(req, res);
     if (req.method === 'GET' && pathname === '/api/health') {
       const sheetSyncConfigured = Boolean(SHEET_WEBHOOK_URL && SHEET_SYNC_SECRET);
       return sendJson(res, 200, { success: true, service: 'InstantRCcard', providerConfigured: Boolean(RC_API_TOKEN), adminConfigured: Boolean(ADMIN_MOBILE), sheetSyncConfigured, storage: sheetSyncConfigured ? 'json+google-sheet' : 'json' });
@@ -945,7 +1130,7 @@ const server = http.createServer(async (req, res) => {
       if (!admin) return;
       return sendJson(res, 200, { success: true, transactions: db.transactions.slice(-50).reverse() });
     }
-    if (req.method === 'GET') return await serveStatic(req, res, pathname);
+    if (req.method === 'GET' || req.method === 'HEAD') return await serveStatic(req, res, pathname);
     return sendError(res, 405, 'Method not allowed');
   } catch (error) {
     console.error(error.message);

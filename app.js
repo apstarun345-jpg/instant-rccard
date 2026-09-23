@@ -48,8 +48,10 @@
     }
 
     // Refresh par pehle cookie session verify hota hai, isliye login flash nahi dikhega.
+    // #seo-info visible rehta hai (full-screen loader use cover karta hai) taaki search engines ko hamesha public content mile.
     $('#auth-view').hidden = true;
     $('#session-loading').hidden = false;
+    if ($('#seo-year')) $('#seo-year').textContent = String(new Date().getFullYear());
 
     async function callServer(name, args) {
       var url = '';
@@ -198,7 +200,7 @@
 
     function applyPublicDefaultPrice(price) {
       var amount = formatMoney(price);
-      ['#form-footnote-price', '#auth-benefit-price', '#auth-float-price'].forEach(function (selector) {
+      ['#form-footnote-price', '#auth-benefit-price', '#auth-float-price', '#seo-faq-price'].forEach(function (selector) {
         var el = $(selector);
         if (el) el.textContent = amount;
       });
@@ -219,6 +221,7 @@
       state.user = user;
       $('#session-loading').hidden = true;
       $('#auth-view').hidden = true;
+      if ($('#seo-info')) $('#seo-info').hidden = true;
       $('#topbar').hidden = false;
       $('#dashboard').hidden = false;
       var initials = String(user.name || 'U').trim().charAt(0).toUpperCase();
@@ -262,6 +265,7 @@
       state.token = '';
       state.user = null;
       $('#auth-view').hidden = false;
+      if ($('#seo-info')) $('#seo-info').hidden = false;
       $('#topbar').hidden = true;
       $('#dashboard').hidden = true;
       $('#admin-card').hidden = true;
