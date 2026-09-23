@@ -1227,10 +1227,25 @@
       if ($('#admin-ads-section')) $('#admin-ads-section').hidden = section !== 'ads';
       if ($('#admin-access-section')) $('#admin-access-section').hidden = section !== 'access';
       if ($('#admin-no-permission')) $('#admin-no-permission').hidden = Boolean(section);
+      var historyOnly = section === 'user-history';
+      var rechargeTools = $('#admin-recharge-tools');
+      if (rechargeTools) rechargeTools.hidden = historyOnly || !hasAdminPermission('recharge');
+      var selectedUser = $('#admin-user-result');
+      if (selectedUser) selectedUser.hidden = historyOnly || !state.selectedAdminMobile;
+      var selectedRateTools = $('#admin-user-rate-tools');
+      if (selectedRateTools) selectedRateTools.hidden = historyOnly || !hasAdminPermission('rates') || !state.selectedAdminMobile;
+      var rateHint = $('#admin-rate-inline-hint');
+      if (rateHint) rateHint.hidden = historyOnly || !hasAdminPermission('rates');
+      var topupRequests = $('#admin-topup-requests-block');
+      if (topupRequests) topupRequests.hidden = historyOnly || !hasAdminPermission('recharge');
+      var platformTransactions = $('#admin-transactions-block');
+      if (platformTransactions) platformTransactions.hidden = historyOnly || !hasAdminPermission('transactions');
       if (section === 'user-history') {
         window.setTimeout(function () {
           var historyPanel = $('#admin-user-wallet-history-block');
           if (historyPanel) historyPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          var historyInput = $('#admin-wallet-history-query');
+          if (historyInput) historyInput.focus();
         }, 40);
       }
       if (section === 'wallet' && hasAdminPermission('recharge')) loadAdminTopupRequests();
@@ -1666,7 +1681,7 @@
       state.adminUserHistoryPage = page;
       var requestSerial = ++state.adminUserHistoryRequestSerial;
       var button = options.button || null;
-      if (button) setButtonLoading(button, true, options.loadingLabel || 'View history');
+      if (button) setButtonLoading(button, true, options.loadingLabel || 'Search & view');
       try {
         var response = await callServer('adminGetUserWalletHistory', [query, page, forceRefresh ? Date.now() : '']);
         if (requestSerial !== state.adminUserHistoryRequestSerial) return false;
@@ -1677,7 +1692,7 @@
         if (requestSerial === state.adminUserHistoryRequestSerial && !options.silent) toast('User history failed', error.message, 'error');
         return false;
       } finally {
-        if (button) setButtonLoading(button, false, options.loadingLabel || 'View history');
+        if (button) setButtonLoading(button, false, options.loadingLabel || 'Search & view');
       }
     }
 
@@ -1686,7 +1701,7 @@
       var query = String($('#admin-wallet-history-query').value || '').trim();
       if (!query) { toast('Search check karo', 'User ka mobile, email ya exact naam daalo.', 'error'); return; }
       state.adminUserHistoryPage = 1;
-      await loadAdminUserWalletHistory(query, 1, false, { button: $('#admin-wallet-history-search-button'), loadingLabel: 'View history' });
+      await loadAdminUserWalletHistory(query, 1, false, { button: $('#admin-wallet-history-search-button'), loadingLabel: 'Search & view' });
     }
 
     async function refreshAdminUserWalletHistory() {
