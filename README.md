@@ -1,42 +1,49 @@
-# InstantRCcard — Apps Script Sheet mirror
+# InstantRCcard — Railway-only primary release
 
-This Apps Script is the private Google Sheet mirror and durable restore source for the direct Node website. Visitors use the Render Node URL, not the Apps Script URL.
+Railway-only package for `https://instantrccard.in/`. Railway is the single canonical JSON writer and Google Sheet mirror. Render proxy and legacy cross-deployment targets are hard-disabled.
 
-## Required setup
-
-1. Use a private Google Sheet, then open **Extensions → Apps Script**.
-2. Paste `Code.gs` and keep an HTML file named `Index` if you also want the legacy Apps Script page.
-3. In **Project Settings → Script properties**, set:
+## Deploy
 
 ```text
-SHEET_SYNC_SECRET = same secret used by the Node service
-ADMIN_MOBILE = your admin mobile
-RC_API_TOKEN = provider token if the legacy Apps Script UI is used
+Runtime: Node.js 20+
+Build: npm install
+Start: npm start
+Health: GET /api/health
+Build: wallet-direct-v8-railway-primary
 ```
 
-4. Run `setupInstantRCcard` once and authorize permissions.
-5. Deploy as a Web App:
-   - Execute as: **Me**
-   - Who has access: **Anyone** or your organization
-6. Put the `/exec` URL in Render as `SHEET_WEBHOOK_URL`.
+Required Railway variables: `RC_API_URL`, `RC_API_TOKEN`, `ADMIN_MOBILE`, fixed `SESSION_SECRET`, `SHEET_WEBHOOK_URL`, `SHEET_SYNC_SECRET` and `APP_TIME_ZONE=Asia/Kolkata`. Remove or leave blank `PRIMARY_API_URL`, `PROXY_TO_PRIMARY`, `CROSS_DEPLOY_PRIMARY_URL` and `CROSS_DEPLOY_SYNC_SECRET`.
 
-## Sheets created
+Deploy `apps-script/Code.gs` and `apps-script/Index.html` privately, run `setupInstantRCcard` once, then use its `/exec` URL and matching secret in Railway. Production storage is JSON plus Google Sheet mirror; SQL and SQLite are not used.
 
-- `Users` and `Transactions`: legacy Apps Script database
-- `Web_Users` and `Web_Transactions`: direct Node mirror
-- `Web_Accounts`: private durable account records, including password hashes/salts, recovery email and delegated admin permissions
-- `Web_Ads`: public advertisement mirror
-- `Web_Settings`: homepage rating, public counters and default RC Card rate
-- `adminPermissions` is mirrored as JSON in both `Web_Users` and `Web_Accounts`, and is restored by `webSnapshot_()`
-- `rcCardPrice`, `rcRateUpdatedAt` and `rcRateUpdatedBy` are mirrored with the account so custom user rates survive unrelated updates and restore; a blank rate is only treated as an intentional clear when its update timestamp is present
-- `supportWhatsapp` and `paymentQr` are mirrored in `Web_Settings` so Main Admin's wallet/help WhatsApp configuration survives restore
-- `Web_RateLog`: admin custom-rate audit history
-- `Web_TopupRequests`: durable wallet payment-request ledger, including the client payment reference.
-- `Web_Notifications`: durable in-app notification history and read state.
-- `Web_PushSubscriptions`: one row per subscribed user/device endpoint so background push survives a Node restart/redeploy; stale or unsubscribed endpoints are removed.
-- `Web_Accounts.userId` and `Web_Users.userId` now use short display IDs such as `u1`, `u2`; the original internal UUID is retained in `internalUserId` for safe session/data restoration.
-- `Web_Transactions.id` now uses short display IDs such as `T1`, `T2`; the original internal UUID is retained in `internalTransactionId`. Existing long IDs in all three mirror sheets are migrated when the mirror is initialized. Each row keeps request ID, user/mobile, requested amount, final approved amount, status, timestamps, approver and rejection reason. The row is upserted on creation and on every approval/rejection, so restart/redeploy cannot recreate or double-credit a request.
+## Admin control center: selected user wallet history
 
-The Node service requests a private snapshot at the Apps Script `/exec` URL during startup. This restores users, wallets, transactions, advertisements, custom RC Card rates, the custom-rate audit ledger, support/QR settings, global pricing, admin settings, notification history/read state and push subscriptions after a Render/Railway restart or redeploy when the local JSON file is not persistent. On the first request after this version is deployed, `ensureWebMirrorSheets_()` also imports any older `Users` and `Transactions` rows into the direct Node mirror instead of replacing them with only newly created accounts. Legacy Apps Script SHA-256 password hashes are accepted once and upgraded to the current Node scrypt format after login. Critical Node mutations wait for the mirror response before returning success. The rate ledger is also used to recover a custom rate when an older account row has an empty `rcCardPrice` cell.
+Inside **Admin control center**, the sidebar now has a clearly visible **User wallet history** option. It opens the protected selected-user wallet ledger panel directly. An admin can enter a user's mobile number, email or exact name and view that user's complete wallet ledger. Search by name returns a result only when the name is unambiguous; otherwise the UI asks for the mobile or email.
 
-After deploying a new Apps Script version, update the existing Web App deployment to that version; editing the project alone does not update the `/exec` URL. Keep the spreadsheet private. Passwords are stored only as hashes/salts, but the account mirror still contains sensitive account metadata.
+The summary shows wallet entry count, total credited, total debited including RC charges, current balance, net movement, RC spend and RC count. The detailed ten-row table shows exact time, transaction type/direction, From name/mobile, To name/mobile, signed amount, balance after, status, note and transaction ID. It includes successful wallet credits/debits and RC purchase charges, so the admin sees the complete balance movement. Numbered pagination, Previous, Next and ellipsis controls remain visible.
+
+The Admin Access panel has a separate **User wallet history** permission. Main Admin always has it. Admin Assistants only see and can use this selected-user history panel when the Main Admin/authorized access manager checks this permission. The server enforces the permission on both search and history APIs; assistants without it receive 403 and cannot read another user's wallet ledger.
+
+## User wallet and RC history
+
+The logged-in user dashboard has a visible **My wallet & RC history** card with three options: **Wallet history**, **My RC downloads**, and **All activity**. The card summary shows total RC downloads, unique vehicle numbers, total RC spend and wallet movement.
+
+Every user wallet row shows exact date/time, credit or debit amount, balance after the transaction, source/destination context, status, note/reference and transaction ID. Every user RC row shows the vehicle registration number, exact date/time, RC format, charged amount, balance after, status, note and transaction ID. New RC purchases persist `downloadType`; older records are inferred safely from their existing note/vehicle data.
+
+## Instant wallet sync
+
+Admin Recharge and Debit persist the user/admin balances and transaction rows first. User and admin in-app notifications are persisted before the response. Google Sheet writes continue in the background with retries so a slow Sheet cannot delay the wallet response. User balance/history polls every second, notifications poll every 1.5 seconds, and admin live history refreshes every 2 seconds. All API reads use no-store cache headers.
+
+Admin platform history shows transaction time, From/User name and mobile, To/Admin name and mobile, type, amount, balance after, direction, note/reference, and both debit and matching admin-credit rows. The admin transaction Refresh button forces a fresh server request and shows a refresh result.
+
+The Admin Wallet control is split into styled Recharge Wallet and Debit Wallet cards. Recharge adds to the selected user. Debit subtracts from the selected user, credits the executing admin, and rejects negative/self/insufficient cases.
+
+## Ten-row pagination everywhere
+
+Selected-user wallet history, user wallet history, RC wallet payment requests, Users and RC Card rates, recent rate changes, delegated-admin user lists, KPI detail lists, and user/admin transaction tabs are loaded in server-side pages of exactly 10 records. Each relevant view always shows numbered page buttons, Previous, Next, current-page status, and ellipsis behavior for large histories, including a disabled one-page state.
+
+Wallet recharge/debit/credit rows remain in the Wallet transactions tab; RC rows remain separate in the platform RC downloads tab. Startup uses the supplied animated logo splash, v21 PWA icons, and the cache-busted `instant-rccard-shell-v24` service-worker shell. Google Sheet mirror columns preserve source/target names and mobiles plus RC download format.
+
+Expected health: `build=wallet-direct-v8-railway-primary`, `proxyToPrimary=false`, `storage=json+google-sheet`, `durableStore=google-sheet-mirror`, `restore.status=success`.
+
+No production data, secrets, `.env`, `node_modules`, SQL/SQLite files or `storage.js` are included.

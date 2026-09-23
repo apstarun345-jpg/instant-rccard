@@ -563,7 +563,8 @@
       if (adminCard) adminCard.hidden = !isAdmin;
 
       var sectionRules = {
-        wallet: hasAdminPermission('recharge') || hasAdminPermission('transactions') || hasAdminPermission('userHistory'),
+        wallet: hasAdminPermission('recharge') || hasAdminPermission('transactions'),
+        'user-history': hasAdminPermission('userHistory'),
         users: hasAdminPermission('rates'),
         ads: hasAdminPermission('ads'),
         access: hasAdminPermission('access')
@@ -592,7 +593,7 @@
         if (settingsRow) settingsRow.hidden = !isMainAdminUser(user);
       });
       if (isAdmin && hasAdminPanelSection) {
-        var firstSection = hasAdminPermission('recharge') || hasAdminPermission('transactions') || hasAdminPermission('userHistory') ? 'wallet' : hasAdminPermission('rates') ? 'users' : hasAdminPermission('ads') ? 'ads' : 'access';
+        var firstSection = hasAdminPermission('recharge') || hasAdminPermission('transactions') ? 'wallet' : hasAdminPermission('userHistory') ? 'user-history' : hasAdminPermission('rates') ? 'users' : hasAdminPermission('ads') ? 'ads' : 'access';
         setAdminSection(firstSection);
       } else if (isAdmin) {
         setAdminSection('');
@@ -1211,7 +1212,8 @@
 
     function setAdminSection(section) {
       var allowed = {
-        wallet: hasAdminPermission('recharge') || hasAdminPermission('transactions') || hasAdminPermission('userHistory'),
+        wallet: hasAdminPermission('recharge') || hasAdminPermission('transactions'),
+        'user-history': hasAdminPermission('userHistory'),
         users: hasAdminPermission('rates'),
         ads: hasAdminPermission('ads'),
         access: hasAdminPermission('access')
@@ -1220,11 +1222,17 @@
         section = Object.keys(allowed).find(function (key) { return allowed[key]; }) || '';
       }
       $$('[data-admin-section]').forEach(function (button) { button.classList.toggle('active', button.dataset.adminSection === section); });
-      if ($('#admin-wallet-section')) $('#admin-wallet-section').hidden = section !== 'wallet';
+      if ($('#admin-wallet-section')) $('#admin-wallet-section').hidden = section !== 'wallet' && section !== 'user-history';
       if ($('#admin-users-section')) $('#admin-users-section').hidden = section !== 'users';
       if ($('#admin-ads-section')) $('#admin-ads-section').hidden = section !== 'ads';
       if ($('#admin-access-section')) $('#admin-access-section').hidden = section !== 'access';
       if ($('#admin-no-permission')) $('#admin-no-permission').hidden = Boolean(section);
+      if (section === 'user-history') {
+        window.setTimeout(function () {
+          var historyPanel = $('#admin-user-wallet-history-block');
+          if (historyPanel) historyPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 40);
+      }
       if (section === 'wallet' && hasAdminPermission('recharge')) loadAdminTopupRequests();
       if (section === 'users') loadAdminUsers(state.adminUsersQuery || '', { silent: true });
       if (section === 'access' && !state.adminAccessQuery) {
