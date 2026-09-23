@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Yadav Parking</string>
+    <string name="notif_channel">Pass Alerts</string>
+    <string name="notif_channel_desc">Parking pass khatam hone se pehle alert</string>
+    <!--
+      YAHAN APNA SERVER URL DALEIN:
+      - Render pe deploy karne ke baad jo URL mila (jaise https://yadav-parking.onrender.com/)
+      - ya ghar ke computer ka LAN IP (jaise http://192.168.1.5:4173/)
+      Aakhri mein slash zaroor rakhein.
+    -->
+    <string name="app_base_url">http://10.0.2.2:4173/</string>
+</resources>

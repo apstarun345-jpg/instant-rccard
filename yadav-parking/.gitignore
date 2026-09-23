@@ -1,0 +1,12 @@
+data/
+node_modules/
+*.log
+icon-src.png
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+android/*.iml
+android/captures/
+android/app/release/
