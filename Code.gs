@@ -108,10 +108,10 @@ function ensureWebMirrorSheets_(runLegacyMigration) {
   var transactions = spreadsheet.getSheetByName('Web_Transactions');
   if (!transactions) transactions = spreadsheet.insertSheet('Web_Transactions');
   if (transactions.getLastRow() === 0) {
-    transactions.appendRow(['id', 'time', 'mobile', 'type', 'amount', 'balanceAfter', 'vrn', 'status', 'note', 'adminMobile', 'syncedAt', 'internalTransactionId', 'transactionId']);
+    transactions.appendRow(['id', 'time', 'mobile', 'type', 'amount', 'balanceAfter', 'vrn', 'status', 'note', 'adminMobile', 'sourceMobile', 'sourceName', 'targetMobile', 'targetName', 'adminName', 'direction', 'sourceTransactionId', 'downloadType', 'idempotencyKey', 'sheetSyncPending', 'syncedAt', 'internalTransactionId', 'transactionId']);
     transactions.setFrozenRows(1);
   } else {
-    ensureHeaderColumns_(transactions, ['internalTransactionId', 'transactionId']);
+    ensureHeaderColumns_(transactions, ['internalTransactionId', 'transactionId', 'sourceMobile', 'sourceName', 'targetMobile', 'targetName', 'adminName', 'direction', 'sourceTransactionId', 'downloadType', 'idempotencyKey', 'sheetSyncPending']);
   }
 
   var topupRequests = spreadsheet.getSheetByName(TOPUP_REQUESTS_SHEET);
@@ -512,6 +512,14 @@ function appendWebTransaction_(payload) {
     status: String(payload.status || 'SUCCESS'),
     note: String(payload.note || ''),
     adminMobile: String(payload.adminMobile || ''),
+    sourceMobile: String(payload.sourceMobile || payload.sourceUserMobile || ''),
+    sourceName: String(payload.sourceName || ''),
+    targetMobile: String(payload.targetMobile || ''),
+    targetName: String(payload.targetName || ''),
+    adminName: String(payload.adminName || ''),
+    direction: String(payload.direction || ''),
+    sourceTransactionId: String(payload.sourceTransactionId || ''),
+    downloadType: String(payload.downloadType || ''),
     idempotencyKey: String(payload.idempotencyKey || ''),
     sheetSyncPending: payload.sheetSyncPending === true,
     syncedAt: new Date()
@@ -801,6 +809,14 @@ function webSnapshot_() {
       status: String(mirrorValue_(row, txData.columns, 'status') || 'SUCCESS'),
       note: String(mirrorValue_(row, txData.columns, 'note') || ''),
       adminMobile: String(mirrorValue_(row, txData.columns, 'adminMobile') || ''),
+      sourceMobile: String(mirrorValue_(row, txData.columns, 'sourceMobile') || ''),
+      sourceName: String(mirrorValue_(row, txData.columns, 'sourceName') || ''),
+      targetMobile: String(mirrorValue_(row, txData.columns, 'targetMobile') || ''),
+      targetName: String(mirrorValue_(row, txData.columns, 'targetName') || ''),
+      adminName: String(mirrorValue_(row, txData.columns, 'adminName') || ''),
+      direction: String(mirrorValue_(row, txData.columns, 'direction') || ''),
+      sourceTransactionId: String(mirrorValue_(row, txData.columns, 'sourceTransactionId') || ''),
+      downloadType: String(mirrorValue_(row, txData.columns, 'downloadType') || ''),
       idempotencyKey: String(mirrorValue_(row, txData.columns, 'idempotencyKey') || ''),
       sheetSyncPending: String(mirrorValue_(row, txData.columns, 'sheetSyncPending')).toLowerCase() === 'true'
     };

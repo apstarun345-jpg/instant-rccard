@@ -1,5 +1,5 @@
 
-    var state = { token: '', user: null, selectedAdminMobile: '', selectedAdminQuery: '', defaultRcCardPrice: 15, pendingVrn: '', busy: false, adminUsersQuery: '', adminUsersPage: 1, adminUsersPages: 1, adminAccessQuery: '', adminAccessPage: 1, adminAccessPages: 1, adminRateLogPage: 1, adminRateLogPages: 1, adminTopupPage: 1, adminTopupPages: 1, bulkConfirm: false, supportWhatsapp: '', supportPaymentQr: '', supportPaymentQrUrl: '', pendingTopupAmount: 0, adminKpiDetail: '', adminKpiDetailPage: 1, adminKpiDetailPages: 1, adminLiveBusy: false, notificationIds: {}, notifications: [], notificationUnread: 0, notificationPollTimer: null, notificationInitialised: false, purchaseRequestKey: '', purchaseRequestVrn: '', purchaseRequestType: '', transactionCategory: 'wallet', transactionPage: 1, transactionPages: 1, transactionRequestSerial: 0, adminTransactionCategory: 'wallet', adminTransactionPage: 1, adminTransactionPages: 1, adminTransactionRequestSerial: 0 };
+    var state = { token: '', user: null, selectedAdminMobile: '', selectedAdminQuery: '', defaultRcCardPrice: 15, pendingVrn: '', busy: false, adminUsersQuery: '', adminUsersPage: 1, adminUsersPages: 1, adminAccessQuery: '', adminAccessPage: 1, adminAccessPages: 1, adminRateLogPage: 1, adminRateLogPages: 1, adminTopupPage: 1, adminTopupPages: 1, bulkConfirm: false, supportWhatsapp: '', supportPaymentQr: '', supportPaymentQrUrl: '', pendingTopupAmount: 0, adminKpiDetail: '', adminKpiDetailPage: 1, adminKpiDetailPages: 1, adminUserHistoryQuery: '', adminUserHistoryPage: 1, adminUserHistoryPages: 1, adminUserHistoryRequestSerial: 0, adminLiveBusy: false, notificationIds: {}, notifications: [], notificationUnread: 0, notificationPollTimer: null, notificationInitialised: false, purchaseRequestKey: '', purchaseRequestVrn: '', purchaseRequestType: '', transactionCategory: 'wallet', transactionPage: 1, transactionPages: 1, transactionRequestSerial: 0, adminTransactionCategory: 'wallet', adminTransactionPage: 1, adminTransactionPages: 1, adminTransactionRequestSerial: 0 };
     var DOWNLOAD_PRICES = { mparivahan: 10, 'rc-card': 15 };
     var $ = function (selector) { return document.querySelector(selector); };
     var $$ = function (selector) { return Array.prototype.slice.call(document.querySelectorAll(selector)); };
@@ -58,10 +58,8 @@
     }
 
     // Refresh par pehle cookie session verify hota hai, isliye login flash nahi dikhega.
-    // #seo-info visible rehta hai (full-screen startup loader use cover karta hai) taaki search engines ko hamesha public content mile.
     $('#auth-view').hidden = true;
     $('#session-loading').hidden = false;
-    if ($('#seo-year')) $('#seo-year').textContent = String(new Date().getFullYear());
     window.setTimeout(function () {
       if (!$('#session-loading').hidden) clearSession();
     }, 12_000);
@@ -85,6 +83,14 @@
       else if (name === 'readNotifications') { url = '/api/notifications/read'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ ids: args[0] || [] }); }
       else if (name === 'getStats') { url = '/api/public/stats'; }
       else if (name === 'adminFindUser') { url = '/api/admin/users/search'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ query: args[0] }); }
+      else if (name === 'adminGetUserWalletHistory') {
+        var userHistoryQs = new URLSearchParams();
+        userHistoryQs.set('query', args[0] || '');
+        userHistoryQs.set('page', args[1] || 1);
+        userHistoryQs.set('limit', 10);
+        if (args[2]) userHistoryQs.set('refresh', args[2]);
+        url = '/api/admin/users/wallet-history?' + userHistoryQs.toString();
+      }
       else if (name === 'adminSetUserRate') { url = '/api/admin/users/set-rate'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ query: args[0], price: args[1], clear: args[2] === true }); }
       else if (name === 'adminListUsers') {
         var userListQs = new URLSearchParams();
@@ -178,6 +184,15 @@
     function escapeHtml(value) { return String(value == null ? '' : value).replace(/[&<>"']/g, function (c) { return ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[c]; }); }
     function formatMoney(value) { return '₹' + Number(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 }); }
     function formatDate(value) { var d = new Date(value); return isNaN(d.getTime()) ? 'Just now' : d.toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }); }
+    function formatDateTime(value) { var d = new Date(value); return isNaN(d.getTime()) ? 'Date not available' : d.toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }); }
+    function rcFormatLabel(transaction) {
+      var type = String(transaction && transaction.downloadType || '').toLowerCase();
+      if (type === 'mparivahan' || /mparivahan/i.test(String(transaction && transaction.note || ''))) return 'MParivahan A4';
+      return 'RC Card';
+    }
+    function transactionDisplayId(transaction) {
+      return String(transaction && (transaction.displayTransactionId || transaction.transactionId || transaction.shortId || transaction.id) || '—');
+    }
     function priceForDownload(downloadType) {
       var serverPrices = state.user && state.user.prices;
       if (downloadType === 'rc-card' && serverPrices && serverPrices.rcCard != null) return Number(serverPrices.rcCard);
@@ -194,7 +209,7 @@
     }
 
     function adminPermissionLabel(permission) {
-      return ({ kpi: 'KPI dashboard', recharge: 'Add payment / recharge', rates: 'Rate setting', ads: 'Advertisements', transactions: 'Transaction view', access: 'Admin access' })[permission] || permission;
+      return ({ kpi: 'KPI dashboard', recharge: 'Add payment / recharge', rates: 'Rate setting', ads: 'Advertisements', transactions: 'Transaction view', userHistory: 'User wallet history', access: 'Admin access' })[permission] || permission;
     }
 
     function toast(title, message, type) {
@@ -463,7 +478,7 @@
       // Logged-in users always see their personal rate. Public/auth marketing
       // numbers stay on the default global rate so other users aren't confused.
       var personalSelectors = ['#price-note-amount', '#format-option-price'];
-      var publicSelectors = ['#form-footnote-price', '#auth-benefit-price', '#auth-float-price', '#seo-faq-price'];
+      var publicSelectors = ['#form-footnote-price', '#auth-benefit-price', '#auth-float-price'];
       personalSelectors.forEach(function (selector) {
         var el = $(selector);
         if (el) el.textContent = amount;
@@ -485,7 +500,7 @@
 
     function applyPublicDefaultPrice(price) {
       var amount = formatMoney(price);
-      ['#form-footnote-price', '#auth-benefit-price', '#auth-float-price', '#seo-faq-price'].forEach(function (selector) {
+      ['#form-footnote-price', '#auth-benefit-price', '#auth-float-price'].forEach(function (selector) {
         var el = $(selector);
         if (el) el.textContent = amount;
       });
@@ -533,7 +548,7 @@
 
     function applyAdminAccessUi(user) {
       var isAdmin = Boolean(user && user.role === 'admin');
-      var permissions = ['kpi', 'recharge', 'rates', 'ads', 'transactions', 'access'];
+      var permissions = ['kpi', 'recharge', 'rates', 'ads', 'transactions', 'userHistory', 'access'];
       var allowed = permissions.filter(hasAdminPermission);
       var navAdmin = $('#admin-nav');
       var navRates = $('#admin-rates-nav');
@@ -548,7 +563,7 @@
       if (adminCard) adminCard.hidden = !isAdmin;
 
       var sectionRules = {
-        wallet: hasAdminPermission('recharge') || hasAdminPermission('transactions'),
+        wallet: hasAdminPermission('recharge') || hasAdminPermission('transactions') || hasAdminPermission('userHistory'),
         users: hasAdminPermission('rates'),
         ads: hasAdminPermission('ads'),
         access: hasAdminPermission('access')
@@ -568,6 +583,8 @@
       if (rateHint) rateHint.hidden = !hasAdminPermission('rates');
       var transactionsBlock = $('#admin-transactions-block');
       if (transactionsBlock) transactionsBlock.hidden = !hasAdminPermission('transactions');
+      var userHistoryBlock = $('#admin-user-wallet-history-block');
+      if (userHistoryBlock) userHistoryBlock.hidden = !hasAdminPermission('userHistory');
       var topupRequestsBlock = $('#admin-topup-requests-block');
       if (topupRequestsBlock) topupRequestsBlock.hidden = !hasAdminPermission('recharge');
       ['#admin-settings-rating', '#admin-settings-baseline', '#admin-settings-price', '#admin-settings-support'].forEach(function (selector) {
@@ -575,7 +592,7 @@
         if (settingsRow) settingsRow.hidden = !isMainAdminUser(user);
       });
       if (isAdmin && hasAdminPanelSection) {
-        var firstSection = hasAdminPermission('recharge') || hasAdminPermission('transactions') ? 'wallet' : hasAdminPermission('rates') ? 'users' : hasAdminPermission('ads') ? 'ads' : 'access';
+        var firstSection = hasAdminPermission('recharge') || hasAdminPermission('transactions') || hasAdminPermission('userHistory') ? 'wallet' : hasAdminPermission('rates') ? 'users' : hasAdminPermission('ads') ? 'ads' : 'access';
         setAdminSection(firstSection);
       } else if (isAdmin) {
         setAdminSection('');
@@ -587,7 +604,6 @@
       applyAdminIdentityUi(user);
       $('#session-loading').hidden = true;
       $('#auth-view').hidden = true;
-      if ($('#seo-info')) $('#seo-info').hidden = true;
       $('#topbar').hidden = false;
       $('#dashboard').hidden = false;
       var initials = String(user.name || 'U').trim().charAt(0).toUpperCase();
@@ -667,10 +683,13 @@
       state.adminKpiDetailPages = 1;
       state.transactionRequestSerial = 0;
       state.adminTransactionRequestSerial = 0;
+      state.adminUserHistoryRequestSerial = 0;
+      state.adminUserHistoryQuery = '';
+      state.adminUserHistoryPage = 1;
+      state.adminUserHistoryPages = 1;
       state.adminKpiDetail = '';
       if ($('#admin-kpi-detail-panel')) $('#admin-kpi-detail-panel').hidden = true;
       $('#auth-view').hidden = false;
-      if ($('#seo-info')) $('#seo-info').hidden = false;
       $('#topbar').hidden = true;
       $('#dashboard').hidden = true;
       $('#admin-card').hidden = true;
@@ -761,9 +780,26 @@
       });
     }
 
+    function renderUserHistorySummary(summary) {
+      summary = summary || {};
+      var rcCount = Number(summary.totalRcDownloads || 0);
+      var vehicles = Number(summary.uniqueVehicles || 0);
+      var rcSpend = Number(summary.totalRcSpent || 0);
+      var walletMovement = Number(summary.walletCredits || 0) + Number(summary.walletDebits || 0);
+      var latest = summary.latestRc;
+      if ($('#history-rc-count')) $('#history-rc-count').textContent = rcCount.toLocaleString('en-IN');
+      if ($('#history-vehicle-count')) $('#history-vehicle-count').textContent = vehicles.toLocaleString('en-IN');
+      if ($('#history-rc-spend')) $('#history-rc-spend').textContent = formatMoney(rcSpend);
+      if ($('#history-rc-subtitle')) $('#history-rc-subtitle').textContent = rcCount ? (Number(summary.rcCardDownloads || 0) + ' RC Card · ' + Number(summary.mparivahanDownloads || 0) + ' MParivahan') : 'Vehicle history';
+      if ($('#history-last-rc')) $('#history-last-rc').textContent = latest && latest.vrn ? 'Last: ' + latest.vrn + ' · ' + formatDate(latest.time) : 'Abhi koi RC download nahi';
+      if ($('#history-wallet-movement')) $('#history-wallet-movement').textContent = formatMoney(walletMovement);
+      if ($('#history-wallet-subtitle')) $('#history-wallet-subtitle').textContent = Number(summary.totalWalletTransactions || 0) + ' wallet entries · credit + debit';
+    }
+
     function renderTransactions(payload) {
       var list = $('#transaction-list');
       var transactions = payload && Array.isArray(payload.transactions) ? payload.transactions : [];
+      renderUserHistorySummary(payload && payload.summary);
       if (!transactions.length) list.innerHTML = '<div class="empty-list">Is category me abhi koi transaction nahi hai.</div>';
       else list.innerHTML = transactions.map(function (tx) {
         var credit = Number(tx.amount) > 0;
@@ -771,8 +807,14 @@
         var label = clientTransactionLabel(tx);
         var icon = kind === 'rc' ? 'RC' : (credit ? '+' : '↓');
         var route = transactionRouteText(tx, false);
-        var note = tx.note ? ' • ' + tx.note : '';
-        return '<div class="transaction"><span class="transaction-icon ' + (credit ? 'recharge' : '') + '">' + icon + '</span><span class="transaction-copy"><b>' + escapeHtml(label) + (tx.vrn ? ' · ' + escapeHtml(tx.vrn) : '') + '</b><small>' + escapeHtml(formatDate(tx.time)) + ' • Balance ' + escapeHtml(formatMoney(tx.balanceAfter)) + '</small><small class="transaction-route">' + escapeHtml(route + note) + '</small></span><span class="transaction-amount ' + (credit ? 'credit' : 'debit') + '">' + (credit ? '+' : '') + escapeHtml(formatMoney(tx.amount)) + '</span></div>';
+        var note = tx.note || '';
+        var id = transactionDisplayId(tx);
+        var status = String(tx.status || 'SUCCESS').toUpperCase();
+        if (kind === 'rc') {
+          var rcFormat = rcFormatLabel(tx);
+          return '<div class="transaction"><span class="transaction-icon">RC</span><span class="transaction-copy"><b>RC download · ' + escapeHtml(tx.vrn || 'Vehicle number unavailable') + '</b><small>' + escapeHtml(formatDateTime(tx.time)) + ' • Format: ' + escapeHtml(rcFormat) + '</small><small class="transaction-detail">Charged ' + escapeHtml(formatMoney(Math.abs(Number(tx.amount || 0)))) + ' • Balance after ' + escapeHtml(formatMoney(tx.balanceAfter)) + ' • ' + escapeHtml(status) + '</small><small class="transaction-id">Transaction ID: ' + escapeHtml(id) + (note ? ' • ' + escapeHtml(note) : '') + '</small></span><span class="transaction-amount debit">−' + escapeHtml(formatMoney(Math.abs(Number(tx.amount || 0)))) + '</span></div>';
+        }
+        return '<div class="transaction"><span class="transaction-icon ' + (credit ? 'recharge' : '') + '">' + icon + '</span><span class="transaction-copy"><b>' + escapeHtml(label) + '</b><small>' + escapeHtml(formatDateTime(tx.time)) + ' • Balance after ' + escapeHtml(formatMoney(tx.balanceAfter)) + '</small><small class="transaction-route">' + escapeHtml(route + (note ? ' • ' + note : '')) + '</small><small class="transaction-id">Transaction ID: ' + escapeHtml(id) + ' • ' + escapeHtml(status) + '</small></span><span class="transaction-amount ' + (credit ? 'credit' : 'debit') + '">' + (credit ? '+' : '') + escapeHtml(formatMoney(tx.amount)) + '</span></div>';
       }).join('');
       renderPageButtons($('#transaction-pagination'), payload && payload.page, payload && payload.pages, function (page) { loadTransactions(state.transactionCategory, page); });
       updateUserTransactionTabs();
@@ -1169,7 +1211,7 @@
 
     function setAdminSection(section) {
       var allowed = {
-        wallet: hasAdminPermission('recharge') || hasAdminPermission('transactions'),
+        wallet: hasAdminPermission('recharge') || hasAdminPermission('transactions') || hasAdminPermission('userHistory'),
         users: hasAdminPermission('rates'),
         ads: hasAdminPermission('ads'),
         access: hasAdminPermission('access')
@@ -1569,6 +1611,93 @@
       }
     }
 
+    function renderAdminUserWalletHistory(response) {
+      var body = $('#admin-user-wallet-history-body');
+      var summary = response && response.summary ? response.summary : {};
+      var user = response && response.user ? response.user : {};
+      var transactions = response && Array.isArray(response.transactions) ? response.transactions : [];
+      state.adminUserHistoryQuery = String(response && response.query || state.adminUserHistoryQuery || '');
+      state.adminUserHistoryPage = Number(response && response.page || 1);
+      state.adminUserHistoryPages = Number(response && response.pages || 1);
+      if ($('#admin-user-history-selected')) $('#admin-user-history-selected').hidden = false;
+      if ($('#admin-history-user-name')) $('#admin-history-user-name').textContent = user.name || 'User';
+      if ($('#admin-history-user-contact')) $('#admin-history-user-contact').textContent = '+91 ' + (user.mobile || '—') + ' · ' + (user.email || 'Email not set');
+      if ($('#admin-history-user-wallet')) $('#admin-history-user-wallet').textContent = 'Current wallet ' + formatMoney(summary.currentBalance != null ? summary.currentBalance : user.wallet);
+      if ($('#admin-history-total')) $('#admin-history-total').textContent = Number(summary.totalTransactions || 0).toLocaleString('en-IN');
+      if ($('#admin-history-credits')) $('#admin-history-credits').textContent = formatMoney(summary.totalCredits || 0);
+      if ($('#admin-history-debits')) $('#admin-history-debits').textContent = formatMoney(summary.totalDebits || 0);
+      if ($('#admin-history-balance')) $('#admin-history-balance').textContent = formatMoney(summary.currentBalance != null ? summary.currentBalance : user.wallet);
+      if ($('#admin-history-net')) $('#admin-history-net').textContent = 'Net ' + formatMoney(summary.netChange || 0) + ' · RC spend ' + formatMoney(summary.rcSpend || 0) + ' · ' + Number(summary.rcDownloads || 0) + ' RC';
+      if (!body) return;
+      if (!transactions.length) {
+        body.innerHTML = '<tr><td colspan="7">Is user ke wallet me abhi koi credit/debit history nahi hai.</td></tr>';
+      } else {
+        body.innerHTML = transactions.map(function (tx) {
+          var credit = Number(tx.amount || 0) > 0;
+          var from = transactionParty(tx, 'source');
+          var to = transactionParty(tx, 'target');
+          var id = transactionDisplayId(tx);
+          var status = String(tx.status || 'SUCCESS').toUpperCase();
+          var amount = (credit ? '+' : '−') + formatMoney(Math.abs(Number(tx.amount || 0)));
+          var note = tx.note || '—';
+          return '<tr><td><b>' + escapeHtml(formatDateTime(tx.time)) + '</b><small>' + escapeHtml(status) + '</small></td><td><b>' + escapeHtml(clientTransactionLabel(tx)) + '</b><small class="admin-history-direction">' + escapeHtml(tx.direction || '') + '</small></td><td><b>' + escapeHtml(from.name) + '</b><small>' + escapeHtml(from.mobile ? '+91 ' + from.mobile : '—') + '</small></td><td><b>' + escapeHtml(to.name) + '</b><small>' + escapeHtml(to.mobile ? '+91 ' + to.mobile : '—') + '</small></td><td class="' + (credit ? 'credit' : 'debit') + '">' + escapeHtml(amount) + '</td><td>' + escapeHtml(formatMoney(tx.balanceAfter)) + '</td><td><b>' + escapeHtml(String(note)) + '</b><small class="admin-history-id" title="' + escapeHtml(id) + '">ID: ' + escapeHtml(id) + '</small></td></tr>';
+        }).join('');
+      }
+      renderPageButtons($('#admin-user-wallet-history-pagination'), response && response.page, response && response.pages, function (page) {
+        loadAdminUserWalletHistory(state.adminUserHistoryQuery, page);
+      });
+    }
+
+    async function loadAdminUserWalletHistory(query, page, forceRefresh, options) {
+      if (!state.user || state.user.role !== 'admin' || !hasAdminPermission('userHistory')) return false;
+      options = options || {};
+      query = String(query == null ? state.adminUserHistoryQuery || '' : query).trim();
+      page = Number(page || state.adminUserHistoryPage || 1);
+      if (!query) return false;
+      state.adminUserHistoryQuery = query;
+      state.adminUserHistoryPage = page;
+      var requestSerial = ++state.adminUserHistoryRequestSerial;
+      var button = options.button || null;
+      if (button) setButtonLoading(button, true, options.loadingLabel || 'View history');
+      try {
+        var response = await callServer('adminGetUserWalletHistory', [query, page, forceRefresh ? Date.now() : '']);
+        if (requestSerial !== state.adminUserHistoryRequestSerial) return false;
+        if (!response.success) throw new Error(response.message || 'User wallet history load nahi ho paayi.');
+        renderAdminUserWalletHistory(response);
+        return true;
+      } catch (error) {
+        if (requestSerial === state.adminUserHistoryRequestSerial && !options.silent) toast('User history failed', error.message, 'error');
+        return false;
+      } finally {
+        if (button) setButtonLoading(button, false, options.loadingLabel || 'View history');
+      }
+    }
+
+    async function searchAdminUserWalletHistory() {
+      if (!hasAdminPermission('userHistory')) { toast('Access restricted', 'Is admin account ko user wallet history access nahi diya gaya.', 'error'); return; }
+      var query = String($('#admin-wallet-history-query').value || '').trim();
+      if (!query) { toast('Search check karo', 'User ka mobile, email ya exact naam daalo.', 'error'); return; }
+      state.adminUserHistoryPage = 1;
+      await loadAdminUserWalletHistory(query, 1, false, { button: $('#admin-wallet-history-search-button'), loadingLabel: 'View history' });
+    }
+
+    async function refreshAdminUserWalletHistory() {
+      if (!hasAdminPermission('userHistory')) return;
+      var query = String($('#admin-wallet-history-query').value || state.adminUserHistoryQuery || '').trim();
+      if (!query) { toast('Pehle user search karo', 'Mobile, email ya name enter karke history dekho.', 'error'); return; }
+      var button = $('#refresh-admin-user-wallet-history');
+      if (button) setButtonLoading(button, true, 'Refresh ↻');
+      try {
+        var refreshed = await loadAdminUserWalletHistory(query, state.adminUserHistoryPage, true, { silent: true });
+        if (!refreshed) throw new Error('Latest user wallet history response nahi mili.');
+        toast('User history refreshed', 'Selected user ki latest wallet history aa gayi.', 'success');
+      } catch (error) {
+        toast('Refresh failed', error.message, 'error');
+      } finally {
+        if (button) setButtonLoading(button, false, 'Refresh ↻');
+      }
+    }
+
     async function findAdminUser() {
       var query = String($('#admin-search-mobile').value || '').trim();
       if (!query) { toast('Search check karo', 'User ka mobile number ya email daalo.', 'error'); return; }
@@ -1601,6 +1730,10 @@
           return;
         }
         fillAdminUserResult(response.user, response.defaultRcCardPrice);
+        if (hasAdminPermission('userHistory')) {
+          if ($('#admin-wallet-history-query')) $('#admin-wallet-history-query').value = query;
+          loadAdminUserWalletHistory(query, 1, true, { silent: true });
+        }
         toast('User found', response.user.name + ' ka account ready hai.', 'success');
       } catch (error) { toast('Admin error', error.message, 'error'); }
       finally { setButtonLoading(button, false, 'Find user'); }
@@ -1712,7 +1845,7 @@
 
     // ---------- Admin: delegated access tab ----------
     var adminAccessCache = [];
-    var ADMIN_ACCESS_KEYS = ['kpi', 'recharge', 'rates', 'ads', 'transactions', 'access'];
+    var ADMIN_ACCESS_KEYS = ['kpi', 'recharge', 'rates', 'ads', 'transactions', 'userHistory', 'access'];
 
     function renderAdminAccessUsers(response) {
       var list = $('#admin-access-list');
@@ -1727,6 +1860,7 @@
         rates: 'Rate setting',
         ads: 'Advertisements',
         transactions: 'Transaction view',
+        userHistory: 'User wallet history',
         access: 'Admin access'
       };
       if (!adminAccessCache.length) {
@@ -1981,6 +2115,7 @@
         $('#admin-user-balance').innerHTML = formatMoney(response.user.wallet) + '<small>current wallet</small>';
         $('#admin-recharge-amount').value = '';
         await loadAdminTransactions(state.adminTransactionCategory, state.adminTransactionPage, true);
+        if (hasAdminPermission('userHistory') && state.adminUserHistoryQuery) await loadAdminUserWalletHistory(state.adminUserHistoryQuery, state.adminUserHistoryPage, true, { silent: true });
         loadAdminStats();
         toast('Recharge successful', response.user.name + ' ke wallet me ' + formatMoney(amount) + ' add ho gaye.', 'success');
       } catch (error) { toast('Recharge error', error.message, 'error'); }
@@ -2006,6 +2141,7 @@
         }
         $('#admin-debit-amount').value = '';
         await loadAdminTransactions(state.adminTransactionCategory, state.adminTransactionPage, true);
+        if (hasAdminPermission('userHistory') && state.adminUserHistoryQuery) await loadAdminUserWalletHistory(state.adminUserHistoryQuery, state.adminUserHistoryPage, true, { silent: true });
         loadAdminStats();
         toast('Debit successful', response.user.name + ' ke wallet se ' + formatMoney(amount) + ' debit ho gaye. Admin wallet me credit hua.', 'success');
       } catch (error) { toast('Debit error', error.message, 'error'); }
@@ -2085,6 +2221,7 @@
         }
         await loadAdminTopupRequests();
         if (hasAdminPermission('transactions')) await loadAdminTransactions();
+        if (hasAdminPermission('userHistory') && state.adminUserHistoryQuery) await loadAdminUserWalletHistory(state.adminUserHistoryQuery, state.adminUserHistoryPage, true, { silent: true });
         if (hasAdminPermission('kpi')) {
           loadAdminStats();
           if (state.adminKpiDetail && $('#admin-kpi-detail-panel') && !$('#admin-kpi-detail-panel').hidden) loadKpiDetails(state.adminKpiDetail, true);
@@ -2343,6 +2480,7 @@
         try {
           if (hasAdminPermission('recharge')) await loadAdminTopupRequests();
           if (hasAdminPermission('transactions')) await loadAdminTransactions(state.adminTransactionCategory, state.adminTransactionPage);
+          if (hasAdminPermission('userHistory') && state.adminUserHistoryQuery) await loadAdminUserWalletHistory(state.adminUserHistoryQuery, state.adminUserHistoryPage, false, { silent: true });
           if (hasAdminPermission('kpi')) {
             await loadAdminStats(currentAdminStatsRange(), { skipSettings: true, skipDetails: true });
             if (state.adminKpiDetail && $('#admin-kpi-detail-panel') && !$('#admin-kpi-detail-panel').hidden) await loadKpiDetails(state.adminKpiDetail, true);
@@ -2740,6 +2878,11 @@
     $('#admin-search-mobile').addEventListener('keydown', function (event) {
       if (event.key === 'Enter') { event.preventDefault(); findAdminUser(); }
     });
+    if ($('#admin-wallet-history-search-button')) $('#admin-wallet-history-search-button').addEventListener('click', searchAdminUserWalletHistory);
+    if ($('#admin-wallet-history-query')) $('#admin-wallet-history-query').addEventListener('keydown', function (event) {
+      if (event.key === 'Enter') { event.preventDefault(); searchAdminUserWalletHistory(); }
+    });
+    if ($('#refresh-admin-user-wallet-history')) $('#refresh-admin-user-wallet-history').addEventListener('click', refreshAdminUserWalletHistory);
     $('#admin-recharge-button').addEventListener('click', rechargeAdminUser);
     if ($('#admin-debit-button')) $('#admin-debit-button').addEventListener('click', debitAdminUser);
     if ($('#refresh-topup-requests')) $('#refresh-topup-requests').addEventListener('click', function () { loadAdminTopupRequests(state.adminTopupPage); });

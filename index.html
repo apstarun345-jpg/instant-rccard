@@ -11,22 +11,7 @@
   <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="icon" type="image/png" sizes="192x192" href="/instant-rccard-icon-192-v21.png" />
   <link rel="apple-touch-icon" href="/instant-rccard-icon-192-v21.png" />
-  <title>Online RC Download – Vehicle RC Card PDF | InstantRCcard</title>
-  <meta name="description" content="InstantRCcard par vehicle number dalte hi RC ka front aur back ek hi clear PDF me instantly download karo. Secure wallet, RC Card format aur WhatsApp support ke saath online RC download." />
-  <meta name="keywords" content="RC download, online RC download, vehicle RC download, RC card download, gadi ki RC download, RC print, registration certificate download, InstantRCcard" />
-  <meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
-  <meta name="author" content="InstantRCcard" />
-  <meta name="application-name" content="InstantRCcard" />
-  <meta name="geo.region" content="IN" />
-  <meta property="og:type" content="website" />
-  <meta property="og:site_name" content="InstantRCcard" />
-  <meta property="og:locale" content="en_IN" />
-  <meta property="og:title" content="Online RC Download – Vehicle RC Card PDF | InstantRCcard" />
-  <meta property="og:description" content="Vehicle number dalte hi RC ka front aur back ek clear PDF me instantly download karo. Secure wallet aur WhatsApp support ke saath." />
-  <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:title" content="Online RC Download – Vehicle RC Card PDF | InstantRCcard" />
-  <meta name="twitter:description" content="Vehicle number dalte hi RC ka front aur back ek clear PDF me instantly download karo." />
-  <!--SEO_HEAD-->
+  <title>InstantRCcard — RC Download</title>
   <style>
     :root {
       --blue-950: #0b1b45;
@@ -466,6 +451,7 @@
     .balance-card p { position: relative; z-index: 1; margin: 5px 0 0; color: rgba(255,255,255,.68); font-size: 9px; }
     .card-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
     .card-heading h3 { margin: 0; color: var(--blue-950); font-size: 14px; letter-spacing: -.03em; }
+    .card-heading-note { display: block; margin-top: 3px; color: #8a9bb2; font-size: 9px; }
     .card-heading button { border: 0; padding: 0; color: var(--blue); background: transparent; font-size: 9px; font-weight: 800; }
     .account-row { display: flex; align-items: center; gap: 9px; padding: 9px 0; border-bottom: 1px solid #eef3f9; }
     .account-row:last-child { border-bottom: 0; }
@@ -477,6 +463,16 @@
     .transaction-tab { border: 1px solid #dce8f8; padding: 7px 10px; border-radius: 999px; color: #7c8da6; background: #f7faff; font-size: 10px; font-weight: 800; }
     .transaction-tab:hover { border-color: #a9c5f2; color: var(--blue); }
     .transaction-tab.active { border-color: #9dbcf0; color: var(--blue); background: #eaf2ff; box-shadow: 0 5px 12px rgba(37,99,235,.08); }
+    .history-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; margin: -2px 0 13px; }
+    .history-summary-card { min-width: 0; padding: 9px 10px; border: 1px solid #e1ebf8; border-radius: 12px; background: linear-gradient(135deg, #f8fbff, #eef5ff); }
+    .history-summary-card b, .history-summary-card span, .history-summary-card small { display: block; }
+    .history-summary-card span { overflow: hidden; color: #7d8da5; font-size: 8px; font-weight: 800; letter-spacing: .04em; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
+    .history-summary-card b { overflow: hidden; margin-top: 4px; color: var(--blue-950); font-size: 14px; letter-spacing: -.03em; text-overflow: ellipsis; white-space: nowrap; }
+    .history-summary-card small { overflow: hidden; margin-top: 2px; color: #91a0b5; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+    .history-summary-card.rc-summary { border-color: #cfe0ff; background: linear-gradient(135deg, #f3f7ff, #e8f1ff); }
+    .history-summary-card.rc-summary b { color: var(--blue); }
+    .history-summary-card.wallet-summary { border-color: #d8f0e5; background: linear-gradient(135deg, #f7fffb, #ecfaf3); }
+    .history-summary-card.wallet-summary b { color: var(--green); }
     .transaction-list { display: grid; gap: 2px; min-height: 92px; }
     .transaction-pagination { display: flex; align-items: center; justify-content: center; gap: 5px; flex-wrap: wrap; margin-top: 12px; }
     .pagination-button { min-width: 29px; height: 28px; border: 1px solid #dce8f8; border-radius: 8px; color: #7183a0; background: #fff; font-size: 10px; font-weight: 800; }
@@ -492,6 +488,8 @@
     .transaction-copy b, .transaction-copy small { display: block; }
     .transaction-copy b { overflow: hidden; color: #5b6b85; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
     .transaction-copy small { margin-top: 2px; color: #8e9db3; font-size: 9px; }
+    .transaction-copy .transaction-detail { color: #6e86a7; }
+    .transaction-copy .transaction-id { color: #a2afc0; font-size: 8px; }
     .transaction-amount { font-size: 10px; font-weight: 800; }
     .transaction-amount.debit { color: var(--red); }
     .transaction-amount.credit { color: var(--green); }
@@ -522,6 +520,38 @@
     .admin-user-rate-tools small { flex: 1 1 180px; color: #8b9ab0; font-size: 10px; line-height: 1.45; }
     .admin-tx { margin-top: 18px; padding-top: 15px; border-top: 1px solid #e8f0fc; }
     .admin-tx h4 { margin: 0 0 10px; color: #647792; font-size: 11px; }
+    .admin-topup-heading > div { min-width: 0; }
+    .admin-topup-heading small { display: block; margin-top: 3px; color: #91a0b5; font-size: 9px; }
+    .admin-user-wallet-history { overflow: hidden; padding: 15px; border: 1px solid #d7e6fb; border-radius: 15px; background: linear-gradient(135deg, #fbfdff, #f1f6ff); }
+    .admin-user-history-search { display: grid; grid-template-columns: minmax(0, 1fr) 145px; gap: 10px; align-items: end; margin-bottom: 12px; }
+    .admin-user-history-search label { display: block; margin-bottom: 6px; color: #637998; font-size: 10px; font-weight: 800; }
+    .admin-user-history-search input { width: 100%; height: 40px; padding: 0 11px; border: 1px solid #d6e2f4; border-radius: 10px; color: var(--ink); background: #fff; font-size: 12px; outline: 0; }
+    .admin-user-history-search input:focus { border-color: #70a0ef; box-shadow: 0 0 0 3px rgba(37,99,235,.09); }
+    .admin-user-history-search .small-blue { min-height: 40px; }
+    .admin-user-history-selected { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 11px; padding: 9px 11px; border: 1px solid #dce9fb; border-radius: 10px; background: #fff; }
+    .admin-user-history-selected b, .admin-user-history-selected small { display: block; }
+    .admin-user-history-selected b { color: var(--blue-950); font-size: 11px; }
+    .admin-user-history-selected small { margin-top: 3px; color: #8798b0; font-size: 9px; }
+    .admin-user-history-selected > span { color: var(--blue); font-size: 11px; font-weight: 850; white-space: nowrap; }
+    .admin-history-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; margin-bottom: 12px; }
+    .admin-history-summary-card { min-width: 0; padding: 9px 10px; border: 1px solid #dce8f8; border-radius: 11px; background: #fff; }
+    .admin-history-summary-card span, .admin-history-summary-card b, .admin-history-summary-card small { display: block; }
+    .admin-history-summary-card span { overflow: hidden; color: #7f90a9; font-size: 8px; font-weight: 850; letter-spacing: .04em; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
+    .admin-history-summary-card b { overflow: hidden; margin-top: 4px; color: var(--blue); font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+    .admin-history-summary-card small { overflow: hidden; margin-top: 3px; color: #9aa8ba; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+    .admin-history-summary-card.credit-summary { border-color: #ccefdc; background: #f7fffb; }
+    .admin-history-summary-card.credit-summary b { color: var(--green); }
+    .admin-history-summary-card.debit-summary { border-color: #f2d6d1; background: #fffaf9; }
+    .admin-history-summary-card.debit-summary b { color: var(--red); }
+    .admin-history-summary-card.balance-summary { border-color: #cfe0ff; background: #f5f8ff; }
+    .admin-user-history-table { min-width: 760px; }
+    .admin-user-history-table td { vertical-align: top; }
+    .admin-user-history-table td b, .admin-user-history-table td small { display: block; }
+    .admin-user-history-table td b { color: #5d708f; }
+    .admin-user-history-table td small { margin-top: 3px; color: #97a5b8; font-size: 8px; }
+    .admin-user-history-table .admin-history-direction { color: #6f86a8; font-size: 8px; }
+    .admin-user-history-table .admin-history-id { max-width: 160px; overflow: hidden; color: #a3afbf; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; text-overflow: ellipsis; }
+
     .table-wrap { overflow-x: auto; }
     .admin-table { width: 100%; border-collapse: collapse; color: #6e7e98; font-size: 10px; }
     .admin-table th { padding: 8px 6px; color: #9aaac0; font-size: 8px; font-weight: 800; text-align: left; letter-spacing: .05em; }
@@ -688,35 +718,6 @@
     @keyframes toast-out { to { opacity: 0; transform: translateY(8px); } }
     @keyframes shake { 0%,100% { transform: translateX(0); } 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }
 
-    /* Public SEO section: visible below the login hero for visitors and search engines, hidden after login. */
-    .seo-info { width: min(1120px, calc(100% - 48px)); margin: 0 auto; padding: 6px 0 46px; }
-    .seo-intro { max-width: 720px; }
-    .seo-intro h2 { margin: 12px 0; color: var(--blue-950); font-size: clamp(24px, 3vw, 34px); line-height: 1.15; letter-spacing: -.05em; }
-    .seo-intro p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.75; }
-    .seo-steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 26px; }
-    .seo-step { padding: 18px 18px 16px; border: 1px solid #e3ebf6; border-radius: var(--radius); background: rgba(255,255,255,.88); box-shadow: var(--shadow-soft); }
-    .seo-step b { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 10px; color: white; background: linear-gradient(135deg, #76a7ff, #1e4fc2 58%, #112b6f); font-size: 13px; }
-    .seo-step h3 { margin: 12px 0 6px; color: var(--blue-950); font-size: 15px; letter-spacing: -.02em; }
-    .seo-step p { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.65; }
-    .seo-faq { margin-top: 26px; padding: 8px 20px 6px; border: 1px solid #e3ebf6; border-radius: var(--radius); background: rgba(255,255,255,.88); box-shadow: var(--shadow-soft); }
-    .seo-faq h3 { margin: 12px 0 4px; color: var(--blue-950); font-size: 16px; letter-spacing: -.02em; }
-    .seo-faq details + details { border-top: 1px solid var(--line); }
-    .seo-faq summary { position: relative; cursor: pointer; list-style: none; padding: 13px 34px 13px 0; color: var(--ink); font-size: 13.5px; font-weight: 750; }
-    .seo-faq summary::-webkit-details-marker { display: none; }
-    .seo-faq summary::after { content: "+"; position: absolute; right: 2px; top: 50%; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; color: var(--blue); background: var(--blue-100); font-size: 15px; font-weight: 800; transform: translateY(-50%); }
-    .seo-faq details[open] summary::after { content: "–"; }
-    .seo-faq details p { margin: -4px 0 14px; color: var(--muted); font-size: 12.5px; line-height: 1.7; }
-    .seo-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; margin-top: 22px; padding-top: 16px; border-top: 1px solid #e1eaf6; color: #8798b1; font-size: 11px; font-weight: 700; }
-    .seo-footer a { color: var(--blue); }
-    .seo-footer a:hover { text-decoration: underline; }
-    @media (max-width: 900px) {
-      .seo-info { width: min(570px, calc(100% - 36px)); }
-      .seo-steps { grid-template-columns: 1fr; }
-    }
-    @media (max-width: 650px) {
-      .seo-info { width: calc(100% - 30px); }
-    }
-
     @media (max-width: 900px) {
       .auth-shell { grid-template-columns: 1fr; width: min(570px, calc(100% - 36px)); gap: 30px; padding: 35px 0; }
       .auth-copy { text-align: center; }
@@ -753,6 +754,8 @@
       .vrn-form input { width: 100%; height: 43px; }
       .vrn-form button { width: 100%; }
       .side-stack { grid-template-columns: 1fr; }
+      .history-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .history-summary-card b { font-size: 13px; }
       .result-ready { grid-template-columns: 1fr; }
       .result-copy { display: grid; grid-template-columns: auto 1fr; column-gap: 10px; align-items: center; }
       .result-copy .success-check { grid-row: span 2; margin: 0; }
@@ -778,6 +781,11 @@
       .admin-result-balance small { text-align: left; }
       .admin-user-rate-tools { flex-direction: column; align-items: stretch; }
       .admin-user-rate-tools input, .admin-user-rate-tools .small-blue { width: 100%; }
+      .admin-user-history-search { grid-template-columns: 1fr; }
+      .admin-user-history-search .small-blue { width: 100%; }
+      .admin-user-history-selected { align-items: flex-start; flex-direction: column; }
+      .admin-user-history-selected > span { white-space: normal; }
+      .admin-history-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .admin-bulk-rate { flex-direction: column; align-items: stretch; }
       .admin-bulk-rate input, .admin-bulk-rate .small-blue { width: 100%; }
       .admin-users-tools > div:first-child { grid-column: 1 / -1; }
@@ -960,44 +968,6 @@
       </div>
     </section>
 
-    <section class="seo-info" id="seo-info" aria-labelledby="seo-title">
-      <div class="seo-intro">
-        <div class="section-label">ONLINE RC DOWNLOAD</div>
-        <h2 id="seo-title">Vehicle number se RC Card download — front + back ek hi PDF me</h2>
-        <p>InstantRCcard ek fast aur secure online RC download platform hai. Gadi ka registration number dalo, RC Card format choose karo aur RC ka front + back ek clear PDF me turant download karo. Charge sirf successful download par wallet se deduct hota hai, isliye aapka paisa hamesha safe rehta hai.</p>
-      </div>
-      <div class="seo-steps">
-        <article class="seo-step"><b>1</b><h3>Account banao</h3><p>Mobile number ya email se free account banao. Login cookie se browser refresh par bhi aapka session bana rehta hai.</p></article>
-        <article class="seo-step"><b>2</b><h3>Wallet recharge karo</h3><p>Wallet icon tap karo, amount dalo aur payment QR se UPI payment karo. Screenshot WhatsApp par bhejte hi admin verify karke balance wallet me add karta hai.</p></article>
-        <article class="seo-step"><b>3</b><h3>RC download karo</h3><p>Vehicle number dalo aur RC Card format select karo — A4 reference layout me front left, back right wali clear PDF turant ready.</p></article>
-      </div>
-      <div class="seo-faq">
-        <h3>Aksar puche jane wale sawal (FAQ)</h3>
-        <details><summary>RC download karne me kitna charge lagta hai?</summary><p>RC Card format ka default rate <span id="seo-faq-price">₹15</span> per download hai. MParivahan A4 format jald aa raha hai. Charge sirf tab katta hai jab RC ki front aur back dono images successfully mil jayein.</p></details>
-        <details><summary>Kya wallet recharge ke bina RC download ho sakti hai?</summary><p>Nahi. RC Card download ke liye wallet me kam se kam ek download jitna balance hona chahiye. Recharge UPI payment QR se hota hai aur admin verify karke wallet me balance add karta hai.</p></details>
-        <details><summary>Download ki hui RC kis format me milti hai?</summary><p>Ek single clear PDF me — A4 reference layout, RC ka front left aur back right side. Isse print karna aur share karna dono aasan hota hai.</p></details>
-        <details><summary>Kya InstantRCcard ko app ki tarah install kar sakte hain?</summary><p>Haan. Chrome/Android me "Install InstantRCcard app" button se ya browser menu se install karo. iPhone/iPad par Share → Add to Home Screen use karo. Play Store ki zaroorat nahi hai.</p></details>
-        <details><summary>Password bhool gaye to kya karein?</summary><p>Login page par "Forgot password?" par tap karo, registered email aur mobile number verify karo aur naya password set karo.</p></details>
-      </div>
-      <footer class="seo-footer">
-        <span>© <span id="seo-year">2026</span> InstantRCcard · Online RC download platform · instantrccard.in</span>
-        <span class="seo-footer-links"><a data-whatsapp-support="1" href="#" target="_blank" rel="noopener">WhatsApp support</a> · <a href="mailto:Apstarun345@gmail.com">Email support</a></span>
-      </footer>
-      <script type="application/ld+json">
-      {
-        "@context": "https://schema.org",
-        "@type": "FAQPage",
-        "mainEntity": [
-          { "@type": "Question", "name": "RC download karne me kitna charge lagta hai?", "acceptedAnswer": { "@type": "Answer", "text": "RC Card format ka default rate ₹15 per download hai. MParivahan A4 format jald aa raha hai. Charge sirf tab katta hai jab RC ki front aur back dono images successfully mil jayein." } },
-          { "@type": "Question", "name": "Kya wallet recharge ke bina RC download ho sakti hai?", "acceptedAnswer": { "@type": "Answer", "text": "Nahi. RC Card download ke liye wallet me kam se kam ek download jitna balance hona chahiye. Recharge UPI payment QR se hota hai aur admin verify karke wallet me balance add karta hai." } },
-          { "@type": "Question", "name": "Download ki hui RC kis format me milti hai?", "acceptedAnswer": { "@type": "Answer", "text": "Ek single clear PDF me — A4 reference layout, RC ka front left aur back right side. Isse print karna aur share karna dono aasan hota hai." } },
-          { "@type": "Question", "name": "Kya InstantRCcard ko app ki tarah install kar sakte hain?", "acceptedAnswer": { "@type": "Answer", "text": "Haan. Chrome/Android me Install InstantRCcard app button se ya browser menu se install karo. iPhone/iPad par Share → Add to Home Screen use karo. Play Store ki zaroorat nahi hai." } },
-          { "@type": "Question", "name": "Password bhool gaye to kya karein?", "acceptedAnswer": { "@type": "Answer", "text": "Login page par Forgot password? par tap karo, registered email aur mobile number verify karo aur naya password set karo." } }
-        ]
-      }
-      </script>
-    </section>
-
     <header class="topbar" id="topbar" hidden>
       <a class="brand" href="#app"><span class="brand-mark"><img src="/instant-rccard-mark.png" alt="InstantRCcard logo" /></span><span class="brand-name"><strong>Instant<span>RC</span>card</strong><small>SIMPLE • SECURE • FASTER</small></span></a>
       <nav class="topbar-nav"><button class="active" data-scroll="app" type="button">RC Download</button><button data-scroll="transactions" type="button">My history</button><button data-scroll="admin-card" id="admin-nav" type="button" hidden>Admin panel</button><button data-scroll="admin-card" id="admin-rates-nav" type="button" hidden>User rates</button><button data-scroll="admin-card" id="admin-access-nav" type="button" hidden>Admin access</button></nav>
@@ -1090,7 +1060,7 @@
 
       <div class="content-grid">
         <div class="side-stack"><section class="panel balance-card wallet-card wallet-trigger" id="wallet-card-trigger" role="button" tabindex="0" aria-label="Open wallet topup"><div class="section-label">CURRENT WALLET</div><div class="balance-amount" id="balance-large">₹0</div><p>Tap karke wallet topup request bhejo.</p></section><section class="panel account-card"><div class="card-heading"><h3>Account details</h3></div><div class="account-row"><span class="account-icon">◉</span><span><b id="account-name">User</b><span>Registered name</span></span></div><div class="account-row"><span class="account-icon">⌕</span><span><b id="account-mobile">+91 —</b><span>Mobile account</span></span></div><div class="account-row"><span class="account-icon">@</span><span><b id="account-email">Email not set</b><span>Recovery email</span></span></div><div class="account-row"><span class="account-icon">₹</span><span><b id="account-rc-price">RC Card ₹15</b><span id="account-rc-note">MParivahan format Coming Soon</span></span></div><div class="account-row" id="account-role-row" hidden><span class="account-icon">♙</span><span><b id="account-role">Main Admin</b><span>Access level</span></span></div></section></div>
-        <section class="panel transactions-card" id="transactions"><div class="card-heading"><h3>Wallet &amp; RC history · 10 per page</h3><button id="refresh-transactions" type="button">Refresh ↻</button></div><div class="transaction-tabs" role="tablist" aria-label="Transaction categories"><button class="transaction-tab active" data-user-transaction-category="wallet" type="button">Wallet transactions</button><button class="transaction-tab" data-user-transaction-category="rc" type="button">RC downloads</button><button class="transaction-tab" data-user-transaction-category="all" type="button">All</button></div><div class="transaction-list" id="transaction-list"><div class="empty-list">Transactions load ho rahe hain…</div></div><div class="transaction-pagination" id="transaction-pagination" aria-label="Wallet transaction pages"></div></section>
+        <section class="panel transactions-card" id="transactions"><div class="card-heading"><div><h3>My wallet &amp; RC history</h3><small class="card-heading-note">Wallet ledger aur har RC download ka complete record</small></div><button id="refresh-transactions" type="button">Refresh ↻</button></div><div class="history-summary" id="user-history-summary" aria-label="My wallet and RC summary"><div class="history-summary-card rc-summary"><span>Total RC downloads</span><b id="history-rc-count">0</b><small id="history-rc-subtitle">Vehicle history</small></div><div class="history-summary-card rc-summary"><span>Unique vehicles</span><b id="history-vehicle-count">0</b><small>Alag registration numbers</small></div><div class="history-summary-card rc-summary"><span>RC spend</span><b id="history-rc-spend">₹0</b><small id="history-last-rc">Abhi koi RC download nahi</small></div><div class="history-summary-card wallet-summary"><span>Wallet movement</span><b id="history-wallet-movement">₹0</b><small id="history-wallet-subtitle">Credit + debit total</small></div></div><div class="transaction-tabs" role="tablist" aria-label="My wallet and RC history options"><button class="transaction-tab active" data-user-transaction-category="wallet" type="button">Wallet history</button><button class="transaction-tab" data-user-transaction-category="rc" type="button">My RC downloads</button><button class="transaction-tab" data-user-transaction-category="all" type="button">All activity</button></div><div class="transaction-list" id="transaction-list"><div class="empty-list">History load ho rahi hai…</div></div><div class="transaction-pagination" id="transaction-pagination" aria-label="Wallet and RC history pages"></div></section>
         <section class="panel admin-card" id="admin-card" hidden>
           <div class="admin-header"><div><div class="section-label" id="admin-role-label">MAIN ADMIN ACCESS</div><h3>Admin control center</h3></div><span class="admin-tag" id="admin-scope-tag">ALL PLATFORM</span></div>
           <div class="admin-layout">
@@ -1113,6 +1083,14 @@
                   </div>
                   <div class="admin-result-balance" id="admin-user-balance">₹0<small>current wallet</small></div>
                 </div>
+                <section class="admin-tx admin-user-wallet-history" id="admin-user-wallet-history-block" hidden>
+                  <div class="admin-topup-heading"><div><h4>User wallet history</h4><small>Selected user ke wallet credits, debits aur RC charges · 10 per page</small></div><button class="admin-topup-refresh" id="refresh-admin-user-wallet-history" type="button">Refresh ↻</button></div>
+                  <div class="admin-user-history-search"><div><label for="admin-wallet-history-query">User mobile, email ya name</label><input id="admin-wallet-history-query" type="text" placeholder="9876543210, user@email.com ya Rahul" autocomplete="off" /></div><button class="blue-button small-blue" id="admin-wallet-history-search-button" type="button">View history</button></div>
+                  <div class="admin-user-history-selected" id="admin-user-history-selected" hidden><div><b id="admin-history-user-name">User</b><small id="admin-history-user-contact">+91 — · Email —</small></div><span id="admin-history-user-wallet">Current wallet ₹0</span></div>
+                  <div class="admin-history-summary" id="admin-history-summary"><div class="admin-history-summary-card"><span>Wallet entries</span><b id="admin-history-total">0</b><small>Credit/debit records</small></div><div class="admin-history-summary-card credit-summary"><span>Total credited</span><b id="admin-history-credits">₹0</b><small id="admin-history-net">Net movement ₹0</small></div><div class="admin-history-summary-card debit-summary"><span>Total debited</span><b id="admin-history-debits">₹0</b><small>Wallet + RC charges</small></div><div class="admin-history-summary-card balance-summary"><span>Current balance</span><b id="admin-history-balance">₹0</b><small>Latest selected user balance</small></div></div>
+                  <div class="table-wrap"><table class="admin-table admin-user-history-table"><thead><tr><th>TIME</th><th>TYPE / DIRECTION</th><th>FROM</th><th>TO</th><th>AMOUNT</th><th>BALANCE AFTER</th><th>NOTE / ID</th></tr></thead><tbody id="admin-user-wallet-history-body"><tr><td colspan="7">User search karke wallet history dekhein.</td></tr></tbody></table></div>
+                  <div class="transaction-pagination" id="admin-user-wallet-history-pagination" aria-label="Selected user wallet history pages"></div>
+                </section>
                 <div class="admin-user-rate-tools" id="admin-user-rate-tools" hidden>
                   <div><label>Is user ka RC Card rate ₹</label><input id="admin-user-rate-input" type="number" min="1" max="1000" step="1" placeholder="15" /></div>
                   <button class="blue-button small-blue" id="admin-user-rate-save" type="button">Set user rate</button>

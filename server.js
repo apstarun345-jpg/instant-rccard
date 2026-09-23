@@ -20,8 +20,8 @@ const RC_PRICES = Object.freeze({
   mparivahan: 10,
   'rc-card': 15
 });
-const ADMIN_PERMISSION_KEYS = Object.freeze(['kpi', 'recharge', 'rates', 'ads', 'transactions', 'access']);
-const FULL_ADMIN_PERMISSIONS = Object.freeze({ kpi: true, recharge: true, rates: true, ads: true, transactions: true, access: true });
+const ADMIN_PERMISSION_KEYS = Object.freeze(['kpi', 'recharge', 'rates', 'ads', 'transactions', 'userHistory', 'access']);
+const FULL_ADMIN_PERMISSIONS = Object.freeze({ kpi: true, recharge: true, rates: true, ads: true, transactions: true, userHistory: true, access: true });
 const SESSION_SECONDS = 60 * 60 * 24 * 7;
 const STATS_TIME_ZONE = process.env.APP_TIME_ZONE || 'Asia/Kolkata';
 const MAX_BODY_BYTES = 5_000_000;
@@ -57,41 +57,16 @@ const RC_CACHE_MAX_ENTRIES = 64;
 const providerCache = new Map();
 const providerInflight = new Map();
 
-// SEO / search engine settings.
-// SITE_URL is the canonical origin used in sitemap.xml, robots.txt, <link rel="canonical">,
-// Open Graph tags and structured data. Override it with the SITE_URL variable if the domain changes.
-const SITE_URL = String(process.env.SITE_URL || 'https://instantrccard.in').trim().replace(/\/+$/, '');
-const SITE_HOST = (() => { try { return new URL(SITE_URL).host.toLowerCase(); } catch { return ''; } })();
-// CANONICAL_REDIRECT=1 makes any other public hostname (e.g. the *.up.railway.app URL or www.)
-// answer with a 301 to the canonical domain so search engines never index a duplicate copy.
-const CANONICAL_REDIRECT = /^(1|true|yes|on)$/i.test(String(process.env.CANONICAL_REDIRECT || ''));
-const GOOGLE_SITE_VERIFICATION = String(process.env.GOOGLE_SITE_VERIFICATION || '').trim();
-const BING_SITE_VERIFICATION = String(process.env.BING_SITE_VERIFICATION || '').trim();
-const SITE_NAME = 'InstantRCcard';
-const SITE_TAGLINE = 'Online RC Download – Vehicle RC Card PDF';
-const SITE_DESCRIPTION = 'InstantRCcard par vehicle number dalte hi RC ka front aur back ek hi clear PDF me instantly download karo. Secure wallet, RC Card format aur WhatsApp support.';
-const SUPPORT_EMAIL = 'Apstarun345@gmail.com';
-// Every crawlable public page. Add an entry here whenever a new public page is created.
-const PUBLIC_PAGES = Object.freeze([
-  { path: '/', changefreq: 'weekly', priority: '1.0' }
-]);
-const SEO_HEAD_MARKER = '<!--SEO_HEAD-->';
-// Repository files that must never be served to the public (server code, deployment notes, uploads).
-const PRIVATE_STATIC_FILE = /(^|\/)(server\.js|storage\.js|package(-lock)?\.json|[^/]*\.(gs|md|patch|log)|\.[^/]*)$/i;
-
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
-  '.xml': 'application/xml; charset=utf-8',
-  '.txt': 'text/plain; charset=utf-8',
   '.svg': 'image/svg+xml',
   '.webmanifest': 'application/manifest+json; charset=utf-8',
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
-  '.webp': 'image/webp',
   '.ico': 'image/x-icon'
 };
 
@@ -562,7 +537,9 @@ function syncAdminRole(user) {
     const changed = user.role !== 'admin' || JSON.stringify(user.adminPermissions || {}) !== JSON.stringify(FULL_ADMIN_PERMISSIONS);
     user.role = 'admin';
     user.adminPermissions = { ...FULL_ADMIN_PERMISSIONS };
-    if (changed) void persistDatabase();
+    // The role/permission update is kept in memory for this request. The next
+    // login or durable mutation persists it; avoiding a detached write here
+    // prevents concurrent JSON temp-file renames during session restore.
   }
   return user;
 }
@@ -1834,6 +1811,7 @@ async function handlePurchase(req, res) {
     fresh.wallet = Number(fresh.wallet) - price;
     const downloadLabel = downloadType === 'rc-card' ? 'RC Card PNG download' : 'MParivahan A4 PNG download';
     const transaction = appendTransaction(fresh.mobile, 'RC_PURCHASE', -price, fresh.wallet, vrn, downloadLabel, '', {
+      downloadType,
       idempotencyKey,
       sheetSyncPending: Boolean(SHEET_WEBHOOK_URL && SHEET_SYNC_SECRET)
     });
@@ -1870,6 +1848,17 @@ function requireAdmin(req, res, permission = '') {
   if (user.role !== 'admin') { sendError(res, 403, 'Admin access required.'); return null; }
   if (permission && !hasAdminPermission(user, permission)) {
     sendError(res, 403, 'Is admin account ko is section ka access nahi diya gaya.');
+    return null;
+  }
+  return user;
+}
+
+function requireAnyAdmin(req, res, permissions) {
+  const user = requireAdmin(req, res);
+  if (!user) return null;
+  const allowed = Array.isArray(permissions) && permissions.some((permission) => hasAdminPermission(user, permission));
+  if (!allowed) {
+    sendError(res, 403, 'Is admin account ko user wallet history ya wallet control ka access nahi diya gaya.');
     return null;
   }
   return user;
@@ -2114,7 +2103,7 @@ async function handleAdminResolveTopupRequest(req, res, requestId) {
 }
 
 async function handleAdminSearch(req, res) {
-  const admin = requireAdmin(req, res, 'recharge');
+  const admin = requireAnyAdmin(req, res, ['recharge', 'userHistory']);
   if (!admin) return;
   const body = await readJson(req);
   const query = String(body.query || body.mobile || body.email || '').trim();
@@ -2128,6 +2117,31 @@ async function handleAdminSearch(req, res) {
     adminUser: publicAdminUser(user),
     defaultRcCardPrice: defaultRcCardPrice(),
     transactions: userTransactions(user.mobile, 10).map(transactionViewPayload)
+  });
+}
+
+async function handleAdminUserWalletHistory(req, res, searchParams) {
+  const admin = requireAdmin(req, res, 'userHistory');
+  if (!admin) return;
+  const query = String(searchParams.get('query') || searchParams.get('mobile') || searchParams.get('email') || searchParams.get('name') || '').trim();
+  if (!query) return sendError(res, 422, 'User mobile, email ya naam daalo.');
+  const resolved = resolveAdminUserQuery(query);
+  if (!resolved.user) return sendError(res, resolved.status, resolved.message);
+  const user = resolved.user;
+  const rows = db.transactions.filter((transaction) => transaction.mobile === user.mobile && (isWalletBalanceTransaction(transaction) || isRcDownloadTransaction(transaction)));
+  const pageData = paginatedCollection(rows, searchParams, 'page', true);
+  return sendJson(res, 200, {
+    success: true,
+    user: publicAdminUser(user),
+    query,
+    summary: buildUserWalletHistorySummary(rows, user),
+    category: 'wallet-ledger',
+    page: pageData.page,
+    pages: pageData.pages,
+    total: pageData.total,
+    limit: pageData.limit,
+    transactions: pageData.items.map(transactionViewPayload),
+    viewer: { name: admin.name || 'Admin', mobile: admin.mobile, label: adminRoleLabel(admin) }
   });
 }
 
@@ -2545,6 +2559,13 @@ function normalizedTransactionType(transaction) {
   return String(transaction?.type || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 }
 
+function transactionDownloadType(transaction) {
+  const explicit = String(transaction?.downloadType || '').toLowerCase();
+  if (explicit === 'mparivahan' || /mparivahan/i.test(String(transaction?.note || ''))) return 'mparivahan';
+  if (explicit) return explicit;
+  return transaction?.vrn ? 'rc-card' : '';
+}
+
 function transactionViewPayload(transaction) {
   const type = normalizedTransactionType(transaction);
   const account = findUser(String(transaction?.mobile || ''));
@@ -2569,8 +2590,11 @@ function transactionViewPayload(transaction) {
     else if (type === 'RECHARGE' || type === 'WALLETRECHARGE' || type === 'WALLETTOPUP' || type === 'TOPUP') direction = 'ADMIN_TO_USER_CREDIT';
     else if (transaction?.vrn) direction = 'USER_RC_PURCHASE';
   }
+  const inferredDownloadType = transactionDownloadType(transaction);
   return {
     ...transaction,
+    transactionId: String(transaction?.transactionId || transaction?.shortId || transaction?.id || ''),
+    displayTransactionId: String(transaction?.shortId || transaction?.transactionId || transaction?.id || ''),
     userName: accountName,
     userMobile: String(transaction?.mobile || ''),
     adminName,
@@ -2578,7 +2602,54 @@ function transactionViewPayload(transaction) {
     sourceMobile,
     targetName,
     targetMobile,
-    direction
+    direction,
+    downloadType: inferredDownloadType
+  };
+}
+
+function buildUserActivitySummary(transactions) {
+  const rows = Array.isArray(transactions) ? transactions : [];
+  const rcRows = rows.filter(isRcDownloadTransaction).slice().sort((a, b) => new Date(transactionTime(a)).getTime() - new Date(transactionTime(b)).getTime());
+  const walletRows = rows.filter(isWalletBalanceTransaction);
+  const rcCardRows = rcRows.filter((transaction) => transactionDownloadType(transaction) !== 'mparivahan');
+  const mparivahanRows = rcRows.filter((transaction) => transactionDownloadType(transaction) === 'mparivahan');
+  const vehicles = new Set(rcRows.map((transaction) => normalizeVrn(transaction?.vrn)).filter(Boolean));
+  const latest = rcRows.length ? transactionViewPayload(rcRows[rcRows.length - 1]) : null;
+  const first = rcRows.length ? transactionViewPayload(rcRows[0]) : null;
+  return {
+    totalWalletTransactions: walletRows.length,
+    walletCredits: walletRows.filter((transaction) => Number(transaction.amount || 0) > 0).reduce((total, transaction) => total + Number(transaction.amount || 0), 0),
+    walletDebits: Math.abs(walletRows.filter((transaction) => Number(transaction.amount || 0) < 0).reduce((total, transaction) => total + Number(transaction.amount || 0), 0)),
+    totalRcDownloads: rcRows.length,
+    uniqueVehicles: vehicles.size,
+    totalRcSpent: Math.abs(rcRows.reduce((total, transaction) => total + Number(transaction.amount || 0), 0)),
+    rcCardDownloads: rcCardRows.length,
+    mparivahanDownloads: mparivahanRows.length,
+    firstRc: first,
+    latestRc: latest
+  };
+}
+
+function buildUserWalletHistorySummary(transactions, user) {
+  const rows = (Array.isArray(transactions) ? transactions : []).filter((transaction) => isWalletBalanceTransaction(transaction) || isRcDownloadTransaction(transaction));
+  const walletRows = rows.filter(isWalletBalanceTransaction);
+  const rcRows = rows.filter(isRcDownloadTransaction);
+  const credits = walletRows.filter((transaction) => Number(transaction.amount || 0) > 0);
+  const walletDebits = walletRows.filter((transaction) => Number(transaction.amount || 0) < 0);
+  const rcSpend = Math.abs(rcRows.reduce((total, transaction) => total + Number(transaction.amount || 0), 0));
+  const ordered = rows.slice().sort((a, b) => new Date(transactionTime(a)).getTime() - new Date(transactionTime(b)).getTime());
+  const latest = ordered.length ? transactionViewPayload(ordered[ordered.length - 1]) : null;
+  return {
+    totalTransactions: rows.length,
+    walletTransactions: walletRows.length,
+    rcDownloads: rcRows.length,
+    totalCredits: credits.reduce((total, transaction) => total + Number(transaction.amount || 0), 0),
+    walletDebits: Math.abs(walletDebits.reduce((total, transaction) => total + Number(transaction.amount || 0), 0)),
+    rcSpend,
+    totalDebits: Math.abs(walletDebits.reduce((total, transaction) => total + Number(transaction.amount || 0), 0)) + rcSpend,
+    netChange: rows.reduce((total, transaction) => total + Number(transaction.amount || 0), 0),
+    currentBalance: Number(user?.wallet || 0),
+    latest
   };
 }
 
@@ -2959,201 +3030,22 @@ async function handleAdminToggleAd(req, res, adId) {
   return sendJson(res, 200, { success: true, ad: publicAd(ad) });
 }
 
-// ---------------------------------------------------------------------------
-// SEO: sitemap.xml, robots.txt, canonical redirect and search-engine head tags
-// ---------------------------------------------------------------------------
-
-function escapeHtml(value) {
-  return String(value).replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
-}
-
-// Hostname the visitor actually used (Cloudflare/Railway forward the original host and scheme).
-function requestHost(req) {
-  const forwardedHost = String(req.headers['x-forwarded-host'] || '').split(',')[0].trim();
-  const rawHost = forwardedHost || String(req.headers.host || '').trim();
-  // Only accept a well-formed host so a crafted Host header can never be reflected anywhere.
-  return /^[a-z0-9.-]+(?::\d{1,5})?$/i.test(rawHost) ? rawHost.toLowerCase() : '';
-}
-
-function isLocalHost(host) {
-  const name = host.replace(/:\d+$/, '');
-  return !name || name === 'localhost' || name === '127.0.0.1' || name === '0.0.0.0' || name === '[::1]'
-    || name.endsWith('.localhost') || name === 'healthcheck.railway.app';
-}
-
-// 301 to the canonical domain when CANONICAL_REDIRECT is enabled and a public alias was used.
-function canonicalRedirect(req, res, url) {
-  if (!CANONICAL_REDIRECT || !SITE_HOST) return false;
-  if (req.method !== 'GET' && req.method !== 'HEAD') return false;
-  if (url.pathname.startsWith('/api/')) return false;
-  const host = requestHost(req);
-  if (!host || host === SITE_HOST || isLocalHost(host)) return false;
-  const target = `${SITE_URL}${url.pathname}${url.search}`;
-  res.writeHead(301, { Location: target, 'Cache-Control': 'public, max-age=3600', ...securityHeaders() });
-  res.end();
-  return true;
-}
-
-// Supports both the packaged public/ layout and the flat GitHub upload layout.
-async function resolveStaticRoot() {
-  try {
-    await fs.access(path.join(publicDir, 'index.html'));
-    return publicDir;
-  } catch {
-    return __dirname;
-  }
-}
-
-async function siteLastModified() {
-  try {
-    const stat = await fs.stat(path.join(await resolveStaticRoot(), 'index.html'));
-    return stat.mtime.toISOString().slice(0, 10);
-  } catch {
-    return new Date().toISOString().slice(0, 10);
-  }
-}
-
-function sendText(res, status, body, contentType, extraHeaders = {}) {
-  const buffer = Buffer.from(body, 'utf8');
-  res.writeHead(status, {
-    'Content-Type': contentType,
-    'Content-Length': buffer.length,
-    'Cache-Control': 'public, max-age=3600',
-    ...securityHeaders(),
-    ...extraHeaders
-  });
-  res.end(buffer);
-}
-
-async function handleSitemap(req, res) {
-  const lastmod = await siteLastModified();
-  const entries = PUBLIC_PAGES.map((page) => [
-    '  <url>',
-    `    <loc>${escapeHtml(SITE_URL + page.path)}</loc>`,
-    `    <lastmod>${lastmod}</lastmod>`,
-    `    <changefreq>${page.changefreq}</changefreq>`,
-    `    <priority>${page.priority}</priority>`,
-    '  </url>'
-  ].join('\n'));
-  const xml = [
-    '<?xml version="1.0" encoding="UTF-8"?>',
-    '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
-    ...entries,
-    '</urlset>',
-    ''
-  ].join('\n');
-  return sendText(res, 200, xml, 'application/xml; charset=utf-8');
-}
-
-function handleRobots(req, res) {
-  const body = [
-    'User-agent: *',
-    'Allow: /',
-    'Disallow: /api/',
-    'Disallow: /Index.html',
-    '',
-    `Sitemap: ${SITE_URL}/sitemap.xml`,
-    ''
-  ].join('\n');
-  return sendText(res, 200, body, 'text/plain; charset=utf-8');
-}
-
-// Head tags that need the absolute site URL. Injected into index.html at the SEO_HEAD_MARKER.
-function seoHeadTags() {
-  const url = `${SITE_URL}/`;
-  const image = `${SITE_URL}/og-image.png`;
-  const logo = `${SITE_URL}/instant-rccard-mark.png`;
-  const whatsapp = supportWhatsappNumber();
-  const contactPoint = {
-    '@type': 'ContactPoint',
-    contactType: 'customer support',
-    email: SUPPORT_EMAIL,
-    areaServed: 'IN',
-    availableLanguage: ['Hindi', 'English']
-  };
-  if (whatsapp) contactPoint.telephone = `+91-${whatsapp}`;
-  const organization = {
-    '@type': 'Organization',
-    '@id': `${url}#organization`,
-    name: SITE_NAME,
-    url,
-    logo: { '@type': 'ImageObject', url: logo, width: 512, height: 512 },
-    email: SUPPORT_EMAIL,
-    contactPoint: [contactPoint]
-  };
-  if (whatsapp) organization.telephone = `+91-${whatsapp}`;
-  const structuredData = {
-    '@context': 'https://schema.org',
-    '@graph': [
-      organization,
-      {
-        '@type': 'WebSite',
-        '@id': `${url}#website`,
-        url,
-        name: SITE_NAME,
-        description: SITE_DESCRIPTION,
-        inLanguage: 'en-IN',
-        publisher: { '@id': `${url}#organization` }
-      },
-      {
-        '@type': 'WebApplication',
-        '@id': `${url}#webapp`,
-        name: `${SITE_NAME} – RC Download`,
-        url,
-        image,
-        description: SITE_DESCRIPTION,
-        applicationCategory: 'UtilitiesApplication',
-        operatingSystem: 'Any',
-        browserRequirements: 'Requires JavaScript and an internet connection',
-        inLanguage: 'en-IN',
-        publisher: { '@id': `${url}#organization` },
-        offers: {
-          '@type': 'Offer',
-          name: 'RC Card download (front + back PDF)',
-          price: String(defaultRcCardPrice()),
-          priceCurrency: 'INR',
-          availability: 'https://schema.org/InStock',
-          url
-        }
-      }
-    ]
-  };
-  const lines = [
-    `<link rel="canonical" href="${escapeHtml(url)}" />`,
-    `<meta property="og:url" content="${escapeHtml(url)}" />`,
-    `<meta property="og:image" content="${escapeHtml(image)}" />`,
-    '<meta property="og:image:width" content="1200" />',
-    '<meta property="og:image:height" content="630" />',
-    `<meta property="og:image:alt" content="${escapeHtml(`${SITE_NAME} – ${SITE_TAGLINE}`)}" />`,
-    `<meta name="twitter:image" content="${escapeHtml(image)}" />`
-  ];
-  if (GOOGLE_SITE_VERIFICATION) lines.push(`<meta name="google-site-verification" content="${escapeHtml(GOOGLE_SITE_VERIFICATION)}" />`);
-  if (BING_SITE_VERIFICATION) lines.push(`<meta name="msvalidate.01" content="${escapeHtml(BING_SITE_VERIFICATION)}" />`);
-  // JSON-LD is a data block, not executable script, so the strict CSP does not block it.
-  lines.push(`<script type="application/ld+json">${JSON.stringify(structuredData).replace(/</g, '\\u003c')}</script>`);
-  return lines.map((line) => `  ${line}`).join('\n');
-}
-
-function injectSeoHead(html) {
-  const tags = seoHeadTags();
-  if (html.includes(SEO_HEAD_MARKER)) return html.replace(SEO_HEAD_MARKER, tags.trimStart());
-  return html.replace('</head>', `${tags}\n</head>`);
-}
-
 async function serveStatic(req, res, pathname) {
   const requested = pathname === '/' ? '/index.html' : pathname;
-  if (PRIVATE_STATIC_FILE.test(requested)) return sendError(res, 404, 'Not found');
-  const staticRoot = await resolveStaticRoot();
+  // Supports both the packaged public/ layout and the flat GitHub upload layout.
+  let staticRoot = publicDir;
+  try {
+    await fs.access(path.join(publicDir, 'index.html'));
+  } catch {
+    staticRoot = __dirname;
+  }
   const candidate = path.normalize(path.join(staticRoot, decodeURIComponent(requested)));
   if (!candidate.startsWith(staticRoot)) return sendError(res, 403, 'Forbidden');
   try {
     const stat = await fs.stat(candidate);
     if (!stat.isFile()) throw new Error('not file');
-    let content = await fs.readFile(candidate);
+    const content = await fs.readFile(candidate);
     const extension = path.extname(candidate).toLowerCase();
-    if (path.basename(candidate) === 'index.html') {
-      content = Buffer.from(injectSeoHead(content.toString('utf8')), 'utf8');
-    }
     res.writeHead(200, { 'Content-Type': MIME_TYPES[extension] || 'application/octet-stream', 'Content-Length': content.length, 'Cache-Control': extension === '.html' ? 'no-cache' : 'public, max-age=3600', ...securityHeaders() });
     return res.end(content);
   } catch {
@@ -3169,9 +3061,6 @@ const server = http.createServer(async (req, res) => {
     // Every API category (wallet, transactions, notifications, settings,
     // ads, KPI and RC purchases) is handled by the Railway primary service.
     if (PROXY_TO_PRIMARY && pathname.startsWith('/api/')) return await proxyApiRequest(req, res, url);
-    if (canonicalRedirect(req, res, url)) return;
-    if ((req.method === 'GET' || req.method === 'HEAD') && pathname === '/sitemap.xml') return await handleSitemap(req, res);
-    if ((req.method === 'GET' || req.method === 'HEAD') && pathname === '/robots.txt') return handleRobots(req, res);
     if (req.method === 'GET' && pathname === '/api/health') {
       const sheetSyncConfigured = Boolean(SHEET_WEBHOOK_URL && SHEET_SYNC_SECRET);
       return sendJson(res, 200, {
@@ -3223,12 +3112,18 @@ const server = http.createServer(async (req, res) => {
       if (!user) return sendError(res, 401, 'Session expire ho gaya.');
       const userTransactionRows = db.transactions.filter((transaction) => transaction.mobile === user.mobile);
       const pageData = paginatedTransactions(userTransactionRows, url.searchParams);
-      return sendJson(res, 200, { success: true, ...pageData, transactions: pageData.transactions.map(transactionViewPayload) });
+      return sendJson(res, 200, {
+        success: true,
+        ...pageData,
+        summary: buildUserActivitySummary(userTransactionRows),
+        transactions: pageData.transactions.map(transactionViewPayload)
+      });
     }
     if (req.method === 'POST' && pathname === '/api/wallet/topup-request') return await handleCreateTopupRequest(req, res);
     if (req.method === 'POST' && pathname === '/api/wallet/topup-whatsapp') return await handleWalletTopupWhatsapp(req, res);
     if (req.method === 'POST' && pathname === '/api/rc/purchase') return await handlePurchase(req, res);
     if (req.method === 'POST' && pathname === '/api/admin/users/search') return await handleAdminSearch(req, res);
+    if (req.method === 'GET' && pathname === '/api/admin/users/wallet-history') return await handleAdminUserWalletHistory(req, res, url.searchParams);
     if (req.method === 'GET' && pathname === '/api/admin/users') return await handleAdminListUsers(req, res, url.searchParams);
     if (req.method === 'GET' && pathname === '/api/admin/users/access') return await handleAdminAccessUsers(req, res, url.searchParams);
     if (req.method === 'POST' && pathname === '/api/admin/users/access') return await handleAdminUpdateAccess(req, res);
@@ -3260,7 +3155,7 @@ const server = http.createServer(async (req, res) => {
       const pageData = paginatedTransactions(transactionRows, url.searchParams);
       return sendJson(res, 200, { success: true, ...pageData, transactions: pageData.transactions.map(transactionViewPayload) });
     }
-    if (req.method === 'GET' || req.method === 'HEAD') return await serveStatic(req, res, pathname);
+    if (req.method === 'GET') return await serveStatic(req, res, pathname);
     return sendError(res, 405, 'Method not allowed');
   } catch (error) {
     console.error(error.message);
