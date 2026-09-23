@@ -1070,15 +1070,15 @@
       <div class="content-grid">
         <div class="side-stack"><section class="panel balance-card wallet-card wallet-trigger" id="wallet-card-trigger" role="button" tabindex="0" aria-label="Open wallet topup"><div class="section-label">CURRENT WALLET</div><div class="balance-amount" id="balance-large">₹0</div><p>Tap karke wallet topup request bhejo.</p></section><section class="panel account-card"><div class="card-heading"><h3>Account details</h3></div><div class="account-row"><span class="account-icon">◉</span><span><b id="account-name">User</b><span>Registered name</span></span></div><div class="account-row"><span class="account-icon">⌕</span><span><b id="account-mobile">+91 —</b><span>Mobile account</span></span></div><div class="account-row"><span class="account-icon">@</span><span><b id="account-email">Email not set</b><span>Recovery email</span></span></div><div class="account-row"><span class="account-icon">₹</span><span><b id="account-rc-price">RC Card ₹15</b><span id="account-rc-note">MParivahan format Coming Soon</span></span></div><div class="account-row" id="account-role-row" hidden><span class="account-icon">♙</span><span><b id="account-role">Main Admin</b><span>Access level</span></span></div></section></div>
         <section class="panel transactions-card" id="transactions"><div class="card-heading"><div><h3>My wallet &amp; RC history</h3><small class="card-heading-note">Wallet ledger aur har RC download ka complete record</small></div><button id="refresh-transactions" type="button">Refresh ↻</button></div><div class="history-summary" id="user-history-summary" aria-label="My wallet and RC summary"><div class="history-summary-card rc-summary"><span>Total RC downloads</span><b id="history-rc-count">0</b><small id="history-rc-subtitle">Vehicle history</small></div><div class="history-summary-card rc-summary"><span>Unique vehicles</span><b id="history-vehicle-count">0</b><small>Alag registration numbers</small></div><div class="history-summary-card rc-summary"><span>RC spend</span><b id="history-rc-spend">₹0</b><small id="history-last-rc">Abhi koi RC download nahi</small></div><div class="history-summary-card wallet-summary"><span>Wallet movement</span><b id="history-wallet-movement">₹0</b><small id="history-wallet-subtitle">Credit + debit total</small></div></div><div class="transaction-tabs" role="tablist" aria-label="My wallet and RC history options"><button class="transaction-tab active" data-user-transaction-category="wallet" type="button">Wallet history</button><button class="transaction-tab" data-user-transaction-category="rc" type="button">My RC downloads</button><button class="transaction-tab" data-user-transaction-category="all" type="button">All activity</button></div><div class="transaction-list" id="transaction-list"><div class="empty-list">History load ho rahi hai…</div></div><div class="transaction-pagination" id="transaction-pagination" aria-label="Wallet and RC history pages"></div></section>
-        <section class="panel admin-card" id="admin-card" hidden>
+        <section class="panel admin-card" id="admin-card" data-admin-active-section="wallet" hidden>
           <div class="admin-header"><div><div class="section-label" id="admin-role-label">MAIN ADMIN ACCESS</div><h3>Admin control center</h3></div><span class="admin-tag" id="admin-scope-tag">ALL PLATFORM</span></div>
           <div class="admin-layout">
             <aside class="admin-sidebar" aria-label="Admin sections">
-              <button class="admin-side-button active" data-admin-section="wallet" type="button">₹ Wallet control</button>
-              <button class="admin-side-button" data-admin-section="user-history" type="button">▣ User wallet history</button>
-              <button class="admin-side-button" data-admin-section="users" type="button">◉ Users &amp; rates</button>
-              <button class="admin-side-button" data-admin-section="ads" type="button">▣ Advertisement</button>
-              <button class="admin-side-button" data-admin-section="access" type="button">♙ Admin access</button>
+              <button class="admin-side-button active" data-admin-section="wallet" aria-controls="admin-wallet-section" aria-selected="true" type="button">₹ Wallet control</button>
+              <button class="admin-side-button" data-admin-section="user-history" aria-controls="admin-user-history-section" aria-selected="false" type="button">▣ User wallet history</button>
+              <button class="admin-side-button" data-admin-section="users" aria-controls="admin-users-section" aria-selected="false" type="button">◉ Users &amp; rates</button>
+              <button class="admin-side-button" data-admin-section="ads" aria-controls="admin-ads-section" aria-selected="false" type="button">▣ Advertisement</button>
+              <button class="admin-side-button" data-admin-section="access" aria-controls="admin-access-section" aria-selected="false" type="button">♙ Admin access</button>
             </aside>
             <div class="admin-content">
               <div class="admin-empty-state" id="admin-no-permission" hidden><span>♙</span><h4>Admin access pending</h4><p>Is account ko abhi koi admin capability assign nahi hui. Owner se required access select karne ko bolo.</p></div>
@@ -1263,7 +1263,7 @@
   <div class="session-loading" id="session-loading"><div class="startup-logo-stage"><img class="startup-logo" src="/instant-rccard-mark.png" alt="InstantRCcard" /><span class="startup-glint" aria-hidden="true"></span></div><div class="startup-wordmark">Instant<span>RC</span>Card</div><div class="startup-tagline"><span>Simple</span><i></i><span>Secure</span><i></i><span>Faster</span></div><div class="startup-progress" aria-hidden="true"><span></span></div><b>Session check ho raha hai…</b><small>InstantRCcard securely load ho raha hai</small></div>
   <div class="toast-stack" id="toast-stack" aria-live="polite"></div>
 
-  <script src="/app.js" defer></script>
+  <script src="/app.js?v=admin-history-20260923-2" defer></script>
 </body>
 </html>
 

@@ -3,6 +3,18 @@
     var DOWNLOAD_PRICES = { mparivahan: 10, 'rc-card': 15 };
     var $ = function (selector) { return document.querySelector(selector); };
     var $$ = function (selector) { return Array.prototype.slice.call(document.querySelectorAll(selector)); };
+
+    // Admin navigation is delegated at document level so it still works when a
+    // browser has restored the dashboard from a cached/PWA shell or when a
+    // later optional widget fails to initialise. The section function is a
+    // hoisted declaration and is available by the time a user can click.
+    document.addEventListener('click', function (event) {
+      var button = event.target && event.target.closest ? event.target.closest('[data-admin-section]') : null;
+      if (!button) return;
+      event.preventDefault();
+      setAdminSection(button.dataset.adminSection);
+    }, true);
+
     var installPrompt = null;
     var roboTimer = null;
     var roboMessages = [];
@@ -1226,9 +1238,19 @@
       if (!allowed[section]) {
         section = Object.keys(allowed).find(function (key) { return allowed[key]; }) || '';
       }
-      $$('[data-admin-section]').forEach(function (button) { button.classList.toggle('active', button.dataset.adminSection === section); });
+      $$('[data-admin-section]').forEach(function (button) {
+        var selected = button.dataset.adminSection === section;
+        button.classList.toggle('active', selected);
+        button.setAttribute('aria-selected', selected ? 'true' : 'false');
+      });
+      var adminCard = $('#admin-card');
+      if (adminCard) adminCard.dataset.adminActiveSection = section;
       if ($('#admin-wallet-section')) $('#admin-wallet-section').hidden = section !== 'wallet';
       if ($('#admin-user-history-section')) $('#admin-user-history-section').hidden = section !== 'user-history';
+      // Keep the inner history panel in sync too. Without this explicit toggle,
+      // a restored page could leave the child panel hidden even after its
+      // wrapper was opened, making both admin modes look identical or blank.
+      if ($('#admin-user-wallet-history-block')) $('#admin-user-wallet-history-block').hidden = section !== 'user-history';
       if ($('#admin-users-section')) $('#admin-users-section').hidden = section !== 'users';
       if ($('#admin-ads-section')) $('#admin-ads-section').hidden = section !== 'ads';
       if ($('#admin-access-section')) $('#admin-access-section').hidden = section !== 'access';
@@ -3039,7 +3061,6 @@
     $('#admin-support-save').addEventListener('click', function () { saveAdminSupport(false); });
     $('#admin-support-clear-qr').addEventListener('click', function () { saveAdminSupport(true); });
     $('#admin-ad-upload').addEventListener('click', uploadAdvertisement);
-    $$('[data-admin-section]').forEach(function (button) { button.addEventListener('click', function () { setAdminSection(button.dataset.adminSection); }); });
     $$('.topbar-nav button').forEach(function (button) { button.addEventListener('click', function () { var target = $('#' + button.dataset.scroll); if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' }); $$('.topbar-nav button').forEach(function (item) { item.classList.remove('active'); }); button.classList.add('active'); }); });
 
     async function boot() {
