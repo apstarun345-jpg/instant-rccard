@@ -83,6 +83,9 @@
       else if (name === 'readNotifications') { url = '/api/notifications/read'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ ids: args[0] || [] }); }
       else if (name === 'getStats') { url = '/api/public/stats'; }
       else if (name === 'adminFindUser') { url = '/api/admin/users/search'; options.method = 'POST'; options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify({ query: args[0] }); }
+      else if (name === 'adminGetUserSuggestions') {
+        url = '/api/admin/users/suggestions?q=' + encodeURIComponent(args[0] || '');
+      }
       else if (name === 'adminGetUserWalletHistory') {
         var userHistoryQs = new URLSearchParams();
         userHistoryQs.set('query', args[0] || '');
@@ -584,6 +587,8 @@
       if (rateHint) rateHint.hidden = !hasAdminPermission('rates');
       var transactionsBlock = $('#admin-transactions-block');
       if (transactionsBlock) transactionsBlock.hidden = !hasAdminPermission('transactions');
+      var userHistorySection = $('#admin-user-history-section');
+      if (userHistorySection) userHistorySection.hidden = !hasAdminPermission('userHistory');
       var userHistoryBlock = $('#admin-user-wallet-history-block');
       if (userHistoryBlock) userHistoryBlock.hidden = !hasAdminPermission('userHistory');
       var topupRequestsBlock = $('#admin-topup-requests-block');
@@ -1222,7 +1227,8 @@
         section = Object.keys(allowed).find(function (key) { return allowed[key]; }) || '';
       }
       $$('[data-admin-section]').forEach(function (button) { button.classList.toggle('active', button.dataset.adminSection === section); });
-      if ($('#admin-wallet-section')) $('#admin-wallet-section').hidden = section !== 'wallet' && section !== 'user-history';
+      if ($('#admin-wallet-section')) $('#admin-wallet-section').hidden = section !== 'wallet';
+      if ($('#admin-user-history-section')) $('#admin-user-history-section').hidden = section !== 'user-history';
       if ($('#admin-users-section')) $('#admin-users-section').hidden = section !== 'users';
       if ($('#admin-ads-section')) $('#admin-ads-section').hidden = section !== 'ads';
       if ($('#admin-access-section')) $('#admin-access-section').hidden = section !== 'access';
@@ -1719,6 +1725,59 @@
       } finally {
         if (button) setButtonLoading(button, false, 'Refresh ↻');
       }
+    }
+
+    function closeAdminUserSuggestions() {
+      $$('.user-search-suggestions').forEach(function (container) { container.hidden = true; });
+    }
+
+    function renderAdminUserSuggestions(container, users, onSelect) {
+      if (!container) return;
+      if (!users || !users.length) {
+        container.innerHTML = '<div class="user-search-empty">Koi matching user nahi mila.</div>';
+        container.hidden = false;
+        return;
+      }
+      container.innerHTML = users.map(function (user, index) {
+        var role = user.role === 'admin' ? ' · ' + (user.adminLabel || 'Admin') : '';
+        return '<button class="user-suggestion" type="button" data-suggestion-index="' + index + '"><b>' + escapeHtml(user.name || 'User') + escapeHtml(role) + '</b><small>+91 ' + escapeHtml(user.mobile || '—') + (user.email ? ' · ' + escapeHtml(user.email) : '') + '</small></button>';
+      }).join('');
+      container.hidden = false;
+      Array.prototype.slice.call(container.querySelectorAll('[data-suggestion-index]')).forEach(function (button) {
+        button.addEventListener('click', function () {
+          var selected = users[Number(button.dataset.suggestionIndex)];
+          closeAdminUserSuggestions();
+          if (selected && onSelect) onSelect(selected);
+        });
+      });
+    }
+
+    function wireAdminUserSuggestions(inputSelector, containerSelector, onSelect) {
+      var input = $(inputSelector);
+      var container = $(containerSelector);
+      if (!input || !container) return;
+      var timer = null;
+      var serial = 0;
+      var load = async function () {
+        var query = String(input.value || '').trim();
+        if (query.length < 2) { container.hidden = true; return; }
+        var current = ++serial;
+        try {
+          var response = await callServer('adminGetUserSuggestions', [query]);
+          if (current !== serial) return;
+          renderAdminUserSuggestions(container, response && response.success ? response.users : [], onSelect);
+        } catch (error) {
+          if (current === serial) container.hidden = true;
+        }
+      };
+      input.addEventListener('input', function () {
+        closeAdminUserSuggestions();
+        if (timer) clearTimeout(timer);
+        timer = window.setTimeout(load, 180);
+      });
+      input.addEventListener('focus', function () {
+        if (String(input.value || '').trim().length >= 2) load();
+      });
     }
 
     async function findAdminUser() {
@@ -2837,6 +2896,7 @@
         closeUserDropdown();
         if ($('#notifications-panel')) $('#notifications-panel').hidden = true;
       }
+      if (!event.target.closest || !event.target.closest('.user-search-suggestions, input')) closeAdminUserSuggestions();
     });
     document.addEventListener('keydown', function (event) {
       if (event.key === 'Escape') {
@@ -2906,6 +2966,22 @@
       if (event.key === 'Enter') { event.preventDefault(); searchAdminUserWalletHistory(); }
     });
     if ($('#refresh-admin-user-wallet-history')) $('#refresh-admin-user-wallet-history').addEventListener('click', refreshAdminUserWalletHistory);
+    wireAdminUserSuggestions('#admin-wallet-history-query', '#admin-wallet-history-suggestions', function (user) {
+      $('#admin-wallet-history-query').value = user.mobile || '';
+      searchAdminUserWalletHistory();
+    });
+    wireAdminUserSuggestions('#admin-search-mobile', '#admin-search-suggestions', function (user) {
+      $('#admin-search-mobile').value = user.mobile || '';
+      findAdminUser();
+    });
+    wireAdminUserSuggestions('#admin-users-search', '#admin-users-suggestions', function (user) {
+      $('#admin-users-search').value = user.mobile || '';
+      searchAdminUsersList();
+    });
+    wireAdminUserSuggestions('#admin-access-search', '#admin-access-suggestions', function (user) {
+      $('#admin-access-search').value = user.mobile || '';
+      $('#admin-access-search-button').click();
+    });
     $('#admin-recharge-button').addEventListener('click', rechargeAdminUser);
     if ($('#admin-debit-button')) $('#admin-debit-button').addEventListener('click', debitAdminUser);
     if ($('#refresh-topup-requests')) $('#refresh-topup-requests').addEventListener('click', function () { loadAdminTopupRequests(state.adminTopupPage); });

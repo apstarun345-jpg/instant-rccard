@@ -2120,6 +2120,21 @@ async function handleAdminSearch(req, res) {
   });
 }
 
+async function handleAdminUserSuggestions(req, res, searchParams) {
+  const admin = requireAnyAdmin(req, res, ['recharge', 'userHistory', 'rates', 'access']);
+  if (!admin) return;
+  const query = String(searchParams.get('q') || '').trim();
+  if (query.length < 2) return sendJson(res, 200, { success: true, query, users: [] });
+  const users = sortAdminUsers(searchAdminUsers(query)).slice(0, 8).map((user) => ({
+    name: user.name || 'User',
+    email: user.email || '',
+    mobile: user.mobile,
+    role: user.role,
+    adminLabel: user.role === 'admin' ? adminRoleLabel(user) : ''
+  }));
+  return sendJson(res, 200, { success: true, query, users });
+}
+
 async function handleAdminUserWalletHistory(req, res, searchParams) {
   const admin = requireAdmin(req, res, 'userHistory');
   if (!admin) return;
@@ -3123,6 +3138,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && pathname === '/api/wallet/topup-whatsapp') return await handleWalletTopupWhatsapp(req, res);
     if (req.method === 'POST' && pathname === '/api/rc/purchase') return await handlePurchase(req, res);
     if (req.method === 'POST' && pathname === '/api/admin/users/search') return await handleAdminSearch(req, res);
+    if (req.method === 'GET' && pathname === '/api/admin/users/suggestions') return await handleAdminUserSuggestions(req, res, url.searchParams);
     if (req.method === 'GET' && pathname === '/api/admin/users/wallet-history') return await handleAdminUserWalletHistory(req, res, url.searchParams);
     if (req.method === 'GET' && pathname === '/api/admin/users') return await handleAdminListUsers(req, res, url.searchParams);
     if (req.method === 'GET' && pathname === '/api/admin/users/access') return await handleAdminAccessUsers(req, res, url.searchParams);
