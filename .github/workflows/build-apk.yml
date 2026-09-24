@@ -1,0 +1,51 @@
+name: Build Yadav Parking APK
+
+on:
+  push:
+    paths:
+      - "yadav-parking/android/**"
+      - "yadav-parking/public/**"
+      - ".github/workflows/build-apk.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: "8.7"
+
+      - name: Build Debug APK
+        run: gradle -p yadav-parking/android assembleDebug --no-daemon
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: yadav-parking-debug-apk
+          path: yadav-parking/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
+      - name: Publish to GitHub Release (apk-latest)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp yadav-parking/android/app/build/outputs/apk/debug/app-debug.apk /tmp/YadavParking-debug.apk
+          gh release view apk-latest --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+            gh release create apk-latest --repo "$GITHUB_REPOSITORY" \
+              --title "Yadav Parking — Android APK" \
+              --notes "Debug APK download karein aur phone mein install karein. Install se pehle 'Unknown sources' allow karna padega. Server URL badalne ke liye strings.xml edit karke dobara build lein."
+          gh release upload apk-latest /tmp/YadavParking-debug.apk --repo "$GITHUB_REPOSITORY" --clobber

@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+  <title>Yadav Parking — Pass Booking</title>
+  <meta name="description" content="Yadav Parking Kanakpura — parking pass booking, rates, payment aur expiry alerts." />
+  <meta name="theme-color" content="#122a63" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="icon" href="/icon-192.png" />
+  <link rel="apple-touch-icon" href="/icon-192.png" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div id="app">
+    <div class="boot-splash">
+      <div class="boot-logo">🅿️</div>
+      <div class="boot-name">Yadav Parking</div>
+      <div class="boot-sub">Kanakpura</div>
+    </div>
+  </div>
+  <div id="toast-wrap"></div>
+  <div id="sheet-backdrop" class="sheet-backdrop hidden" onclick="closeSheet()"></div>
+  <div id="sheet" class="sheet hidden"></div>
+  <script src="/app.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+{
+  "name": "yadav-parking",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Yadav Parking Kanakpura — parking pass booking, rates, payments aur expiry notifications.",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  }
+}
