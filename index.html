@@ -9,8 +9,8 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="InstantRCcard" />
   <link rel="manifest" href="/manifest.webmanifest" />
-  <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
-  <link rel="apple-touch-icon" href="/icon-192.png" />
+  <link rel="icon" type="image/png" sizes="192x192" href="/instant-rccard-icon-192-v21.png" />
+  <link rel="apple-touch-icon" href="/instant-rccard-icon-192-v21.png" />
   <title>InstantRCcard — RC Download</title>
   <style>
     :root {
@@ -48,8 +48,11 @@
     .page { width: 100%; min-height: 100vh; }
 
     .brand { display: inline-flex; align-items: center; gap: 11px; }
-    .brand-mark { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 14px; color: white; background: linear-gradient(135deg, #76a7ff, #1e4fc2 58%, #112b6f); box-shadow: 0 10px 24px rgba(37,99,235,.25); }
-    .brand-mark svg { width: 24px; height: 24px; }
+    .brand-mark { display: grid; place-items: center; overflow: hidden; width: 44px; height: 44px; border-radius: 14px; background: #fff; box-shadow: 0 10px 24px rgba(37,99,235,.25); }
+    .brand-mark img { display: block; width: 100%; height: 100%; object-fit: cover; }
+    .auth-brand-logo { display: block; width: 196px; height: 196px; border-radius: 24px; object-fit: contain; background: #fff; box-shadow: 0 18px 38px rgba(24,65,145,.16); }
+    .auth-brand { display: inline-flex; }
+    @media (max-width: 650px) { .auth-brand-logo { width: 154px; height: 154px; } }
     .brand-name { display: flex; flex-direction: column; line-height: 1; gap: 4px; }
     .brand-name strong { color: var(--blue-950); font-size: 18px; letter-spacing: -.06em; }
     .brand-name strong span { color: var(--blue); }
@@ -133,7 +136,10 @@
     .user-menu:hover, .user-menu.open { background: var(--blue-50); }
     .avatar { display: grid; place-items: center; width: 39px; height: 39px; border-radius: 50%; color: #fff; background: linear-gradient(135deg, #76a7ff, #1d4ed8); font-size: 14px; font-weight: 800; }
     .avatar.avatar-lg { width: 46px; height: 46px; font-size: 16px; }
+    .user-menu-copy { display: grid; gap: 3px; min-width: 0; text-align: left; }
     .user-menu small { display: block; max-width: 140px; overflow: hidden; color: #536887; font-size: 14px; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
+    .role-pill { display: inline-flex; width: fit-content; max-width: 140px; overflow: hidden; padding: 2px 6px; border-radius: 999px; color: #3569c9; background: #eaf2ff; font-size: 8px; font-weight: 850; letter-spacing: .03em; text-overflow: ellipsis; white-space: nowrap; }
+    .role-pill[hidden] { display: none; }
     .user-menu-caret { color: #9aa7b9; font-size: 11px; transition: transform .12s ease; }
     .user-menu.open .user-menu-caret { transform: rotate(180deg); }
     .user-dropdown { position: absolute; right: 0; top: calc(100% + 10px); z-index: 40; width: 260px; padding: 15px; border: 1px solid #e2ebf8; border-radius: 16px; background: #fff; box-shadow: 0 18px 40px rgba(24,45,92,.16); transform-origin: top right; transform: translateY(-6px) scale(.97); opacity: 0; pointer-events: none; transition: opacity .12s ease, transform .12s ease; }
@@ -144,11 +150,74 @@
     .user-dropdown-row { display: flex; align-items: center; gap: 9px; padding: 11px 0; color: #536887; font-size: 13px; font-weight: 700; border-bottom: 1px solid #f3f6fb; }
     .user-dropdown-row:last-of-type { border-bottom: 0; }
     .user-dropdown-icon { display: grid; place-items: center; width: 25px; height: 25px; border-radius: 8px; color: var(--blue); background: var(--blue-50); font-size: 12px; flex: 0 0 auto; }
-    .user-dropdown-logout { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; margin-top: 13px; min-height: 42px; border: 0; border-radius: 10px; color: #fff; background: linear-gradient(135deg, #ff7a7a, #d92c2c); font-size: 13px; font-weight: 800; transition: transform .12s ease; }
+    .user-dropdown-notifications { display: flex; align-items: center; justify-content: center; width: 100%; margin-top: 13px; min-height: 38px; border: 1px solid #dbe8fb; border-radius: 10px; color: #2453a2; background: #f3f7ff; font-size: 12px; font-weight: 800; }
+    .user-dropdown-notifications:hover { background: #e7f0ff; }
+    .notification-unread-badge { display: inline-grid; place-items: center; min-width: 18px; height: 18px; margin-left: 5px; padding: 0 5px; border-radius: 999px; color: #fff; background: #e64646; font-size: 10px; line-height: 1; }
+    .notification-unread-badge[hidden] { display: none; }
+    .notification-panel { position: absolute; right: 0; top: calc(100% + 10px); z-index: 45; width: min(360px, calc(100vw - 28px)); max-height: min(560px, calc(100vh - 105px)); overflow: hidden; border: 1px solid #e1eafa; border-radius: 17px; background: #fff; box-shadow: 0 20px 55px rgba(22, 48, 102, .18); }
+    .notification-panel[hidden] { display: none; }
+    .notification-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 15px 16px 13px; border-bottom: 1px solid #edf2fa; }
+    .notification-panel-head b { color: var(--blue-950); font-size: 14px; }
+    .notification-panel-head small { display: block; margin-top: 3px; color: #8a9ab4; font-size: 11px; font-weight: 700; }
+    .notification-panel-head button { border: 0; color: var(--blue); background: transparent; font-size: 11px; font-weight: 800; }
+    .notification-list { max-height: 455px; overflow: auto; }
+    .notification-item { display: block; width: 100%; padding: 13px 16px; border: 0; border-bottom: 1px solid #f0f4fa; color: inherit; background: #fff; text-align: left; }
+    .notification-item:hover { background: #f7faff; }
+    .notification-item.unread { border-left: 3px solid var(--blue); padding-left: 13px; background: #f3f7ff; }
+    .notification-item b { display: block; color: var(--blue-950); font-size: 12px; }
+    .notification-item small { display: block; margin-top: 4px; color: #6d7e9b; font-size: 11px; line-height: 1.45; }
+    .notification-item time { display: block; margin-top: 6px; color: #9aa9bf; font-size: 10px; font-weight: 700; }
+    .notification-empty { padding: 28px 18px; color: #8a9ab4; font-size: 12px; font-weight: 700; text-align: center; }
+    .user-dropdown-logout { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; margin-top: 9px; min-height: 42px; border: 0; border-radius: 10px; color: #fff; background: linear-gradient(135deg, #ff7a7a, #d92c2c); font-size: 13px; font-weight: 800; transition: transform .12s ease; }
     .user-dropdown-logout:hover { transform: translateY(-1px); }
 
+    .welcome-back-backdrop { position: fixed; inset: 0; z-index: 95; display: grid; place-items: center; padding: 18px; background: rgba(8, 25, 69, .46); backdrop-filter: blur(8px); }
+    .welcome-back-backdrop[hidden] { display: none; }
+    .welcome-back-card { position: relative; width: min(410px, 100%); padding: 30px 26px 25px; border: 1px solid rgba(255,255,255,.85); border-radius: 24px; background: rgba(255,255,255,.97); box-shadow: 0 28px 85px rgba(8,31,86,.28); text-align: center; animation: modal-pop .24s ease both; }
+    .welcome-back-card h2 { margin: 11px 0 8px; color: var(--blue-950); font-size: 25px; letter-spacing: -.06em; }
+    .welcome-back-card p { margin: 0 auto 20px; max-width: 300px; color: var(--muted); font-size: 12px; line-height: 1.65; }
+    .welcome-back-card .blue-button { margin-top: 2px; }
+    .welcome-badge { display: grid; place-items: center; width: 54px; height: 54px; margin: 0 auto 12px; border-radius: 18px; color: #fff; background: linear-gradient(135deg, #72a5ff, #1d4ed8); box-shadow: 0 12px 25px rgba(37,99,235,.25); font-size: 25px; font-weight: 900; }
+    .welcome-back-close { position: absolute; top: 13px; right: 14px; display: grid; place-items: center; width: 29px; height: 29px; border: 0; border-radius: 8px; color: #8c9bb1; background: #f1f6fd; font-size: 19px; }
+    .welcome-back-close:hover { color: var(--blue); background: var(--blue-50); }
+
+    .robo-helper { position: fixed; right: 18px; bottom: 18px; z-index: 70; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; pointer-events: none; }
+    .robo-helper[hidden] { display: none; }
+    .robo-message { max-width: 220px; padding: 9px 12px; border: 1px solid #dce8f8; border-radius: 13px 13px 4px 13px; color: #31517f; background: rgba(255,255,255,.96); box-shadow: 0 12px 28px rgba(28,65,130,.15); font-size: 11px; font-weight: 800; opacity: 1; transform: translateY(0); white-space: normal; }
+    .robo-message.robo-message-show { animation: robo-message-in .42s ease both; }
+    .robo-help-panel { width: min(270px, calc(100vw - 34px)); padding: 13px; pointer-events: auto; border: 1px solid #dce8f8; border-radius: 16px 16px 5px 16px; background: rgba(255,255,255,.98); box-shadow: 0 18px 38px rgba(28,65,130,.19); animation: robo-help-in .22s ease both; }
+    .robo-help-panel[hidden] { display: none; }
+    .robo-help-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--blue-950); font-size: 12px; font-weight: 850; }
+    .robo-help-title button { display: grid; place-items: center; width: 24px; height: 24px; border: 0; border-radius: 7px; color: #8e9cb0; background: #f1f6fd; font-size: 17px; line-height: 1; }
+    .robo-help-title button:hover { color: var(--blue); background: var(--blue-50); }
+    .robo-help-panel p { margin: 6px 0 11px; color: #7a8ba6; font-size: 10px; line-height: 1.45; }
+    .robo-help-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+    .robo-help-action { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-height: 35px; padding: 0 8px; border: 1px solid #dce8f8; border-radius: 9px; color: var(--blue); background: #f7faff; font-size: 10px; font-weight: 850; }
+    .robo-help-action:hover { border-color: #99baf3; background: var(--blue-50); transform: translateY(-1px); }
+    .robo-help-action.whatsapp { color: #128b5b; border-color: #c9eddd; background: #effcf6; }
+    .robo-help-action .whatsapp-icon { width: 18px; height: 18px; }
+    .robo-button { position: relative; display: grid; place-items: center; width: 66px; height: 66px; padding: 0; border: 0; border-radius: 22px; pointer-events: auto; background: linear-gradient(145deg, #f7fbff, #dceaff); box-shadow: 0 16px 30px rgba(29,78,159,.20), inset 0 0 0 1px rgba(255,255,255,.9); animation: robo-float 3.2s ease-in-out infinite; }
+    .robo-button::before, .robo-button::after { content: ""; position: absolute; inset: -5px; border: 1px solid rgba(79,140,255,.22); border-radius: 25px; pointer-events: none; animation: robo-ring 2.8s ease-out infinite; }
+    .robo-button::after { animation-delay: 1.4s; }
+    .robo-button:hover { transform: translateY(-3px) scale(1.02); }
+    .robo-button svg { width: 48px; height: 48px; overflow: visible; animation: robo-scan 2.5s ease-in-out infinite; }
+    .robo-shell { fill: #fff; stroke: #2868db; stroke-width: 2; }
+    .robo-panel { fill: #eaf3ff; stroke: #7da8f5; stroke-width: 1.4; }
+    .robo-eye { fill: #1f5bd6; animation: robo-blink 4.6s ease-in-out infinite; transform-origin: center; }
+    .robo-mouth { fill: none; stroke: #3975d7; stroke-width: 1.8; stroke-linecap: round; }
+    .robo-antenna { fill: none; stroke: #3975d7; stroke-width: 2; stroke-linecap: round; }
+    .robo-dot { fill: #4f8cff; animation: robo-pulse 1.5s ease-in-out infinite; }
+    .robo-status { position: absolute; right: 8px; top: 8px; width: 10px; height: 10px; border: 2px solid #fff; border-radius: 50%; background: #20b77a; box-shadow: 0 0 0 3px rgba(32,183,122,.13); }
+    @keyframes robo-float { 0%,100% { transform: translateY(0) rotate(0deg); } 50% { transform: translateY(-5px) rotate(-1deg); } }
+    @keyframes robo-ring { 0% { opacity: .65; transform: scale(.88); } 70%,100% { opacity: 0; transform: scale(1.25); } }
+    @keyframes robo-scan { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-1px) scale(1.035); } }
+    @keyframes robo-help-in { from { opacity: 0; transform: translateY(7px) scale(.96); } to { opacity: 1; transform: translateY(0) scale(1); } }
+    @keyframes robo-message-in { from { opacity: 0; transform: translateY(7px) scale(.96); } to { opacity: 1; transform: translateY(0) scale(1); } }
+    @keyframes robo-blink { 0%,44%,48%,100% { transform: scaleY(1); } 46% { transform: scaleY(.12); } }
+    @keyframes robo-pulse { 0%,100% { opacity: .45; } 50% { opacity: 1; } }
+
     .dashboard { width: min(1160px, calc(100% - 48px)); margin: 0 auto; padding: 38px 0 70px; }
-    .welcome-line { display: flex; align-items: end; justify-content: space-between; gap: 18px; margin-bottom: 22px; }
+    .welcome-line { position: sticky; top: 0; z-index: 35; display: flex; align-items: end; justify-content: space-between; gap: 18px; margin: -12px 0 22px; padding: 12px 0 13px; border-bottom: 1px solid rgba(222,232,247,.9); background: rgba(247,250,255,.94); box-shadow: 0 8px 18px rgba(28,65,130,.04); backdrop-filter: blur(12px); }
     .welcome-line h1 { margin: 8px 0 4px; color: var(--blue-950); font-size: 31px; letter-spacing: -.06em; }
     .welcome-line p { margin: 0; color: var(--muted); font-size: 12px; }
     .price-note { display: inline-flex; align-items: center; gap: 8px; padding: 8px 11px; border: 1px solid #dce8f8; border-radius: 11px; color: #6980a4; background: rgba(255,255,255,.78); font-size: 11px; }
@@ -167,6 +236,8 @@
     .vrn-form button:hover { background: #edf5ff; }
     .vrn-form button:disabled { cursor: wait; opacity: .65; }
     .hero-hint { margin: 9px 0 0; color: rgba(255,255,255,.62); font-size: 10px; font-weight: 600; }
+    .format-picker-link { border: 0; padding: 0; color: #d3e4ff; background: transparent; font: inherit; font-weight: 800; text-decoration: underline; text-underline-offset: 2px; }
+    .format-picker-link:hover { color: #fff; }
     .download-status { display: flex; align-items: center; gap: 9px; max-width: 560px; margin-top: 12px; padding: 9px 11px; border: 1px solid rgba(255,255,255,.18); border-radius: 11px; color: #e8f1ff; background: rgba(255,255,255,.10); }
     .download-status .status-icon { display: grid; place-items: center; width: 23px; height: 23px; flex: 0 0 auto; border-radius: 7px; color: #1b5bda; background: #fff; font-size: 12px; font-weight: 900; }
     .download-status b, .download-status small { display: block; }
@@ -212,6 +283,38 @@
     .wallet-modal { position: relative; width: min(450px, 100%); padding: 26px; border: 1px solid rgba(255,255,255,.82); border-radius: 22px; background: #fff; box-shadow: 0 28px 80px rgba(8,31,86,.28); animation: modal-pop .24s ease both; }
     .wallet-modal h2 { margin: 8px 0 7px; color: var(--blue-950); font-size: 23px; letter-spacing: -.05em; }
     .wallet-modal > p { margin: 0 0 16px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+    .topup-payment-qr { display: grid; justify-items: center; gap: 6px; margin: 0 0 14px; padding: 10px; border: 1px solid #dfe8f7; border-radius: 13px; background: #fbfdff; }
+    .topup-payment-qr span { color: #7890b1; font-size: 9px; font-weight: 850; letter-spacing: .08em; }
+    .topup-payment-qr img { width: 230px; height: 230px; object-fit: contain; border-radius: 8px; background: #fff; }
+    .topup-payment-qr.large { margin-top: 4px; padding: 14px; }
+    .topup-step { display: grid; gap: 12px; }
+    .topup-step[hidden] { display: none; }
+    .topup-payment-amount { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border: 1px solid #dce8fb; border-radius: 11px; color: #6d7f9d; background: #f7faff; font-size: 11px; }
+    .topup-payment-amount b { color: var(--blue-950); font-size: 20px; }
+    .topup-step-actions { display: grid; gap: 8px; }
+    .topup-change-button { min-height: 36px; border: 0; color: #6d82a4; background: transparent; font-size: 11px; font-weight: 800; }
+    .admin-topup-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+    .admin-topup-heading h4 { margin: 0; color: #647792; font-size: 11px; }
+    .admin-topup-refresh { border: 0; padding: 5px 7px; border-radius: 7px; color: var(--blue); background: var(--blue-50); font-size: 9px; font-weight: 800; }
+    .topup-request-list { display: grid; gap: 9px; }
+    .topup-request-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; padding: 11px; border: 1px solid #e1eaf8; border-radius: 11px; background: #fff; }
+    .topup-request-main { min-width: 0; }
+    .topup-request-main b, .topup-request-main small { display: block; }
+    .topup-request-main b { overflow: hidden; color: var(--blue-950); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+    .topup-request-main small { margin-top: 4px; color: #8292aa; font-size: 9px; line-height: 1.4; }
+    .topup-request-status { display: inline-block; margin-top: 6px; padding: 4px 6px; border-radius: 6px; color: #9a6b15; background: #fff4d8; font-size: 8px; font-weight: 850; letter-spacing: .04em; }
+    .topup-request-status.approved { color: #18764b; background: #e5f9ef; }
+    .topup-request-status.rejected { color: #a0444c; background: #ffeaec; }
+    .topup-request-side { min-width: 128px; text-align: right; }
+    .topup-request-side strong { display: block; color: var(--blue); font-size: 17px; }
+    .topup-request-side input { width: 112px; height: 31px; margin: 6px 0 7px; padding: 0 7px; border: 1px solid #d7e3f4; border-radius: 7px; color: var(--ink); font-size: 11px; text-align: right; }
+    .topup-request-actions { display: flex; justify-content: flex-end; gap: 6px; }
+    .topup-request-actions button { min-height: 29px; padding: 0 8px; border: 0; border-radius: 7px; font-size: 9px; font-weight: 850; }
+    .topup-request-approve { color: #fff; background: #198754; }
+    .topup-request-reject { color: #a0444c; background: #ffeaec; }
+    .topup-request-id { overflow: hidden; max-width: 220px; margin-top: 4px; color: #a1aec0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+    @media (max-width: 620px) { .topup-request-row { grid-template-columns: 1fr; } .topup-request-side { text-align: left; } .topup-request-side input { text-align: left; } .topup-request-actions { justify-content: flex-start; } }
+    .topup-payment-qr small { color: #8798b1; font-size: 10px; text-align: center; }
     .topup-balance { display: flex; align-items: center; justify-content: space-between; margin: 0 0 14px; padding: 11px 12px; border: 1px solid #dfeafa; border-radius: 11px; color: #7b8da9; background: #f7faff; font-size: 11px; }
     .topup-balance b { color: var(--blue); font-size: 17px; }
     .wallet-modal-note { display: block; margin-top: 10px; color: #8d9bb0; font-size: 10px; line-height: 1.45; text-align: center; }
@@ -278,6 +381,9 @@
     .fetching-modal strong { color: var(--blue-950); font-size: 20px; letter-spacing: -.04em; }
     .fetching-modal small { color: var(--muted); font-size: 12px; }
     .fetching-spinner { display: block; width: 42px; height: 42px; border: 4px solid #dbeafe; border-top-color: var(--blue); border-radius: 50%; animation: spin .75s linear infinite; }
+    .fetching-progress { width: min(190px, 75%); height: 4px; overflow: hidden; border-radius: 99px; background: #e7effc; }
+    .fetching-progress span { display: block; width: 42%; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #3e7ff0, #8bb9ff); animation: fetching-progress 1.15s ease-in-out infinite; }
+    @keyframes fetching-progress { 0% { transform: translateX(-125%); } 100% { transform: translateX(290%); } }
     /* Slightly larger type keeps the main flow readable on phones and desktops. */
     body { font-size: 15px; }
     .auth-copy .eyebrow, .section-label { font-size: 12px; }
@@ -345,6 +451,7 @@
     .balance-card p { position: relative; z-index: 1; margin: 5px 0 0; color: rgba(255,255,255,.68); font-size: 9px; }
     .card-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
     .card-heading h3 { margin: 0; color: var(--blue-950); font-size: 14px; letter-spacing: -.03em; }
+    .card-heading-note { display: block; margin-top: 3px; color: #8a9bb2; font-size: 9px; }
     .card-heading button { border: 0; padding: 0; color: var(--blue); background: transparent; font-size: 9px; font-weight: 800; }
     .account-row { display: flex; align-items: center; gap: 9px; padding: 9px 0; border-bottom: 1px solid #eef3f9; }
     .account-row:last-child { border-bottom: 0; }
@@ -352,7 +459,27 @@
     .account-row b { color: #566883; font-size: 10px; }
     .account-row span { color: #98a7ba; font-size: 9px; margin-top: 2px; }
     .account-icon { display: grid; place-items: center; width: 29px; height: 29px; border-radius: 9px; color: var(--blue); background: var(--blue-50); font-size: 13px; }
-    .transaction-list { display: grid; gap: 2px; }
+    .transaction-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: -3px 0 12px; }
+    .transaction-tab { border: 1px solid #dce8f8; padding: 7px 10px; border-radius: 999px; color: #7c8da6; background: #f7faff; font-size: 10px; font-weight: 800; }
+    .transaction-tab:hover { border-color: #a9c5f2; color: var(--blue); }
+    .transaction-tab.active { border-color: #9dbcf0; color: var(--blue); background: #eaf2ff; box-shadow: 0 5px 12px rgba(37,99,235,.08); }
+    .history-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; margin: -2px 0 13px; }
+    .history-summary-card { min-width: 0; padding: 9px 10px; border: 1px solid #e1ebf8; border-radius: 12px; background: linear-gradient(135deg, #f8fbff, #eef5ff); }
+    .history-summary-card b, .history-summary-card span, .history-summary-card small { display: block; }
+    .history-summary-card span { overflow: hidden; color: #7d8da5; font-size: 8px; font-weight: 800; letter-spacing: .04em; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
+    .history-summary-card b { overflow: hidden; margin-top: 4px; color: var(--blue-950); font-size: 14px; letter-spacing: -.03em; text-overflow: ellipsis; white-space: nowrap; }
+    .history-summary-card small { overflow: hidden; margin-top: 2px; color: #91a0b5; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+    .history-summary-card.rc-summary { border-color: #cfe0ff; background: linear-gradient(135deg, #f3f7ff, #e8f1ff); }
+    .history-summary-card.rc-summary b { color: var(--blue); }
+    .history-summary-card.wallet-summary { border-color: #d8f0e5; background: linear-gradient(135deg, #f7fffb, #ecfaf3); }
+    .history-summary-card.wallet-summary b { color: var(--green); }
+    .transaction-list { display: grid; gap: 2px; min-height: 92px; }
+    .transaction-pagination { display: flex; align-items: center; justify-content: center; gap: 5px; flex-wrap: wrap; margin-top: 12px; }
+    .pagination-button { min-width: 29px; height: 28px; border: 1px solid #dce8f8; border-radius: 8px; color: #7183a0; background: #fff; font-size: 10px; font-weight: 800; }
+    .pagination-button:hover:not(:disabled) { border-color: #9dbcf0; color: var(--blue); background: #f2f7ff; }
+    .pagination-button.active { border-color: var(--blue); color: #fff; background: var(--blue); }
+    .pagination-button:disabled { cursor: not-allowed; opacity: .45; }
+    .pagination-summary { color: #9aaac0; font-size: 9px; margin-inline: 4px; }
     .transaction { display: flex; align-items: center; gap: 9px; padding: 8px 0; border-bottom: 1px solid #eef3f9; }
     .transaction:last-child { border-bottom: 0; }
     .transaction-icon { display: grid; place-items: center; width: 27px; height: 27px; border-radius: 8px; color: var(--blue); background: var(--blue-50); font-size: 12px; }
@@ -361,6 +488,8 @@
     .transaction-copy b, .transaction-copy small { display: block; }
     .transaction-copy b { overflow: hidden; color: #5b6b85; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
     .transaction-copy small { margin-top: 2px; color: #8e9db3; font-size: 9px; }
+    .transaction-copy .transaction-detail { color: #6e86a7; }
+    .transaction-copy .transaction-id { color: #a2afc0; font-size: 8px; }
     .transaction-amount { font-size: 10px; font-weight: 800; }
     .transaction-amount.debit { color: var(--red); }
     .transaction-amount.credit { color: var(--green); }
@@ -375,6 +504,10 @@
     .admin-tools input { width: 100%; height: 44px; outline: 0; padding: 0 12px; border: 1px solid #dfe8f5; border-radius: 10px; color: var(--ink); background: white; font-size: 13px; }
     .admin-tools input:focus { border-color: #74a1f7; box-shadow: 0 0 0 3px rgba(37,99,235,.08); }
     .small-blue { width: auto; min-width: 112px; min-height: 44px; padding: 0 16px; box-shadow: none; border-radius: 10px; font-size: 12px; }
+    .admin-wallet-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .admin-wallet-actions .small-blue { width: 100%; min-width: 0; padding-inline: 10px; }
+    .debit-button { color: #b42318; border: 1px solid #f0b8b2; background: #fff7f6; }
+    .debit-button:hover { color: #8f1d15; border-color: #df837a; background: #fff0ee; }
     .admin-user-result { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-top: 16px; padding: 12px; border: 1px solid #deebfc; border-radius: 12px; background: white; }
     .admin-user-result h4 { margin: 0 0 4px; color: var(--blue-950); font-size: 12px; }
     .admin-user-result p { margin: 0; color: #90a0b7; font-size: 9px; }
@@ -387,12 +520,74 @@
     .admin-user-rate-tools small { flex: 1 1 180px; color: #8b9ab0; font-size: 10px; line-height: 1.45; }
     .admin-tx { margin-top: 18px; padding-top: 15px; border-top: 1px solid #e8f0fc; }
     .admin-tx h4 { margin: 0 0 10px; color: #647792; font-size: 11px; }
+    .admin-topup-heading > div { min-width: 0; }
+    .admin-topup-heading small { display: block; margin-top: 3px; color: #91a0b5; font-size: 9px; }
+    .admin-user-wallet-history { overflow: hidden; padding: 15px; border: 1px solid #d7e6fb; border-radius: 15px; background: linear-gradient(135deg, #fbfdff, #f1f6ff); }
+    .admin-user-history-search { display: grid; grid-template-columns: minmax(0, 1fr) 145px; gap: 10px; align-items: end; margin-bottom: 12px; }
+    .admin-user-history-search label { display: block; margin-bottom: 6px; color: #637998; font-size: 10px; font-weight: 800; }
+    .admin-user-history-search input { width: 100%; height: 40px; padding: 0 11px; border: 1px solid #d6e2f4; border-radius: 10px; color: var(--ink); background: #fff; font-size: 12px; outline: 0; }
+    .admin-user-history-search input:focus { border-color: #70a0ef; box-shadow: 0 0 0 3px rgba(37,99,235,.09); }
+    .wallet-user-search > div, .admin-user-history-search > div, .admin-users-tools > div:first-child, .admin-access-tools > div:first-child { position: relative; }
+    .user-search-suggestions { position: absolute; top: calc(100% + 5px); left: 0; right: 0; z-index: 25; display: grid; gap: 2px; max-height: 230px; overflow-y: auto; padding: 5px; border: 1px solid #d6e4f7; border-radius: 11px; background: #fff; box-shadow: 0 15px 30px rgba(31,68,130,.14); }
+    .user-search-suggestions[hidden] { display: none; }
+    .user-suggestion { display: block; width: 100%; padding: 8px 9px; border: 0; border-radius: 8px; color: #637998; background: #fff; text-align: left; cursor: pointer; }
+    .user-suggestion:hover, .user-suggestion:focus { background: #eef5ff; outline: 0; }
+    .user-suggestion b, .user-suggestion small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .user-suggestion b { color: var(--blue-950); font-size: 10px; }
+    .user-suggestion small { margin-top: 2px; color: #91a0b5; font-size: 8px; }
+    .user-search-empty { padding: 8px; color: #9aa9bc; font-size: 9px; }
+    .admin-user-history-search .small-blue { min-height: 40px; }
+    .admin-user-history-selected { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 11px; padding: 9px 11px; border: 1px solid #dce9fb; border-radius: 10px; background: #fff; }
+    .admin-user-history-selected b, .admin-user-history-selected small { display: block; }
+    .admin-user-history-selected b { color: var(--blue-950); font-size: 11px; }
+    .admin-user-history-selected small { margin-top: 3px; color: #8798b0; font-size: 9px; }
+    .admin-user-history-selected > span { color: var(--blue); font-size: 11px; font-weight: 850; white-space: nowrap; }
+    .admin-history-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; margin-bottom: 12px; }
+    .admin-history-summary-card { min-width: 0; padding: 9px 10px; border: 1px solid #dce8f8; border-radius: 11px; background: #fff; }
+    .admin-history-summary-card span, .admin-history-summary-card b, .admin-history-summary-card small { display: block; }
+    .admin-history-summary-card span { overflow: hidden; color: #7f90a9; font-size: 8px; font-weight: 850; letter-spacing: .04em; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
+    .admin-history-summary-card b { overflow: hidden; margin-top: 4px; color: var(--blue); font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+    .admin-history-summary-card small { overflow: hidden; margin-top: 3px; color: #9aa8ba; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+    .admin-history-summary-card.credit-summary { border-color: #ccefdc; background: #f7fffb; }
+    .admin-history-summary-card.credit-summary b { color: var(--green); }
+    .admin-history-summary-card.debit-summary { border-color: #f2d6d1; background: #fffaf9; }
+    .admin-history-summary-card.debit-summary b { color: var(--red); }
+    .admin-history-summary-card.balance-summary { border-color: #cfe0ff; background: #f5f8ff; }
+    .admin-user-history-table { min-width: 760px; }
+    .admin-user-history-table td { vertical-align: top; }
+    .admin-user-history-table td b, .admin-user-history-table td small { display: block; }
+    .admin-user-history-table td b { color: #5d708f; }
+    .admin-user-history-table td small { margin-top: 3px; color: #97a5b8; font-size: 8px; }
+    .admin-user-history-table .admin-history-direction { color: #6f86a8; font-size: 8px; }
+    .admin-user-history-table .admin-history-id { max-width: 160px; overflow: hidden; color: #a3afbf; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; text-overflow: ellipsis; }
+
     .table-wrap { overflow-x: auto; }
     .admin-table { width: 100%; border-collapse: collapse; color: #6e7e98; font-size: 10px; }
     .admin-table th { padding: 8px 6px; color: #9aaac0; font-size: 8px; font-weight: 800; text-align: left; letter-spacing: .05em; }
     .admin-table td { padding: 9px 6px; border-top: 1px solid #eef3fa; white-space: nowrap; }
     .admin-table .credit { color: var(--green); font-weight: 800; }
     .admin-table .debit { color: var(--red); font-weight: 800; }
+    .admin-inline-hint { margin-top: 10px; color: #8b9ab0; font-size: 10px; }
+    .admin-link-button { border: 0; padding: 0; color: var(--blue); background: transparent; font: inherit; font-weight: 800; text-decoration: underline; cursor: pointer; }
+    .admin-users-tools { margin-bottom: 12px; }
+    .admin-rate-summary { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+    .rate-chip { padding: 7px 11px; border: 1px solid #deebfc; border-radius: 999px; color: #7d8ea8; background: #f7faff; font-size: 10px; font-weight: 700; }
+    .rate-chip b { color: var(--blue-950); font-weight: 850; }
+    .admin-bulk-rate { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; padding: 12px; border: 1px solid #deebfc; border-radius: 12px; background: #f8fbff; }
+    .admin-bulk-rate label { display: block; margin-bottom: 6px; color: #70819c; font-size: 10px; font-weight: 800; }
+    .admin-bulk-rate input { width: 130px; height: 40px; padding: 0 10px; border: 1px solid #dfe8f5; border-radius: 9px; color: var(--ink); background: white; font-size: 12px; }
+    .admin-bulk-rate small { flex: 1 1 220px; color: #8b9ab0; font-size: 10px; line-height: 1.45; }
+    .admin-users-table td { white-space: nowrap; vertical-align: middle; }
+    .admin-user-cell { display: block; color: var(--ink); font-size: 11px; font-weight: 800; }
+    .admin-user-sub { display: block; margin-top: 2px; color: #9aaac0; font-size: 9px; }
+    .admin-row-rate { width: 78px; height: 34px; padding: 0 8px; border: 1px solid #dfe8f5; border-radius: 8px; color: var(--ink); background: white; font-size: 11px; font-weight: 700; }
+    .admin-rate-cell { display: flex; align-items: center; gap: 7px; }
+    .admin-rate-actions { display: flex; gap: 6px; }
+    .admin-rate-actions .small-blue { min-width: 62px; min-height: 34px; padding: 0 10px; font-size: 10px; }
+    .rate-state { padding: 3px 7px; border-radius: 999px; font-size: 8px; font-weight: 850; letter-spacing: .04em; }
+    .rate-state.custom { color: #ffffff; background: var(--blue); }
+    .rate-state.default { color: #7d8ea8; background: #eef3fb; }
+    .rate-state.blocked { color: #b1442f; background: #ffe9e4; }
 
     .admin-kpi-section { margin-bottom: 22px; padding: 20px; border: 1px solid #dfe8fb; border-radius: 22px; background: linear-gradient(135deg, #f3f7ff, #eef2ff 60%, #f7f0ff); box-shadow: var(--shadow-soft); }
     .admin-kpi-heading { display: flex; align-items: end; justify-content: space-between; gap: 15px; margin-bottom: 16px; }
@@ -405,6 +600,26 @@
     .admin-kpi-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
     .admin-kpi-card { position: relative; overflow: hidden; padding: 15px 16px; border-radius: 16px; color: #fff; box-shadow: 0 14px 26px rgba(31,55,120,.16); transition: transform .2s; }
     .admin-kpi-card:hover { transform: translateY(-2px); }
+    .admin-kpi-card.clickable { cursor: pointer; }
+    .admin-kpi-card.clickable:focus-visible { outline: 3px solid rgba(37,99,235,.3); outline-offset: 3px; }
+    .kpi-c9 { background: linear-gradient(135deg, #ef5da8, #b21f68); }
+    .admin-kpi-detail-panel { display: grid; gap: 11px; margin-top: 15px; padding: 15px; border: 1px solid #dce6f7; border-radius: 16px; background: rgba(255,255,255,.88); box-shadow: 0 8px 22px rgba(34,70,135,.07); }
+    .admin-kpi-detail-panel[hidden] { display: none; }
+    .admin-kpi-detail-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .admin-kpi-detail-heading h3 { margin: 0; color: var(--blue-950); font-size: 14px; }
+    .admin-kpi-detail-heading small { display: block; margin-top: 3px; color: #8b9ab0; font-size: 9px; }
+    .admin-kpi-detail-close { border: 0; padding: 5px 8px; border-radius: 7px; color: #6e82a2; background: #eef4ff; font-size: 10px; font-weight: 800; }
+    .admin-kpi-detail-list { display: grid; gap: 8px; max-height: 360px; overflow: auto; }
+    .admin-kpi-detail-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 11px; border: 1px solid #e4ebf7; border-radius: 10px; background: #fff; }
+    .admin-kpi-detail-row b, .admin-kpi-detail-row small { display: block; }
+    .admin-kpi-detail-row b { overflow: hidden; color: var(--blue-950); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+    .admin-kpi-detail-row small { margin-top: 3px; color: #8494ac; font-size: 9px; line-height: 1.4; }
+    .admin-kpi-detail-value { color: var(--blue); font-size: 13px; font-weight: 850; text-align: right; }
+    .admin-kpi-detail-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 7px; }
+    .admin-kpi-detail-actions button { min-height: 27px; padding: 0 8px; border: 0; border-radius: 7px; font-size: 9px; font-weight: 850; }
+    .admin-kpi-detail-actions .approve { color: #fff; background: #198754; }
+    .admin-kpi-detail-actions .reject { color: #a0444c; background: #ffeaec; }
+    @media (max-width: 620px) { .admin-kpi-detail-row { grid-template-columns: 1fr; } .admin-kpi-detail-value { text-align: left; } }
     .admin-kpi-card::after { content: ""; position: absolute; right: -26px; top: -26px; width: 90px; height: 90px; border-radius: 50%; background: rgba(255,255,255,.16); }
     .admin-kpi-card .kpi-icon { display: inline-grid; place-items: center; width: 26px; height: 26px; margin-bottom: 9px; border-radius: 8px; background: rgba(255,255,255,.22); font-size: 13px; font-weight: 800; }
     .admin-kpi-card small { position: relative; display: block; color: rgba(255,255,255,.86); font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; }
@@ -419,11 +634,52 @@
     .kpi-c8 { background: linear-gradient(135deg, #f7b733, #c0810a); }
     .kpi-range { grid-column: span 2; background: linear-gradient(135deg, #a855f7, #5b21b6); }
     .kpi-range .kpi-sub { position: relative; display: block; margin-top: 4px; color: rgba(255,255,255,.9); font-size: 10px; font-weight: 700; }
+    .admin-activity-panel { margin-top: 17px; padding: 16px; border: 1px solid #dfe6f8; border-radius: 16px; background: rgba(255,255,255,.72); }
+    .admin-activity-heading { margin-bottom: 12px; }
+    .admin-activity-heading h3 { margin: 5px 0 3px; color: var(--blue-950); font-size: 16px; letter-spacing: -.035em; }
+    .admin-activity-heading p { margin: 0; color: var(--muted); font-size: 10px; }
+    .admin-activity-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(235px, 1fr)); gap: 10px; }
+    .admin-activity-card { padding: 13px; border: 1px solid #e1e9f7; border-radius: 13px; background: #fff; box-shadow: 0 7px 18px rgba(34,70,135,.06); }
+    .admin-activity-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-bottom: 9px; border-bottom: 1px solid #edf2fa; }
+    .admin-activity-head b { display: block; color: var(--blue-950); font-size: 12px; }
+    .admin-activity-head small { display: block; margin-top: 3px; color: #91a0b7; font-size: 9px; }
+    .admin-activity-badge { padding: 4px 7px; border-radius: 999px; color: #3768c8; background: #eef4ff; font-size: 8px; font-weight: 850; white-space: nowrap; }
+    .admin-activity-periods { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-top: 10px; }
+    .admin-activity-period { padding: 8px; border-radius: 9px; background: #f7faff; }
+    .admin-activity-period small, .admin-activity-period b, .admin-activity-period span { display: block; }
+    .admin-activity-period small { color: #91a0b7; font-size: 8px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; }
+    .admin-activity-period b { margin-top: 3px; color: var(--blue); font-size: 13px; }
+    .admin-activity-period span { margin-top: 2px; color: #6f809b; font-size: 9px; }
+    .admin-activity-range { grid-column: 1 / -1; color: #6844a2; background: #f7f0ff; }
+    .admin-empty-state { padding: 32px 18px; border: 1px dashed #cbdaf2; border-radius: 15px; color: #7689a7; background: #f8fbff; text-align: center; }
+    .admin-empty-state span { display: grid; place-items: center; width: 42px; height: 42px; margin: 0 auto 9px; border-radius: 13px; color: var(--blue); background: #eaf2ff; font-size: 19px; }
+    .admin-empty-state h4 { margin: 0 0 5px; color: var(--blue-950); font-size: 14px; }
+    .admin-empty-state p { max-width: 350px; margin: 0 auto; font-size: 10px; line-height: 1.5; }
+    .admin-access-list { display: grid; gap: 11px; margin-top: 15px; }
+    .admin-access-card { padding: 15px; border: 1px solid #e0e8f6; border-radius: 15px; background: #fff; box-shadow: 0 8px 20px rgba(31,65,130,.06); }
+    .admin-access-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .admin-access-head b, .admin-access-head small { display: block; }
+    .admin-access-head b { color: var(--blue-950); font-size: 13px; }
+    .admin-access-head small { margin-top: 3px; color: #91a0b7; font-size: 10px; }
+    .admin-access-state { padding: 5px 8px; border-radius: 999px; color: #6b7b95; background: #eef3fb; font-size: 8px; font-weight: 850; white-space: nowrap; }
+    .admin-access-state.admin { color: #fff; background: var(--blue); }
+    .admin-access-permissions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; margin: 13px 0; }
+    .admin-access-permissions label { display: flex; align-items: center; gap: 7px; min-height: 37px; padding: 8px; border: 1px solid #e4ebf7; border-radius: 9px; color: #5c6e8a; background: #f9fbff; font-size: 10px; font-weight: 750; }
+    .admin-access-permissions label:has(input:checked) { border-color: #aac6f7; color: var(--blue); background: #eef5ff; }
+    .admin-access-permissions input { accent-color: var(--blue); }
+    .admin-access-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+    .admin-access-actions .small-blue { width: auto; min-width: 145px; }
+    .admin-access-card.locked { border-color: #c9dafa; background: #f7faff; }
+    .admin-access-card.locked .admin-access-permissions { opacity: .65; pointer-events: none; }
     .admin-rating-row { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; margin-top: 16px; padding-top: 15px; border-top: 1px solid #dfe6f8; }
     .admin-rating-row label { display: block; margin-bottom: 6px; color: #70819c; font-size: 10px; font-weight: 800; }
     .admin-rating-row input { width: 100px; height: 38px; padding: 0 10px; border: 1px solid #dfe8f5; border-radius: 9px; color: var(--ink); background: white; font-size: 11px; }
     .admin-rating-row small { color: #8b9ab0; font-size: 10px; }
+    .admin-support-row input[type="file"] { width: 220px; height: auto; padding: 8px; }
+    .admin-support-qr-preview { width: 64px; height: 64px; object-fit: contain; padding: 4px; border: 1px solid #dfe8f5; border-radius: 9px; background: #fff; }
     @media (max-width: 720px) {
+      .admin-support-row input[type="file"] { width: 100%; }
+
       .admin-kpi-grid { grid-template-columns: 1fr 1fr; }
       .kpi-range { grid-column: 1 / -1; }
       .admin-kpi-filters { flex-direction: column; align-items: stretch; }
@@ -431,10 +687,30 @@
       .admin-kpi-heading { flex-direction: column; align-items: flex-start; }
     }
 
-    .session-loading { position: fixed; inset: 0; z-index: 50; display: grid; place-content: center; gap: 10px; text-align: center; color: var(--blue-900); background: rgba(247,250,255,.97); }
-    .session-loading .loader { width: 25px; height: 25px; margin: 0 auto 4px; border-width: 3px; }
-    .session-loading b { font-size: 14px; font-weight: 800; }
-    .session-loading small { color: var(--muted); font-size: 11px; }
+    .session-loading { position: fixed; inset: 0; z-index: 50; display: grid; place-content: center; justify-items: center; gap: 9px; overflow: hidden; text-align: center; color: var(--blue-900); background: radial-gradient(circle at 50% 22%, rgba(89,154,255,.18), transparent 29%), linear-gradient(145deg, #f8fbff 0%, #eef5ff 58%, #e5efff 100%); }
+    .session-loading::before, .session-loading::after { content: ""; position: absolute; border: 1px solid rgba(37,99,235,.10); border-radius: 50%; pointer-events: none; }
+    .session-loading::before { width: 390px; height: 390px; animation: startup-orbit 8s linear infinite; }
+    .session-loading::after { width: 570px; height: 570px; opacity: .55; animation: startup-orbit 12s linear infinite reverse; }
+    .startup-logo-stage { position: relative; z-index: 1; display: grid; place-items: center; width: 118px; height: 118px; margin-bottom: 3px; animation: startup-logo-in .75s cubic-bezier(.2,.8,.2,1) both, startup-float 3.2s ease-in-out .75s infinite; }
+    .startup-logo-stage::before, .startup-logo-stage::after { content: ""; position: absolute; inset: -10px; border: 1px solid rgba(37,99,235,.22); border-radius: 34px; animation: startup-pulse 2.5s ease-out infinite; }
+    .startup-logo-stage::after { inset: -21px; opacity: .55; animation-delay: .72s; }
+    .startup-logo { display: block; width: 100%; height: 100%; border-radius: 31px; box-shadow: 0 24px 46px rgba(23,73,166,.24), 0 0 0 7px rgba(255,255,255,.70); }
+    .startup-logo-stage .startup-glint { position: absolute; z-index: 2; width: 42px; height: 150px; border-radius: 99px; background: linear-gradient(90deg, transparent, rgba(255,255,255,.72), transparent); transform: rotate(35deg) translateX(-130px); animation: startup-glint 2.8s ease-in-out 1s infinite; pointer-events: none; }
+    .startup-wordmark { position: relative; z-index: 1; color: #0a245d; font-size: 26px; font-weight: 900; letter-spacing: -.075em; animation: startup-text-in .65s ease .18s both; }
+    .startup-wordmark span { color: #1479e9; }
+    .startup-tagline { position: relative; z-index: 1; display: flex; align-items: center; gap: 9px; color: #7186aa; font-size: 9px; font-weight: 900; letter-spacing: .30em; text-transform: uppercase; animation: startup-text-in .65s ease .30s both; }
+    .startup-tagline i { width: 5px; height: 5px; border-radius: 50%; background: #1479e9; box-shadow: 0 0 0 4px rgba(20,121,233,.10); }
+    .startup-progress { position: relative; z-index: 1; width: 142px; height: 4px; overflow: hidden; margin-top: 5px; border-radius: 99px; background: rgba(37,99,235,.12); }
+    .startup-progress span { display: block; width: 45%; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #0d4fd1, #1bb8f4); animation: startup-progress 1.4s ease-in-out infinite; }
+    .session-loading b { position: relative; z-index: 1; margin-top: 3px; font-size: 13px; font-weight: 850; }
+    .session-loading small { position: relative; z-index: 1; color: var(--muted); font-size: 10px; }
+    @keyframes startup-logo-in { from { opacity: 0; transform: scale(.72) rotate(-8deg); } to { opacity: 1; transform: scale(1) rotate(0); } }
+    @keyframes startup-float { 0%,100% { transform: translateY(0) rotate(0); } 50% { transform: translateY(-6px) rotate(1.2deg); } }
+    @keyframes startup-pulse { 0% { opacity: .65; transform: scale(.84); } 75%,100% { opacity: 0; transform: scale(1.22); } }
+    @keyframes startup-glint { 0%,20% { transform: rotate(35deg) translateX(-130px); opacity: 0; } 40% { opacity: 1; } 72%,100% { transform: rotate(35deg) translateX(130px); opacity: 0; } }
+    @keyframes startup-text-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes startup-progress { 0% { transform: translateX(-145%); } 100% { transform: translateX(325%); } }
+    @keyframes startup-orbit { to { transform: rotate(360deg); } }
     .toast-stack { position: fixed; right: 20px; bottom: 20px; z-index: 60; display: grid; gap: 9px; width: min(330px, calc(100% - 40px)); }
     .toast { display: flex; align-items: flex-start; gap: 9px; padding: 12px; border: 1px solid #dae6f7; border-radius: 12px; background: rgba(255,255,255,.97); box-shadow: 0 15px 35px rgba(22,57,115,.16); animation: toast-in .25s ease both; }
     .toast-icon { display: grid; place-items: center; width: 23px; height: 23px; flex: 0 0 auto; border-radius: 7px; color: var(--blue); background: var(--blue-50); font-size: 13px; font-weight: 900; }
@@ -470,9 +746,15 @@
       .topbar-nav { display: none; }
       .user-menu small { display: none; }
       .user-dropdown { width: 220px; right: -6px; }
+      .robo-helper { right: 12px; bottom: 12px; }
+      .robo-message { max-width: 175px; font-size: 10px; }
+      .robo-button { width: 58px; height: 58px; border-radius: 19px; }
+      .robo-button svg { width: 43px; height: 43px; }
+
       .wallet-pill small { display: none; }
       .dashboard { padding-top: 27px; }
-      .welcome-line { align-items: flex-start; flex-direction: column; }
+      .welcome-line { top: 0; align-items: flex-start; flex-direction: column; gap: 8px; margin-top: -7px; padding: 10px 0 11px; }
+      .welcome-line .price-note { align-self: stretch; justify-content: space-between; }
       .welcome-line h1 { font-size: 27px; }
       .download-hero { grid-template-columns: 1fr; min-height: 330px; padding: 23px 18px; }
       .hero-content h2 { font-size: 23px; }
@@ -481,6 +763,8 @@
       .vrn-form input { width: 100%; height: 43px; }
       .vrn-form button { width: 100%; }
       .side-stack { grid-template-columns: 1fr; }
+      .history-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .history-summary-card b { font-size: 13px; }
       .result-ready { grid-template-columns: 1fr; }
       .result-copy { display: grid; grid-template-columns: auto 1fr; column-gap: 10px; align-items: center; }
       .result-copy .success-check { grid-row: span 2; margin: 0; }
@@ -506,6 +790,18 @@
       .admin-result-balance small { text-align: left; }
       .admin-user-rate-tools { flex-direction: column; align-items: stretch; }
       .admin-user-rate-tools input, .admin-user-rate-tools .small-blue { width: 100%; }
+      .admin-user-history-search { grid-template-columns: 1fr; }
+      .admin-user-history-search .small-blue { width: 100%; }
+      .admin-user-history-selected { align-items: flex-start; flex-direction: column; }
+      .admin-user-history-selected > span { white-space: normal; }
+      .admin-history-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .admin-bulk-rate { flex-direction: column; align-items: stretch; }
+      .admin-bulk-rate input, .admin-bulk-rate .small-blue { width: 100%; }
+      .admin-users-tools > div:first-child { grid-column: 1 / -1; }
+      .admin-users-tools .small-blue { width: 100%; }
+      .admin-rate-cell { flex-wrap: wrap; }
+      .admin-access-permissions { grid-template-columns: 1fr 1fr; }
+      .admin-access-actions .small-blue { width: 100%; }
       .auth-shell { width: calc(100% - 30px); }
       .trust-stats { grid-template-columns: 1fr 1fr; gap: 7px; }
       .trust-stat { border-right: 0; padding: 8px 6px; }
@@ -516,20 +812,124 @@
       .auth-visual { transform: scale(.85); transform-origin: center; margin-inline: -10%; width: 120%; }
     }
     @media (prefers-reduced-motion: reduce) { *,*::before,*::after { animation-duration: .001ms !important; transition-duration: .001ms !important; scroll-behavior: auto !important; } }
+    /* Final readability overrides for the installed app and website. */
+    .robo-message { font-size: 12px; }
+    .robo-help-panel p, .robo-help-action { font-size: 11px; }
+    .admin-side-button { font-size: 12px; }
+    .admin-header h3 { font-size: 19px; }
+    .admin-tag { font-size: 10px; }
+    .admin-tools label, .admin-kpi-filters label, .admin-rating-row label { font-size: 11px; }
+    .admin-tools input { font-size: 14px; }
+    .small-blue { font-size: 13px; }
+    .admin-user-result h4 { font-size: 14px; }
+    .admin-user-result p { font-size: 11px; }
+    .admin-table { font-size: 11px; }
+    .admin-tx h4 { font-size: 13px; }
+    .admin-inline-hint, .admin-help, .admin-rating-row small { font-size: 11px; }
+    .admin-kpi-heading h2 { font-size: 23px; }
+    .admin-kpi-heading p, .admin-activity-heading p { font-size: 12px; }
+    .admin-kpi-filters input[type="date"] { font-size: 12px; }
+    .admin-kpi-card small { font-size: 10px; }
+    .admin-kpi-card b { font-size: 22px; }
+    .admin-activity-head b { font-size: 13px; }
+    .admin-activity-head small, .admin-activity-period span { font-size: 10px; }
+    .admin-activity-period small { font-size: 9px; }
+    .admin-access-head b { font-size: 14px; }
+    .admin-access-head small, .admin-access-permissions label { font-size: 11px; }
+    .admin-access-state { font-size: 9px; }
+    .account-row b { font-size: 11px; }
+    .account-row span { font-size: 10px; }
+    .transaction-copy b { font-size: 12px; }
+    .transaction-copy small { font-size: 10px; }
+    .empty-list { font-size: 11px; }
+
+    /* Rounded, card-like sticky greeting for a softer first impression. */
+    .welcome-line {
+      margin: -12px 0 22px;
+      padding: 16px 18px 16px 24px;
+      border: 1px solid rgba(211, 225, 245, .95);
+      border-radius: 21px;
+      background: linear-gradient(110deg, rgba(255,255,255,.98), rgba(246,250,255,.94));
+      box-shadow: 0 13px 28px rgba(36, 76, 143, .08);
+      overflow: hidden;
+    }
+    .welcome-line::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 4px;
+      border-radius: 21px 0 0 21px;
+      background: linear-gradient(180deg, #63a0ff, #2c64d4);
+    }
+    .welcome-line > div:first-child { padding-left: 7px; }
+    .welcome-line h1 { margin-top: 5px; }
+
+    @media (max-width: 650px) {
+      .welcome-line { padding: 13px 14px 14px 19px; }
+      .welcome-line > div:first-child { padding-left: 5px; }
+    }
+
+    /* Keep the fetch indicator visibly moving, even when the device reduces motion. */
+    .fetching-spinner { animation: spin .65s linear infinite !important; will-change: transform; }
+    .fetching-progress span { animation: fetching-progress 1.15s ease-in-out infinite !important; }
+    .fetching-modal strong::after { content: ""; display: inline-block; width: 1.1em; text-align: left; animation: fetching-dots 1.05s steps(4, end) infinite; }
+    @keyframes fetching-dots {
+      0%, 20% { content: ""; }
+      40% { content: "."; }
+      60% { content: ".."; }
+      80%, 100% { content: "..."; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .fetching-spinner { animation: spin .65s linear infinite !important; }
+      .fetching-progress span { animation: fetching-progress 1.15s ease-in-out infinite !important; }
+      .fetching-modal strong::after { animation: fetching-dots 1.05s steps(4, end) infinite !important; }
+    }
+
+    /* Wallet control refresh: separate, clear Recharge and Debit actions. */
+    .wallet-control-panel { display: grid; gap: 15px; margin-bottom: 16px; padding: 16px; border: 1px solid #d7e5fb; border-radius: 18px; background: linear-gradient(135deg, #f9fbff, #eef5ff); box-shadow: 0 10px 24px rgba(29, 78, 216, .07); }
+    .wallet-user-search { display: grid; grid-template-columns: minmax(0, 1fr) 150px; gap: 12px; align-items: end; padding-bottom: 14px; border-bottom: 1px solid #dfeafa; }
+    .wallet-control-eyebrow { display: block; margin-bottom: 5px; color: #6c86ae; font-size: 9px; font-weight: 900; letter-spacing: .12em; }
+    .wallet-user-search label, .wallet-action-card > label { display: block; margin-bottom: 6px; color: #536b91; font-size: 11px; font-weight: 850; }
+    .wallet-user-search input, .wallet-action-card input { width: 100%; height: 42px; padding: 0 12px; border: 1px solid #d5e2f5; border-radius: 11px; color: var(--ink); background: #fff; font-size: 13px; outline: 0; }
+    .wallet-user-search input:focus, .wallet-action-card input:focus { border-color: #70a0ef; box-shadow: 0 0 0 3px rgba(37,99,235,.09); }
+    .wallet-action-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; }
+    .wallet-action-card { display: grid; gap: 9px; padding: 14px; border: 1px solid #dce7f7; border-radius: 15px; background: rgba(255,255,255,.9); box-shadow: 0 8px 18px rgba(41, 77, 132, .06); }
+    .wallet-action-card.wallet-recharge-card { border-color: #bcebd4; background: linear-gradient(145deg, #ffffff, #effdf6); }
+    .wallet-action-card.wallet-debit-card { border-color: #f2c9c4; background: linear-gradient(145deg, #ffffff, #fff5f3); }
+    .wallet-action-head { display: flex; align-items: center; gap: 10px; min-height: 43px; }
+    .wallet-action-icon { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 11px; color: #087c4b; background: #dff8eb; font-size: 22px; font-weight: 800; }
+    .wallet-debit-card .wallet-action-icon { color: #b42318; background: #ffe5e1; }
+    .wallet-action-head h4 { margin: 2px 0 2px; color: #163875; font-size: 14px; }
+    .wallet-action-head p { margin: 0; color: #8798b1; font-size: 10px; line-height: 1.35; }
+    .wallet-action-button { width: 100%; min-height: 40px; border: 0; border-radius: 10px; color: #fff; font-size: 11px; font-weight: 900; cursor: pointer; transition: transform .18s ease, filter .18s ease; }
+    .wallet-action-button:hover:not(:disabled) { transform: translateY(-1px); filter: brightness(.97); }
+    .wallet-action-button:disabled { cursor: not-allowed; opacity: .45; }
+    .wallet-recharge-button { background: linear-gradient(135deg, #149b62, #087344); box-shadow: 0 8px 15px rgba(8,115,68,.16); }
+    .wallet-debit-button { background: linear-gradient(135deg, #d9534f, #a9231e); box-shadow: 0 8px 15px rgba(169,35,30,.14); }
+    .transaction-copy .transaction-route { overflow: hidden; color: #6e86a7; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+    .admin-table-sub { display: block; margin-top: 3px; color: #91a1b8; font-size: 9px; font-weight: 500; }
+    .admin-table td b { color: #526887; font-size: 10px; }
+    .admin-table td { vertical-align: top; }
+    @media (max-width: 760px) {
+      .wallet-user-search { grid-template-columns: 1fr; }
+      .wallet-action-grid { grid-template-columns: 1fr; }
+      .wallet-user-search .small-blue { width: 100%; }
+    }
   </style>
 </head>
 <body>
   <div class="page">
-    <section class="auth-shell" id="auth-view">
+    <section class="auth-shell" id="auth-view" hidden>
       <div class="auth-copy">
         <a class="brand auth-brand" href="#">
-          <span class="brand-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M6 6h12M6 10h8M6 14h6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M16.5 14.5v4M14.5 16.5h4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>
-          <span class="brand-name"><strong>Instant<span>RC</span>card</strong><small>RC DOWNLOAD PLATFORM</small></span>
+          <img class="auth-brand-logo" src="/instant-rccard-logo.png" alt="InstantRCcard — Simple Secure Faster" />
         </a>
         <div class="eyebrow">FAST RC GATEWAY • BLUE &amp; SECURE</div>
-        <h1>Apni RC,<br /><em>instant card.</em></h1>
-        <p>Login karo, wallet recharge karwao aur vehicle number dalte hi front + back RC ek hi PNG me download karo.</p>
-        <div class="benefit-list"><span><b>✓</b> RC Card <span id="auth-benefit-price">₹15</span></span><span><b>•</b> MParivahan Coming Soon</span><span><b>✓</b> Front + back combined</span><span><b>✓</b> Mobile account</span></div>
+        <h1>Instant RC Card ke saath,<br /><em>RC download kijiye.</em></h1>
+        <p>Palak jhapakte hi vehicle number se front + back RC Card ek hi clear PDF me download karein.</p>
+        <div class="benefit-list"><span><b>✓</b> RC Card <span id="auth-benefit-price">₹15</span></span><span><b>✓</b> Fast digital download</span><span><b>✓</b> Front + back combined</span><span><b>•</b> MParivahan Coming Soon</span></div>
         <div class="auth-visual" aria-hidden="true">
           <div class="visual-card back"></div>
           <div class="visual-card front">
@@ -537,7 +937,7 @@
             <div class="card-main"><div class="qr"><span></span><span></span><span></span><span></span></div><div><small>REGISTRATION NUMBER</small><b>RJ 14 AB 1234</b><p>Digital RC card image</p></div></div>
             <div class="card-bottom"><span>TRANSPORT DEPARTMENT</span><i>VALID</i></div>
           </div>
-          <div class="float-note note-one"><b>⚡</b><span><strong>Instant download</strong><small>Ek click, one PNG</small></span></div>
+          <div class="float-note note-one"><b>⚡</b><span><strong>Instant download</strong><small>Ek click, clear PDF</small></span></div>
           <div class="float-note note-two"><b>✓</b><span><strong>Wallet protected</strong><small>RC Card <span id="auth-float-price">₹15</span> · MParivahan soon</small></span></div>
         </div>
       </div>
@@ -547,12 +947,12 @@
         <div id="login-copy"><h2>Welcome back 👋</h2><p>Apne InstantRCcard account me login karo.</p></div>
         <div id="signup-copy" hidden><h2>Account banao ✨</h2><p>Mobile number se apna wallet account create karo.</p></div>
         <form class="auth-form" id="login-form">
-          <div class="field"><label>Mobile number ya Email</label><input id="login-username" type="text" placeholder="9876543210 ya you@example.com" autocomplete="username" /></div>
+          <div class="field"><label>Username, email ya mobile number</label><input id="login-identifier" type="text" placeholder="Username, you@example.com ya 9876543210" autocomplete="username" /></div>
           <div class="field password-field"><label>Password</label><div class="password-wrap"><input id="login-password" type="password" placeholder="Apna password daalo" autocomplete="current-password" /><button class="password-toggle" data-toggle-password="login-password" type="button">Show</button></div></div>
           <div class="auth-error" id="login-error"></div>
           <button class="blue-button" type="submit" id="login-button">Login karo <span>→</span></button>
           <button class="forgot-link" id="open-forgot" type="button">Forgot password?</button>
-          <p class="form-footnote">Username me mobile number <b>ya</b> email dono me se koi ek daal sakte ho.</p>
+          <p class="form-footnote">Email ya mobile number me se koi ek aur password se login karein.</p>
           <button class="install-button" id="install-auth-button" type="button" hidden>＋ Install InstantRCcard app</button>
         </form>
         <form class="auth-form" id="signup-form" hidden>
@@ -578,25 +978,32 @@
     </section>
 
     <header class="topbar" id="topbar" hidden>
-      <a class="brand" href="#app"><span class="brand-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M6 6h12M6 10h8M6 14h6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M16.5 14.5v4M14.5 16.5h4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span><span class="brand-name"><strong>Instant<span>RC</span>card</strong><small>RC DOWNLOAD PLATFORM</small></span></a>
-      <nav class="topbar-nav"><button class="active" data-scroll="app" type="button">RC Download</button><button data-scroll="transactions" type="button">My history</button><button data-scroll="admin-card" id="admin-nav" type="button" hidden>Admin panel</button></nav>
+      <a class="brand" href="#app"><span class="brand-mark"><img src="/instant-rccard-mark.png" alt="InstantRCcard logo" /></span><span class="brand-name"><strong>Instant<span>RC</span>card</strong><small>SIMPLE • SECURE • FASTER</small></span></a>
+      <nav class="topbar-nav"><button class="active" data-scroll="app" type="button">RC Download</button><button data-scroll="transactions" type="button">My history</button><button data-scroll="admin-card" id="admin-nav" type="button" hidden>Admin panel</button><button data-scroll="admin-card" id="admin-rates-nav" type="button" hidden>User rates</button><button data-scroll="admin-card" id="admin-access-nav" type="button" hidden>Admin access</button></nav>
       <div class="top-actions"><button class="install-button compact" id="install-dashboard-button" type="button" hidden>＋ Install app</button><button class="wallet-pill wallet-trigger" id="wallet-top-trigger" type="button" aria-label="Open wallet topup"><span class="wallet-icon">₹</span><span><b id="wallet-amount">₹0</b><small> wallet</small></span></button>
         <div class="user-menu-wrap" id="user-menu-wrap">
-          <button class="user-menu" id="user-menu-button" type="button" aria-haspopup="true" aria-expanded="false"><span class="avatar" id="avatar">U</span><small id="user-name">User</small><span class="user-menu-caret" aria-hidden="true">▾</span></button>
+          <button class="user-menu" id="user-menu-button" type="button" aria-haspopup="true" aria-expanded="false"><span class="avatar" id="avatar">U</span><span class="user-menu-copy"><small id="user-name">User</small><span class="role-pill" id="user-role-pill" hidden></span></span><span class="user-menu-caret" aria-hidden="true">▾</span></button>
           <div class="user-dropdown" id="user-dropdown" hidden>
             <div class="user-dropdown-head"><span class="avatar avatar-lg" id="dropdown-avatar">U</span><div><b id="dropdown-name">User</b><small id="dropdown-mobile">+91 —</small></div></div>
             <div class="user-dropdown-row"><span class="user-dropdown-icon">@</span><span id="dropdown-email">Email not set</span></div>
             <div class="user-dropdown-row"><span class="user-dropdown-icon">₹</span><span id="dropdown-wallet">₹0 wallet balance</span></div>
+            <div class="user-dropdown-row"><span class="user-dropdown-icon">♙</span><span id="dropdown-role">User account</span></div>
+            <button class="user-dropdown-notifications" id="open-notifications" type="button">🔔 Notifications <span class="notification-unread-badge" id="notification-unread-badge" hidden>0</span></button>
+            <button class="user-dropdown-notifications" id="enable-notifications" type="button">⚙ Enable background alerts</button>
             <button class="user-dropdown-logout" id="logout-button" type="button">↪ Logout</button>
           </div>
+          <section class="notification-panel" id="notifications-panel" hidden aria-label="Notification history">
+            <div class="notification-panel-head"><div><b>Notification history</b><small id="notification-unread-label">No unread alerts</small></div><button id="mark-notifications-read" type="button">Mark all read</button></div>
+            <div class="notification-list" id="notification-list"><div class="notification-empty">No notifications yet.</div></div>
+          </section>
         </div>
       </div>
     </header>
 
     <main class="dashboard" id="dashboard" hidden>
-      <div class="welcome-line"><div><div class="section-label">INSTANT RCCARD DESK</div><h1 id="welcome-title">RC download karo.</h1><p id="welcome-subtitle">Vehicle number dalo aur compact RC Card PNG seedha download karo.</p></div><div class="price-note"><b id="price-note-amount">₹15</b><span>RC Card download<br />MParivahan Coming Soon</span></div></div>
+      <div class="welcome-line"><div><div class="section-label">INSTANT RCCARD DESK</div><h1 id="welcome-title">Hello, User</h1><p id="welcome-subtitle">Aapka RC desk ready hai. Vehicle number se front + back reference-layout RC Card PDF download karein.</p></div><div class="price-note"><b id="price-note-amount">₹15</b><span>RC Card download<br />MParivahan Coming Soon</span></div></div>
       <section class="admin-kpi-section" id="admin-kpi-section" hidden>
-        <div class="admin-kpi-heading"><div><div class="section-label">OWNER ACCESS · LIVE OVERVIEW</div><h2>Admin KPI dashboard</h2><p>Users, topup aur RC download ka real-time overview.</p></div><span class="admin-tag">ADMIN ONLY</span></div>
+        <div class="admin-kpi-heading"><div><div class="section-label" id="admin-kpi-role-label">MAIN ADMIN · LIVE OVERVIEW</div><h2 id="admin-kpi-title">Admin KPI dashboard</h2><p id="admin-kpi-description">Users, topup aur RC download ka real-time overview.</p></div><span class="admin-tag" id="admin-kpi-scope-tag">ALL PLATFORM</span></div>
         <div class="admin-kpi-filters">
           <div><label>From date</label><input id="admin-stats-from" type="date" /></div>
           <div><label>To date</label><input id="admin-stats-to" type="date" /></div>
@@ -604,31 +1011,50 @@
           <button class="ghost-button small-blue" id="admin-stats-reset" type="button">Reset</button>
         </div>
         <div class="admin-kpi-grid" id="admin-kpi-grid">
-          <div class="admin-kpi-card kpi-c1"><span class="kpi-icon">◉</span><small>Total users</small><b id="kpi-total-users">0</b></div>
-          <div class="admin-kpi-card kpi-c2"><span class="kpi-icon">⚡</span><small>Active users</small><b id="kpi-active-users">0</b></div>
-          <div class="admin-kpi-card kpi-c3"><span class="kpi-icon">₹</span><small>Today topup</small><b id="kpi-today-topup">₹0</b></div>
-          <div class="admin-kpi-card kpi-c4"><span class="kpi-icon">▦</span><small>This month topup</small><b id="kpi-month-topup">₹0</b></div>
-          <div class="admin-kpi-card kpi-c5"><span class="kpi-icon">↺</span><small>Last month topup</small><b id="kpi-last-month-topup">₹0</b></div>
-          <div class="admin-kpi-card kpi-c6"><span class="kpi-icon">⬇</span><small>Today RC downloaded</small><b id="kpi-today-rc">0</b></div>
-          <div class="admin-kpi-card kpi-c7"><span class="kpi-icon">▤</span><small>This month RC downloaded</small><b id="kpi-month-rc">0</b></div>
-          <div class="admin-kpi-card kpi-c8"><span class="kpi-icon">↺</span><small>Last month RC downloaded</small><b id="kpi-last-month-rc">0</b></div>
-          <div class="admin-kpi-card kpi-range" id="admin-kpi-range" hidden><span class="kpi-icon">★</span><small id="kpi-range-label">Selected range</small><b id="kpi-range-topup">₹0</b><span class="kpi-sub" id="kpi-range-rc">0 RC downloads</span></div>
+          <div class="admin-kpi-card kpi-c1 clickable" id="kpi-card-total-users" data-kpi-detail="users" role="button" tabindex="0" aria-label="Show total user details"><span class="kpi-icon">◉</span><small id="kpi-total-users-label">Total users</small><b id="kpi-total-users">0</b></div>
+          <div class="admin-kpi-card kpi-c2 clickable" id="kpi-card-active-users" data-kpi-detail="active-users" role="button" tabindex="0" aria-label="Show active user details"><span class="kpi-icon">⚡</span><small id="kpi-active-users-label">Active users</small><b id="kpi-active-users">0</b></div>
+          <div class="admin-kpi-card kpi-c3 clickable" data-kpi-detail="today-topup" role="button" tabindex="0" aria-label="Show today topup details"><span class="kpi-icon">₹</span><small id="kpi-today-topup-label">Today topup</small><b id="kpi-today-topup">₹0</b></div>
+          <div class="admin-kpi-card kpi-c4 clickable" data-kpi-detail="month-topup" role="button" tabindex="0" aria-label="Show this month topup details"><span class="kpi-icon">▦</span><small id="kpi-month-topup-label">This month topup</small><b id="kpi-month-topup">₹0</b></div>
+          <div class="admin-kpi-card kpi-c5 clickable" data-kpi-detail="last-month-topup" role="button" tabindex="0" aria-label="Show last month topup details"><span class="kpi-icon">↺</span><small id="kpi-last-month-topup-label">Last month topup</small><b id="kpi-last-month-topup">₹0</b></div>
+          <div class="admin-kpi-card kpi-c6 clickable" id="kpi-card-today-rc" data-kpi-detail="today-rc" role="button" tabindex="0" aria-label="Show today RC download details"><span class="kpi-icon">⬇</span><small>Today RC downloaded</small><b id="kpi-today-rc">0</b></div>
+          <div class="admin-kpi-card kpi-c7 clickable" id="kpi-card-month-rc" data-kpi-detail="month-rc" role="button" tabindex="0" aria-label="Show this month RC download details"><span class="kpi-icon">▤</span><small>This month RC downloaded</small><b id="kpi-month-rc">0</b></div>
+          <div class="admin-kpi-card kpi-c8 clickable" id="kpi-card-last-rc" data-kpi-detail="last-rc" role="button" tabindex="0" aria-label="Show last month RC download details"><span class="kpi-icon">↺</span><small>Last month RC downloaded</small><b id="kpi-last-month-rc">0</b></div>
+          <div class="admin-kpi-card kpi-c4 clickable" id="kpi-card-all-time-topup" data-kpi-detail="all-time-topup" role="button" tabindex="0" aria-label="Show all time topup details"><span class="kpi-icon">★</span><small id="kpi-all-time-topup-label">All-time topup</small><b id="kpi-all-time-topup">₹0</b></div>
+          <div class="admin-kpi-card kpi-c9 clickable" id="kpi-card-wallet-requests" data-kpi-detail="wallet-requests" role="button" tabindex="0" aria-label="Show wallet payment requests"><span class="kpi-icon">!</span><small>Wallet requests</small><b id="kpi-pending-wallet-requests">0</b><span class="kpi-sub" id="kpi-wallet-request-total">0 total requests</span></div>
+          <div class="admin-kpi-card kpi-range clickable" id="admin-kpi-range" data-kpi-detail="range-topup" role="button" tabindex="0" aria-label="Show selected range details" hidden><span class="kpi-icon">★</span><small id="kpi-range-label">Selected range</small><b id="kpi-range-topup">₹0</b><span class="kpi-sub" id="kpi-range-rc">0 RC downloads</span></div>
         </div>
-        <div class="admin-rating-row">
+        <div class="admin-kpi-detail-panel" id="admin-kpi-detail-panel" hidden>
+          <div class="admin-kpi-detail-heading"><div><h3 id="admin-kpi-detail-title">KPI details</h3><small id="admin-kpi-detail-subtitle">Click any row for more information.</small></div><button class="admin-kpi-detail-close" id="close-admin-kpi-details" type="button">Hide details</button></div>
+          <div class="admin-kpi-detail-list" id="admin-kpi-detail-list"><div class="empty-list">Details load ho rahe hain…</div></div>
+          <div class="transaction-pagination" id="admin-kpi-detail-pagination" aria-label="KPI detail pages"></div>
+        </div>
+        <div class="admin-activity-panel" id="admin-activity-panel">
+          <div class="admin-activity-heading"><div><div class="section-label">ADMIN-WISE RECHARGE</div><h3>Payment activity by admin</h3><p>Har admin ne kitne users ko wallet payment diya aur kitna amount add kiya.</p></div></div>
+          <div class="admin-activity-list" id="admin-activity-list"><div class="empty-list">Admin activity load ho rahi hai…</div></div>
+        </div>
+        <div class="admin-rating-row" id="admin-settings-rating">
           <div><label>Homepage rating (0–5)</label><input id="admin-rating-input" type="number" min="0" max="5" step="0.1" placeholder="4.8" /></div>
           <button class="blue-button small-blue" id="admin-rating-save" type="button">Save rating</button>
           <small>Yahi number site ke "verified rating" section me niche show hoga.</small>
         </div>
-        <div class="admin-rating-row">
+        <div class="admin-rating-row" id="admin-settings-baseline">
           <div><label>Users connected (baseline)</label><input id="admin-users-baseline-input" type="number" min="0" step="1" placeholder="200000" /></div>
           <div><label>RC downloads completed (baseline)</label><input id="admin-downloads-baseline-input" type="number" min="0" step="1" placeholder="171000" /></div>
           <button class="blue-button small-blue" id="admin-baseline-save" type="button">Save baseline</button>
           <small>Homepage par yahi baseline + live count "Lakh+" format me dikhega (jaise 2 Lakh+, 1.71 Lakh+).</small>
         </div>
-        <div class="admin-rating-row">
+        <div class="admin-rating-row" id="admin-settings-price">
           <div><label>Default RC Card rate (₹)</label><input id="admin-rc-price-input" type="number" min="1" max="1000" step="1" placeholder="15" /></div>
           <button class="blue-button small-blue" id="admin-rc-price-save" type="button">Save default</button>
           <small>Ye global default rate hai. Jis user ka custom rate set nahi hai, unke liye yahi charge hoga. User-wise rate neeche Wallet control se set karo.</small>
+        </div>
+        <div class="admin-rating-row admin-support-row" id="admin-settings-support">
+          <div><label>WhatsApp support number</label><input id="admin-support-whatsapp-input" type="tel" inputmode="numeric" maxlength="13" placeholder="10-digit mobile" /></div>
+          <div><label>Payment QR image</label><input id="admin-payment-qr-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif" /></div>
+          <img id="admin-payment-qr-preview" class="admin-support-qr-preview" alt="Payment QR preview" hidden />
+          <button class="blue-button small-blue" id="admin-support-save" type="button">Save WhatsApp & QR</button>
+          <button class="ghost-button small-blue" id="admin-support-clear-qr" type="button">Clear QR</button>
+          <small>Footer, robot help aur wallet topup ke WhatsApp links isi number par jayenge. QR wallet modal me show hoga aur WhatsApp message me QR link jayega.</small>
         </div>
       </section>
       <section class="ad-ticker" id="ad-ticker" hidden aria-label="Current offers">
@@ -636,24 +1062,28 @@
         <div class="ad-viewport"><div class="ad-track" id="ad-track"></div></div>
       </section>
       <section class="download-hero" id="app">
-        <div class="hero-content"><div class="section-label">QUICK RC DOWNLOAD</div><h2>Gadi number dalo.</h2><p>Front aur back images ko aapke selected format me combine karke seedha PNG download kar denge.</p><form class="vrn-form" id="rc-form"><input id="vrn-input" type="text" maxlength="16" autocapitalize="characters" autocomplete="off" placeholder="RJ14AB1234" /><button id="rc-button" type="submit"><span id="rc-button-label">Download RC</span><span>↗</span></button></form><p class="hero-hint">Example: RJ14AB1234 • Format choose karein • Selected format ka charge hi successful download par deduct hoga.</p><div class="download-status" id="download-status" role="status" hidden><span class="status-icon" id="download-status-icon">✓</span><span><b id="download-status-title">Download ready</b><small id="download-status-text"></small></span><button id="close-download-status" type="button" aria-label="Close status">×</button></div></div>
+        <div class="hero-content"><div class="section-label">QUICK RC DOWNLOAD</div><h2>Gadi number dalo.</h2><p>Vehicle number enter karke Download RC par click karein. Phir RC Card ya MParivahan RC option choose karein.</p><form class="vrn-form" id="rc-form"><input id="vrn-input" type="text" maxlength="16" autocapitalize="characters" autocomplete="off" placeholder="RJ14AB1234" /><button id="rc-button" type="submit"><span id="rc-button-label">Download RC</span><span>↗</span></button></form><p class="hero-hint">Example: RJ14AB1234 • RC Card PDF reference layout me • MParivahan RC Coming Soon</p><div class="download-status" id="download-status" role="status" hidden><span class="status-icon" id="download-status-icon">✓</span><span><b id="download-status-title">Download ready</b><small id="download-status-text"></small></span><button id="close-download-status" type="button" aria-label="Close status">×</button></div></div>
         <div class="hero-card-art" aria-hidden="true"><div class="hero-rc back"></div><div class="hero-rc"><div class="mini-top"><span>🇮🇳 INDIA RC</span><b>RC</b></div><div class="mini-main"><div class="mini-lines"><i></i><i></i><i></i></div><div><small>REGISTRATION NO.</small><strong>RJ 14 AB 1234</strong></div></div><div class="mini-bottom"><span>SMART CARD</span><span>VALID</span></div></div></div>
       </section>
       <div class="wallet-alert" id="wallet-alert" role="alert" hidden><span class="wallet-alert-icon">!</span><span><b>Recharge your wallet</b><small id="wallet-alert-text">RC Card download ke liye ₹15 wallet balance chahiye.</small></span><button id="close-wallet-alert" type="button" aria-label="Close alert">×</button></div>
 
       <div class="content-grid">
-        <div class="side-stack"><section class="panel balance-card wallet-card wallet-trigger" id="wallet-card-trigger" role="button" tabindex="0" aria-label="Open wallet topup"><div class="section-label">CURRENT WALLET</div><div class="balance-amount" id="balance-large">₹0</div><p>Tap karke wallet topup request bhejo.</p></section><section class="panel account-card"><div class="card-heading"><h3>Account details</h3></div><div class="account-row"><span class="account-icon">◉</span><span><b id="account-name">User</b><span>Registered name</span></span></div><div class="account-row"><span class="account-icon">⌕</span><span><b id="account-mobile">+91 —</b><span>Mobile account</span></span></div><div class="account-row"><span class="account-icon">@</span><span><b id="account-email">Email not set</b><span>Recovery email</span></span></div><div class="account-row"><span class="account-icon">₹</span><span><b id="account-rc-price">RC Card ₹15</b><span>MParivahan format Coming Soon</span></span></div></section></div>
-        <section class="panel transactions-card" id="transactions"><div class="card-heading"><h3>Recent wallet history</h3><button id="refresh-transactions" type="button">Refresh ↻</button></div><div class="transaction-list" id="transaction-list"><div class="empty-list">Abhi koi transaction nahi hai.</div></div></section>
-        <section class="panel admin-card" id="admin-card" hidden>
-          <div class="admin-header"><div><div class="section-label">OWNER ACCESS</div><h3>Admin control center</h3></div><span class="admin-tag">ADMIN ONLY</span></div>
+        <div class="side-stack"><section class="panel balance-card wallet-card wallet-trigger" id="wallet-card-trigger" role="button" tabindex="0" aria-label="Open wallet topup"><div class="section-label">CURRENT WALLET</div><div class="balance-amount" id="balance-large">₹0</div><p>Tap karke wallet topup request bhejo.</p></section><section class="panel account-card"><div class="card-heading"><h3>Account details</h3></div><div class="account-row"><span class="account-icon">◉</span><span><b id="account-name">User</b><span>Registered name</span></span></div><div class="account-row"><span class="account-icon">⌕</span><span><b id="account-mobile">+91 —</b><span>Mobile account</span></span></div><div class="account-row"><span class="account-icon">@</span><span><b id="account-email">Email not set</b><span>Recovery email</span></span></div><div class="account-row"><span class="account-icon">₹</span><span><b id="account-rc-price">RC Card ₹15</b><span id="account-rc-note">MParivahan format Coming Soon</span></span></div><div class="account-row" id="account-role-row" hidden><span class="account-icon">♙</span><span><b id="account-role">Main Admin</b><span>Access level</span></span></div></section></div>
+        <section class="panel transactions-card" id="transactions"><div class="card-heading"><div><h3>My wallet &amp; RC history</h3><small class="card-heading-note">Wallet ledger aur har RC download ka complete record</small></div><button id="refresh-transactions" type="button">Refresh ↻</button></div><div class="history-summary" id="user-history-summary" aria-label="My wallet and RC summary"><div class="history-summary-card rc-summary"><span>Total RC downloads</span><b id="history-rc-count">0</b><small id="history-rc-subtitle">Vehicle history</small></div><div class="history-summary-card rc-summary"><span>Unique vehicles</span><b id="history-vehicle-count">0</b><small>Alag registration numbers</small></div><div class="history-summary-card rc-summary"><span>RC spend</span><b id="history-rc-spend">₹0</b><small id="history-last-rc">Abhi koi RC download nahi</small></div><div class="history-summary-card wallet-summary"><span>Wallet movement</span><b id="history-wallet-movement">₹0</b><small id="history-wallet-subtitle">Credit + debit total</small></div></div><div class="transaction-tabs" role="tablist" aria-label="My wallet and RC history options"><button class="transaction-tab active" data-user-transaction-category="wallet" type="button">Wallet history</button><button class="transaction-tab" data-user-transaction-category="rc" type="button">My RC downloads</button><button class="transaction-tab" data-user-transaction-category="all" type="button">All activity</button></div><div class="transaction-list" id="transaction-list"><div class="empty-list">History load ho rahi hai…</div></div><div class="transaction-pagination" id="transaction-pagination" aria-label="Wallet and RC history pages"></div></section>
+        <section class="panel admin-card" id="admin-card" data-admin-active-section="wallet" hidden>
+          <div class="admin-header"><div><div class="section-label" id="admin-role-label">MAIN ADMIN ACCESS</div><h3>Admin control center</h3></div><span class="admin-tag" id="admin-scope-tag">ALL PLATFORM</span></div>
           <div class="admin-layout">
             <aside class="admin-sidebar" aria-label="Admin sections">
-              <button class="admin-side-button active" data-admin-section="wallet" type="button">₹ Wallet control</button>
-              <button class="admin-side-button" data-admin-section="ads" type="button">▣ Advertisement</button>
+              <button class="admin-side-button active" data-admin-section="wallet" aria-controls="admin-wallet-section" aria-selected="true" type="button">₹ Wallet control</button>
+              <button class="admin-side-button" data-admin-section="user-history" aria-controls="admin-user-history-section" aria-selected="false" type="button">▣ User wallet history</button>
+              <button class="admin-side-button" data-admin-section="users" aria-controls="admin-users-section" aria-selected="false" type="button">◉ Users &amp; rates</button>
+              <button class="admin-side-button" data-admin-section="ads" aria-controls="admin-ads-section" aria-selected="false" type="button">▣ Advertisement</button>
+              <button class="admin-side-button" data-admin-section="access" aria-controls="admin-access-section" aria-selected="false" type="button">♙ Admin access</button>
             </aside>
             <div class="admin-content">
+              <div class="admin-empty-state" id="admin-no-permission" hidden><span>♙</span><h4>Admin access pending</h4><p>Is account ko abhi koi admin capability assign nahi hui. Owner se required access select karne ko bolo.</p></div>
               <div id="admin-wallet-section">
-                <div class="admin-tools"><div><label>User mobile ya email</label><input id="admin-search-mobile" type="text" placeholder="9876543210 ya user@email.com" autocomplete="off" /></div><button class="blue-button small-blue" id="admin-search-button" type="button">Find user</button><div><label>Recharge amount ₹</label><input id="admin-amount" type="number" min="1" step="1" placeholder="100" /></div><button class="blue-button small-blue" id="admin-recharge-button" type="button" disabled>Recharge</button></div>
+                <div class="wallet-control-panel" id="admin-recharge-tools"><div class="wallet-user-search"><div><span class="wallet-control-eyebrow">SELECT USER</span><label>User mobile, email ya naam</label><input id="admin-search-mobile" type="text" placeholder="9876543210, user@email.com ya Rahul" autocomplete="off" /><div class="user-search-suggestions" id="admin-search-suggestions" hidden></div></div><button class="blue-button small-blue" id="admin-search-button" type="button">Find user</button></div><div class="wallet-action-grid"><article class="wallet-action-card wallet-recharge-card"><div class="wallet-action-head"><span class="wallet-action-icon">＋</span><div><span class="wallet-control-eyebrow">ADD BALANCE</span><h4>Recharge wallet</h4><p>User ke wallet me amount add karein.</p></div></div><label for="admin-recharge-amount">Recharge amount ₹</label><input id="admin-recharge-amount" type="number" min="1" step="1" placeholder="100" /><button class="wallet-action-button wallet-recharge-button" id="admin-recharge-button" type="button" disabled>Confirm Recharge</button></article><article class="wallet-action-card wallet-debit-card"><div class="wallet-action-head"><span class="wallet-action-icon">−</span><div><span class="wallet-control-eyebrow">COLLECT BALANCE</span><h4>Debit wallet</h4><p>User se amount lekar admin wallet me credit karein.</p></div></div><label for="admin-debit-amount">Debit amount ₹</label><input id="admin-debit-amount" type="number" min="1" step="1" placeholder="35" /><button class="wallet-action-button wallet-debit-button" id="admin-debit-button" type="button" disabled>Confirm Debit</button></article></div></div>
                 <div class="admin-user-result" id="admin-user-result" hidden>
                   <div>
                     <h4 id="admin-user-name">User</h4>
@@ -669,13 +1099,76 @@
                   <button class="ghost-button small-blue" id="admin-user-rate-clear" type="button">Use default</button>
                   <small id="admin-user-rate-help">Is user ke liye alag rate set karo. Download par yahi rate dikhega aur wallet se yahi deduct hoga.</small>
                 </div>
-                <div class="admin-tx"><h4>Latest platform transactions</h4><div class="table-wrap"><table class="admin-table"><thead><tr><th>TIME</th><th>MOBILE</th><th>TYPE</th><th>AMOUNT</th><th>VRN</th></tr></thead><tbody id="admin-tx-body"><tr><td colspan="5">No transactions yet.</td></tr></tbody></table></div></div>
+                <div class="admin-inline-hint" id="admin-rate-inline-hint">Sabhi users ki list ke saath rate set karne ke liye <button class="admin-link-button" type="button" data-goto-admin-section="users">Users &amp; rates</button> tab kholo.</div>
+                <div class="admin-tx" id="admin-topup-requests-block"><div class="admin-topup-heading"><h4>RC wallet payment requests · 10 per page</h4><button class="admin-topup-refresh" id="refresh-topup-requests" type="button">Refresh ↻</button></div><div class="topup-request-list" id="admin-topup-request-list"><div class="empty-list">Loading payment requests…</div></div><div class="transaction-pagination" id="admin-topup-pagination" aria-label="Wallet payment request pages"></div></div>
+                <div class="admin-tx" id="admin-transactions-block"><div class="admin-topup-heading"><h4 id="admin-transactions-title">Wallet transactions · 10 per page</h4><button class="admin-topup-refresh" id="refresh-admin-transactions" type="button">Refresh ↻</button></div><div class="transaction-tabs" role="tablist" aria-label="Admin transaction categories"><button class="transaction-tab active" data-admin-transaction-category="wallet" type="button">Wallet transactions</button><button class="transaction-tab" data-admin-transaction-category="rc" type="button">RC downloads</button><button class="transaction-tab" data-admin-transaction-category="all" type="button">All</button></div><div class="table-wrap"><table class="admin-table"><thead><tr><th>TIME</th><th>FROM / USER</th><th>TO / ADMIN</th><th>TYPE</th><th>AMOUNT</th><th>BALANCE</th><th>NOTE / REFERENCE</th></tr></thead><tbody id="admin-tx-body"><tr><td colspan="7">Transactions load ho rahe hain…</td></tr></tbody></table></div><div class="transaction-pagination" id="admin-transaction-pagination" aria-label="Admin transaction pages"></div></div>
+              </div>
+              <div id="admin-user-history-section" hidden>
+                <section class="admin-tx admin-user-wallet-history" id="admin-user-wallet-history-block" hidden>
+                  <div class="admin-topup-heading"><div><h4>User wallet history</h4><small>Selected user ke wallet credits, debits aur RC charges · 10 per page</small></div><button class="admin-topup-refresh" id="refresh-admin-user-wallet-history" type="button">Refresh ↻</button></div>
+                  <div class="admin-user-history-search"><div><label for="admin-wallet-history-query">User mobile, email ya name</label><input id="admin-wallet-history-query" type="text" placeholder="9876543210, user@email.com ya Rahul" autocomplete="off" /><div class="user-search-suggestions" id="admin-wallet-history-suggestions" hidden></div></div><button class="blue-button small-blue" id="admin-wallet-history-search-button" type="button">Search &amp; view</button></div>
+                  <div class="admin-user-history-selected" id="admin-user-history-selected" hidden><div><b id="admin-history-user-name">User</b><small id="admin-history-user-contact">+91 — · Email —</small></div><span id="admin-history-user-wallet">Current wallet ₹0</span></div>
+                  <div class="admin-history-summary" id="admin-history-summary"><div class="admin-history-summary-card"><span>Wallet entries</span><b id="admin-history-total">0</b><small>Credit/debit records</small></div><div class="admin-history-summary-card credit-summary"><span>Total credited</span><b id="admin-history-credits">₹0</b><small id="admin-history-net">Net movement ₹0</small></div><div class="admin-history-summary-card debit-summary"><span>Total debited</span><b id="admin-history-debits">₹0</b><small>Wallet + RC charges</small></div><div class="admin-history-summary-card balance-summary"><span>Current balance</span><b id="admin-history-balance">₹0</b><small>Latest selected user balance</small></div></div>
+                  <div class="table-wrap"><table class="admin-table admin-user-history-table"><thead><tr><th>TIME</th><th>TYPE / DIRECTION</th><th>FROM</th><th>TO</th><th>AMOUNT</th><th>BALANCE AFTER</th><th>NOTE / ID</th></tr></thead><tbody id="admin-user-wallet-history-body"><tr><td colspan="7">User search karke wallet history dekhein.</td></tr></tbody></table></div>
+                  <div class="transaction-pagination" id="admin-user-wallet-history-pagination" aria-label="Selected user wallet history pages"></div>
+                </section>
+              </div>
+              <div id="admin-users-section" hidden>
+                <div class="ads-manager-heading"><div><div class="section-label">USER WISE RC RATE</div><h4>Users aur unka RC Card rate · 10 per page</h4><p>Kisi bhi user ke liye alag RC Card rate set karo. Us user ke download par wahi rate dikhega aur wallet se wahi amount deduct hoga.</p></div></div>
+                <div class="admin-tools admin-users-tools">
+                  <div><label>User search — naam, mobile ya email</label><input id="admin-users-search" type="text" placeholder="Rahul, 9876543210 ya user@email.com" autocomplete="off" /><div class="user-search-suggestions" id="admin-users-suggestions" hidden></div></div>
+                  <button class="blue-button small-blue" id="admin-users-search-button" type="button">Search users</button>
+                  <button class="ghost-button small-blue" id="admin-users-all-button" type="button">Show all</button>
+                  <button class="ghost-button small-blue" id="admin-users-csv-button" type="button">CSV download</button>
+                </div>
+                <div class="admin-rate-summary">
+                  <span class="rate-chip">Default rate <b id="admin-rate-default">₹15</b></span>
+                  <span class="rate-chip">Total users <b id="admin-rate-total-users">0</b></span>
+                  <span class="rate-chip">Custom rate users <b id="admin-rate-custom-users">0</b></span>
+                  <span class="rate-chip" id="admin-rate-match-chip" hidden>Search match <b id="admin-rate-match-count">0</b></span>
+                </div>
+                <div class="admin-bulk-rate">
+                  <div><label>Sabhi users ke liye RC Card rate ₹</label><input id="admin-bulk-rate-input" type="number" min="1" max="1000" step="1" placeholder="15" /></div>
+                  <button class="blue-button small-blue" id="admin-bulk-rate-apply" type="button">Sabhi users par apply karo</button>
+                  <button class="ghost-button small-blue" id="admin-bulk-rate-clear" type="button">Sabhi custom rate hatao</button>
+                  <small>Bulk apply sirf normal users par lagta hai (admin account chhoot jaata hai). Button dobara click karne par hi confirm hota hai.</small>
+                </div>
+                <div class="admin-tx">
+                  <h4>User list — yahin se per-user rate set karo · 10 per page</h4>
+                  <div class="table-wrap">
+                    <table class="admin-table admin-users-table">
+                      <thead><tr><th>USER</th><th>MOBILE</th><th>WALLET</th><th>RC RATE ₹</th><th>RATE ACTION</th><th>STATUS</th></tr></thead>
+                      <tbody id="admin-users-body"><tr><td colspan="6">Users load ho rahe hain…</td></tr></tbody>
+                    </table>
+                  </div>
+                  <div class="transaction-pagination" id="admin-users-pagination" aria-label="Users and RC rate pages"></div>
+                </div>
+                <div class="admin-tx">
+                  <h4>Recent rate changes</h4>
+                  <div class="table-wrap">
+                    <table class="admin-table">
+                      <thead><tr><th>TIME</th><th>USER</th><th>PURANA RATE</th><th>NAYA RATE</th></tr></thead>
+                      <tbody id="admin-rate-log-body"><tr><td colspan="4">Abhi koi rate change nahi hua.</td></tr></tbody>
+                    </table>
+                  </div>
+                  <div class="transaction-pagination" id="admin-rate-log-pagination" aria-label="Rate change pages"></div>
+                </div>
               </div>
               <div id="admin-ads-section" hidden>
                 <div class="ads-manager-heading"><div><div class="section-label">PUBLIC BANNERS</div><h4>Offer ya festival advertisement</h4><p>Image upload karo; active users ke main page par horizontal ticker me show hogi.</p></div></div>
                 <div class="admin-ad-form"><div><label>Title / short message</label><input id="admin-ad-title" type="text" maxlength="120" placeholder="Diwali offer — RC Card ₹15" /></div><div><label>Banner image</label><input id="admin-ad-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif" /></div><button class="blue-button small-blue" id="admin-ad-upload" type="button">Upload</button></div>
                 <div class="admin-help">JPG, PNG, WEBP ya GIF. Mobile banner ko horizontal rakho; image automatically compress hogi.</div>
                 <div class="admin-ads-list" id="admin-ads-list"><div class="empty-list">Abhi koi advertisement nahi hai.</div></div>
+              </div>
+              <div id="admin-access-section" hidden>
+                <div class="ads-manager-heading"><div><div class="section-label">DELEGATED ADMIN ACCESS</div><h4>Existing user ko admin banao</h4><p>User mobile, email ya naam search karke selected capabilities save karo. Owner aur current admin ka access protected rahega.</p></div></div>
+                <div class="admin-tools admin-access-tools">
+                  <div><label>User search — naam, mobile ya email</label><input id="admin-access-search" type="text" placeholder="9876543210, user@email.com ya Rahul" autocomplete="off" /><div class="user-search-suggestions" id="admin-access-suggestions" hidden></div></div>
+                  <button class="blue-button small-blue" id="admin-access-search-button" type="button">Find users</button>
+                </div>
+                <div class="admin-help">KPI, recharge, rates, ads, transactions aur access capabilities alag-alag select karke delegated admin ko sirf required access do.</div>
+                <div class="admin-access-list" id="admin-access-list"><div class="empty-list">Search karke existing user select karo.</div></div>
+                <div class="transaction-pagination" id="admin-access-pagination" aria-label="Admin access user pages"></div>
               </div>
             </div>
           </div>
@@ -689,7 +1182,7 @@
       </section>
       <footer class="site-footer">
         <div class="site-footer-copy"><b>Need help with your RC?</b><small>Support available for recharge, download and account issues.</small></div>
-        <div class="support-links"><a class="support-link whatsapp" href="https://wa.me/919057838589?text=Hello%20InstantRCcard%20support" target="_blank" rel="noopener"><img class="whatsapp-icon" src="/whatsapp.png" alt="" /> WhatsApp</a><a class="support-link" href="mailto:Apstarun345@gmail.com"><span>✉</span> Email</a></div>
+        <div class="support-links"><a class="support-link whatsapp" data-whatsapp-support="1" href="#" target="_blank" rel="noopener"><img class="whatsapp-icon" src="/whatsapp.png" alt="" /> WhatsApp</a><a class="support-link" href="mailto:Apstarun345@gmail.com"><span>✉</span> Email</a></div>
       </footer>
     </main>
   </div>
@@ -700,8 +1193,8 @@
       <h2 id="format-title">RC format choose karo</h2>
       <p>Vehicle number ke liye aapka preferred download format select karein.</p>
       <div class="format-options">
-        <button class="format-option coming-soon" data-download-format="mparivahan" type="button"><span class="format-icon">▤</span><span><b>MParivahan RC <i>Coming Soon!</i></b><small>A4 page layout · abhi service start nahi hui</small></span><span class="format-arrow">•</span></button>
-        <button class="format-option rc-card" data-download-format="rc-card" type="button"><span class="format-icon">▣</span><span><b>RC Card <i id="format-option-price">₹15</i></b><small>Compact card layout · front upar · back neeche</small></span><span class="format-arrow">→</span></button>
+        <button class="format-option rc-card" data-download-format="rc-card" type="button"><span class="format-icon">▣</span><span><b>RC Card <i id="format-option-price">₹15</i></b><small>A4 reference layout · front left · back right</small></span><span class="format-arrow">→</span></button>
+        <button class="format-option coming-soon" data-download-format="mparivahan" type="button"><span class="format-icon">▤</span><span><b>MParivahan RC <i>₹10 · Coming Soon!</i></b><small>A4 page layout · service abhi start nahi hui</small></span><span class="format-arrow">•</span></button>
       </div>
     </div>
   </div>
@@ -710,23 +1203,68 @@
       <button class="format-close" id="close-wallet-topup" type="button" aria-label="Close wallet topup">×</button>
       <div class="section-label">WALLET TOPUP</div>
       <h2 id="wallet-topup-title">Wallet recharge karna hai?</h2>
-      <p>Wallet topup ke liye WhatsApp par redirect kiya ja raha hai. WhatsApp par aapko payment QR milega. Jitna wallet topup chahiye, woh amount enter karein.</p>
-      <div class="topup-balance"><span>Current wallet</span><b id="topup-current-balance">₹0</b></div>
-      <div class="field"><label>Topup amount ₹</label><input id="topup-amount" type="number" min="1" step="1" inputmode="decimal" placeholder="100" /></div>
-      <button class="blue-button" id="topup-whatsapp-button" type="button">WhatsApp par topup request bhejo <span>↗</span></button>
-      <small class="wallet-modal-note">Payment QR WhatsApp support se milega. Payment verify hone ke baad admin wallet recharge karega.</small>
+      <p>Amount enter karke wallet topup start karein. Payment ke baad request ID ke saath WhatsApp par screenshot bhej dein.</p>
+      <div class="topup-step" id="topup-amount-step">
+        <div class="topup-balance"><span>Current wallet</span><b id="topup-current-balance">₹0</b></div>
+        <div class="field"><label>Topup amount ₹</label><input id="topup-amount" type="number" min="1" step="1" inputmode="decimal" placeholder="100" /></div>
+        <button class="blue-button" id="topup-continue-button" type="button">Wallet topup <span>→</span></button>
+      </div>
+      <div class="topup-step" id="topup-payment-step" hidden>
+        <div class="topup-payment-qr large" id="topup-payment-qr-box"><span>PAYMENT QR</span><img id="topup-payment-qr" alt="Payment QR" hidden /><small id="topup-payment-qr-empty">Payment QR Main Admin settings se update hote hi yahan show hoga.</small></div>
+        <div class="topup-payment-amount"><span>Payment amount</span><b id="topup-payment-amount">₹0</b></div>
+        <div class="topup-step-actions">
+          <button class="blue-button" id="topup-whatsapp-button" type="button">Payment done - send to WhatsApp <span>↗</span></button>
+          <button class="topup-change-button" id="topup-change-amount" type="button">← Change amount</button>
+        </div>
+        <small class="wallet-modal-note">Payment verify hone ke baad admin aapke wallet me credited amount add karega.</small>
+      </div>
     </div>
   </div>
   <div class="fetching-backdrop" id="fetching-overlay" hidden>
     <div class="fetching-modal" role="status" aria-live="polite">
       <span class="fetching-spinner"></span>
+      <div class="fetching-progress" aria-hidden="true"><span></span></div>
       <strong>Fetching RC Card</strong>
-      <small>Front aur back RC image aa rahi hai…</small>
+      <small id="fetching-overlay-text">Front aur back RC image aa rahi hai…</small>
     </div>
   </div>
-  <div class="session-loading" id="session-loading" hidden><span class="loader"></span><b>Session check ho raha hai…</b><small>InstantRCcard load ho raha hai</small></div>
+  <div class="welcome-back-backdrop" id="welcome-back-modal" hidden>
+    <div class="welcome-back-card" role="dialog" aria-modal="true" aria-labelledby="welcome-back-title">
+      <button class="welcome-back-close" id="close-welcome-back" type="button" aria-label="Close welcome message">×</button>
+      <div class="welcome-badge">✓</div>
+      <div class="section-label">INSTANT RCCARD</div>
+      <h2 id="welcome-back-title">Welcome back, <span id="welcome-back-name">User</span>!</h2>
+      <p>Aapka RC desk ready hai. Vehicle number enter karke compact RC Card download karein.</p>
+      <button class="blue-button" id="welcome-back-continue" type="button">Continue to RC download <span>→</span></button>
+    </div>
+  </div>
+  <div class="robo-helper" id="robo-helper" hidden aria-live="polite">
+    <div class="robo-message" id="robo-message">Hello</div>
+    <div class="robo-help-panel" id="robo-help-panel" hidden>
+      <div class="robo-help-title"><span>InstantRCcard help</span><button id="close-robo-help" type="button" aria-label="Close assistant help">×</button></div>
+      <p>Recharge, RC download ya account help ke liye contact karo.</p>
+      <div class="robo-help-actions"><a class="robo-help-action whatsapp" id="robo-whatsapp-help" data-whatsapp-support="1" href="#" target="_blank" rel="noopener"><img class="whatsapp-icon" src="/whatsapp.png" alt="" /> WhatsApp</a><a class="robo-help-action" id="robo-email-help" href="mailto:Apstarun345@gmail.com?subject=InstantRCcard%20help"><span>✉</span> Email</a></div>
+    </div>
+    <button class="robo-button" id="robo-button" type="button" aria-label="Open InstantRCcard assistant">
+      <span class="robo-status" aria-hidden="true"></span>
+      <svg viewBox="0 0 64 64" aria-hidden="true">
+        <path class="robo-antenna" d="M32 17V10" />
+        <circle class="robo-dot" cx="32" cy="7" r="3" />
+        <rect class="robo-shell" x="11" y="16" width="42" height="35" rx="13" />
+        <rect class="robo-panel" x="17" y="23" width="30" height="18" rx="8" />
+        <circle class="robo-eye" cx="26" cy="32" r="3" />
+        <circle class="robo-eye" cx="38" cy="32" r="3" />
+        <path class="robo-mouth" d="M27 37c3 2 7 2 10 0" />
+        <path class="robo-antenna" d="M7 31h4M53 31h4" />
+        <path class="robo-panel" d="M23 51v5M41 51v5" />
+      </svg>
+    </button>
+  </div>
+  <div class="session-loading" id="session-loading"><div class="startup-logo-stage"><img class="startup-logo" src="/instant-rccard-mark.png" alt="InstantRCcard" /><span class="startup-glint" aria-hidden="true"></span></div><div class="startup-wordmark">Instant<span>RC</span>Card</div><div class="startup-tagline"><span>Simple</span><i></i><span>Secure</span><i></i><span>Faster</span></div><div class="startup-progress" aria-hidden="true"><span></span></div><b>Session check ho raha hai…</b><small>InstantRCcard securely load ho raha hai</small></div>
   <div class="toast-stack" id="toast-stack" aria-live="polite"></div>
 
-  <script src="/app.js" defer></script>
+  <script src="/app.js?v=admin-history-20260923-2" defer></script>
 </body>
+</html>
+
 </html>

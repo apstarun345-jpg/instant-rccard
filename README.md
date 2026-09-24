@@ -1,70 +1,42 @@
-# InstantRCcard — direct Node website
+# InstantRCcard — Apps Script Sheet mirror
 
-A blue-and-white Node website for secure RC front-and-back downloads.
+This Apps Script is the private Google Sheet mirror and durable restore source for the direct Node website. Visitors use the Render Node URL, not the Apps Script URL.
 
-## Included
+## Required setup
 
-- Installable PWA from Chrome/Android browser without Play Store
-- Email + mobile + password signup/login
-- Forgot password with email + mobile verification, new password and confirmation show/hide controls
-- Cookie-based login that survives browser refreshes
-- Durable Google Sheet account restore after Render restarts/redeploys when the Sheet mirror is configured
-- Separate wallet per mobile number
-- `MParivahan RC`: marked **Coming Soon!** in the customer flow; the future price is ₹10
-- `RC Card`: ₹15, compact output with two standard card-size faces stacked front above back, without an A4 canvas
-- Charge is deducted only after both front and back RC images are available
-- Provider image normalization for base64, data-URL, URL, PNG, JPG and WEBP responses
-- `Fetching RC Card` loading popup while the provider image is being fetched
-- Horizontal public offer/festival advertisement ticker
-- Admin-only user search, wallet recharge and advertisement upload/remove/hide controls
-- Server-side RC provider token
-- JSON storage as a local fallback/cache
-- Optional Google Sheet mirror for accounts, wallet/RC transactions and ads
-
-## Run locally
-
-Node.js 20+ is recommended.
-
-```bash
-cp .env.example .env
-# Edit .env and set RC_API_TOKEN, ADMIN_MOBILE and a fixed SESSION_SECRET.
-npm start
-```
-
-Open:
+1. Use a private Google Sheet, then open **Extensions → Apps Script**.
+2. Paste `Code.gs` and keep an HTML file named `Index` if you also want the legacy Apps Script page.
+3. In **Project Settings → Script properties**, set:
 
 ```text
-http://localhost:4173
+SHEET_SYNC_SECRET = same secret used by the Node service
+ADMIN_MOBILE = your admin mobile
+RC_API_TOKEN = provider token if the legacy Apps Script UI is used
 ```
 
-The browser should use the website through the Node server. Do not double-click `public/index.html`; a static file has no secure backend and cannot handle accounts, wallet deduction or the provider token.
+4. Run `setupInstantRCcard` once and authorize permissions.
+5. Deploy as a Web App:
+   - Execute as: **Me**
+   - Who has access: **Anyone** or your organization
+6. Put the `/exec` URL in Render as `SHEET_WEBHOOK_URL`.
 
-## Install as an app
+## Sheets created
 
-Open the HTTPS website in Chrome. Use the install icon in the address bar or choose **Install InstantRCcard** from the browser menu. On iPhone/iPad, use **Share → Add to Home Screen**. The site includes a manifest, app icons and service worker.
+- `Users` and `Transactions`: legacy Apps Script database
+- `Web_Users` and `Web_Transactions`: direct Node mirror
+- `Web_Accounts`: private durable account records, including password hashes/salts, recovery email and delegated admin permissions
+- `Web_Ads`: public advertisement mirror
+- `Web_Settings`: homepage rating, public counters and default RC Card rate
+- `adminPermissions` is mirrored as JSON in both `Web_Users` and `Web_Accounts`, and is restored by `webSnapshot_()`
+- `rcCardPrice`, `rcRateUpdatedAt` and `rcRateUpdatedBy` are mirrored with the account so custom user rates survive unrelated updates and restore; a blank rate is only treated as an intentional clear when its update timestamp is present
+- `supportWhatsapp` and `paymentQr` are mirrored in `Web_Settings` so Main Admin's wallet/help WhatsApp configuration survives restore
+- `Web_RateLog`: admin custom-rate audit history
+- `Web_TopupRequests`: durable wallet payment-request ledger, including the client payment reference.
+- `Web_Notifications`: durable in-app notification history and read state.
+- `Web_PushSubscriptions`: one row per subscribed user/device endpoint so background push survives a Node restart/redeploy; stale or unsubscribed endpoints are removed.
+- `Web_Accounts.userId` and `Web_Users.userId` now use short display IDs such as `u1`, `u2`; the original internal UUID is retained in `internalUserId` for safe session/data restoration.
+- `Web_Transactions.id` now uses short display IDs such as `T1`, `T2`; the original internal UUID is retained in `internalTransactionId`. Existing long IDs in all three mirror sheets are migrated when the mirror is initialized. Each row keeps request ID, user/mobile, requested amount, final approved amount, status, timestamps, approver and rejection reason. The row is upserted on creation and on every approval/rejection, so restart/redeploy cannot recreate or double-credit a request.
 
-## API routes
+The Node service requests a private snapshot at the Apps Script `/exec` URL during startup. This restores users, wallets, transactions, advertisements, custom RC Card rates, the custom-rate audit ledger, support/QR settings, global pricing, admin settings, notification history/read state and push subscriptions after a Render/Railway restart or redeploy when the local JSON file is not persistent. On the first request after this version is deployed, `ensureWebMirrorSheets_()` also imports any older `Users` and `Transactions` rows into the direct Node mirror instead of replacing them with only newly created accounts. Legacy Apps Script SHA-256 password hashes are accepted once and upgraded to the current Node scrypt format after login. Critical Node mutations wait for the mirror response before returning success. The rate ledger is also used to recover a custom rate when an older account row has an empty `rcCardPrice` cell.
 
-- `GET /api/health`
-- `POST /api/auth/signup`
-- `POST /api/auth/login`
-- `POST /api/auth/forgot-password`
-- `GET /api/auth/session`
-- `POST /api/auth/logout`
-- `GET /api/account/transactions`
-- `GET /api/ads`
-- `GET /api/public/stats`
-- `POST /api/rc/purchase`
-- `POST /api/admin/users/search`
-- `POST /api/admin/recharge`
-- `GET /api/admin/transactions`
-- `GET /api/admin/ads`
-- `POST /api/admin/ads`
-- `POST /api/admin/ads/:id` to show/hide
-- `DELETE /api/admin/ads/:id`
-
-## Storage and production
-
-The direct version stores users, transactions and local ad data in `data/instant-rccard.json`. On a host without a persistent disk, configure the private Apps Script mirror and deploy the updated `apps-script/Code.gs`; the Node service restores accounts, wallets, transactions and ads from the private Sheet snapshot on startup. Keep `SESSION_SECRET` fixed in Render so an existing session cookie remains valid across restarts.
-
-Set `ADMIN_MOBILE` before creating the admin account. The account created with that mobile number receives the admin role. Set `SHEET_WEBHOOK_URL` to the Apps Script `/exec` URL and use the same `SHEET_SYNC_SECRET` in Node and Apps Script. If the provider token has been shared publicly, rotate it before production use.
+After deploying a new Apps Script version, update the existing Web App deployment to that version; editing the project alone does not update the `/exec` URL. Keep the spreadsheet private. Passwords are stored only as hashes/salts, but the account mirror still contains sensitive account metadata.
