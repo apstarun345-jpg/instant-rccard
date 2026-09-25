@@ -34,7 +34,10 @@ const MIME_TYPES = {
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
-  '.ico': 'image/x-icon'
+  '.ico': 'image/x-icon',
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  '.csv': 'text/csv; charset=utf-8',
+  '.gs': 'text/plain; charset=utf-8'
 };
 
 let db = { users: [], transactions: [], ads: [], settings: {} };
@@ -882,7 +885,8 @@ async function handleAdminToggleAd(req, res, adId) {
 }
 
 async function serveStatic(req, res, pathname) {
-  const requested = pathname === '/' ? '/index.html' : pathname;
+  let requested = pathname === '/' ? '/index.html' : pathname;
+  if (requested === '/gv' || requested === '/gv/') requested = '/gv-partner-dashboard/index.html';
   // Supports both the packaged public/ layout and the flat GitHub upload layout.
   let staticRoot = publicDir;
   try {
@@ -890,10 +894,14 @@ async function serveStatic(req, res, pathname) {
   } catch {
     staticRoot = __dirname;
   }
-  const candidate = path.normalize(path.join(staticRoot, decodeURIComponent(requested)));
+  let candidate = path.normalize(path.join(staticRoot, decodeURIComponent(requested)));
   if (!candidate.startsWith(staticRoot)) return sendError(res, 403, 'Forbidden');
   try {
-    const stat = await fs.stat(candidate);
+    let stat = await fs.stat(candidate);
+    if (stat.isDirectory()) {
+      candidate = path.join(candidate, 'index.html');
+      stat = await fs.stat(candidate);
+    }
     if (!stat.isFile()) throw new Error('not file');
     const content = await fs.readFile(candidate);
     const extension = path.extname(candidate).toLowerCase();
