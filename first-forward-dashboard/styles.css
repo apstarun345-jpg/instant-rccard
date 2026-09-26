@@ -47,6 +47,22 @@ button { font: inherit; }
 .content { margin-left: var(--sidebar-w); min-height: 100vh; display: flex; flex-direction: column; }
 .topbar { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 12px; padding: 10px 22px; background: rgba(243, 244, 251, .85); backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
 .top-title { font-weight: 800; font-size: 15px; flex: 1; letter-spacing: -.2px; }
+.top-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.zip-btn { height: 36px; padding: 0 14px; border-radius: 10px; font-size: 13px; white-space: nowrap; animation: zip-glow 2.2s ease-in-out infinite; }
+@keyframes zip-glow { 0%, 100% { box-shadow: 0 6px 16px rgba(99, 102, 241, .35); } 50% { box-shadow: 0 6px 22px rgba(236, 72, 153, .55); } }
+.dl-card { background: linear-gradient(135deg, #eef2ff, #fdf2f8 60%, #fff7ed); border: 1px solid #e0e7ff; border-radius: 14px; padding: 18px 16px; text-align: center; margin-bottom: 18px; }
+.dl-card .btn.big { font-size: 15px; padding: 12px 22px; border-radius: 12px; }
+.dl-meta { font-size: 12px; color: var(--muted); margin-top: 10px; }
+.guide ol { padding-left: 20px; margin: 0; }
+.guide li { margin-bottom: 9px; line-height: 1.55; font-size: 13.5px; }
+.guide li small { color: var(--muted); }
+.guide code { background: #f1f5f9; border: 1px solid #e2e8f0; padding: 1px 6px; border-radius: 6px; font-size: 12px; }
+.guide pre { background: #0f172a; color: #e2e8f0; padding: 10px 12px; border-radius: 10px; font-size: 12px; overflow: auto; margin: 8px 0 0; }
+.guide details summary { cursor: pointer; font-size: 13px; color: var(--brand); font-weight: 600; }
+.guide table.kv { font-size: 12.5px; border-collapse: collapse; width: 100%; margin-top: 6px; }
+.guide table.kv td { padding: 5px 6px; border-bottom: 1px solid var(--line); }
+.guide table.kv td:first-child { color: var(--muted); width: 40%; }
+.guide a { color: var(--brand); font-weight: 600; }
 .icon-btn { border: 1px solid var(--line); background: #fff; width: 36px; height: 36px; border-radius: 10px; cursor: pointer; font-size: 16px; color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.04); }
 .icon-btn:hover { border-color: #c7d2fe; background: #eef2ff; }
 #menu-btn { display: none; }
@@ -281,3 +297,7 @@ button { font: inherit; }
   .grid-card .pager { margin-left: 0; }
 }
 @media (max-width: 460px) { .kpi-grid, .kpi-grid.six { grid-template-columns: 1fr; } }
+@media (max-width: 560px) {
+  .zip-btn { padding: 0 10px; }
+  .zip-btn span { display: none; }
+}

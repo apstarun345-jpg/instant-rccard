@@ -70,6 +70,7 @@ Free plan par 15 min idle ke baad pehla open ~30-50 sec leta hai (normal hai).
 | `DASH_USER` / `DASH_PASSWORD` | – / – | `DASH_PASSWORD` set karte hi poori site par login (Basic Auth) lag jaata hai. User default `admin` |
 | `FRAME_PROTECTION` | – | `1` = site ko kisi aur website ke iframe mein khulne se roko |
 | `GVIZ_BASE` | `https://docs.google.com` | Sirf local testing ke liye (mock server). Production mein set mat karo |
+| `DOWNLOAD_ZIP` | – | Kisi ZIP ka path do to topbar mein "⬇️ Download ZIP" button + setup guide dikhta hai (`/download/first-forward-dashboard.zip`). Sirf hand-over/preview ke liye; Render par set mat karo |
 
 ## Sheet / column mapping badalna ho to
 

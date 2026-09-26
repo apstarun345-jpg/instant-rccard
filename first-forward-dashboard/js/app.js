@@ -145,6 +145,87 @@ window.FF = window.FF || {};
     }, FF.config.autoRefreshMs);
   }
 
+  /* ---------- Project ZIP + setup guide (only when the server was started with DOWNLOAD_ZIP) ---------- */
+  function fmtBytes(n) { return n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`; }
+
+  function setupGuideHtml(dl) {
+    const esc = U.esc || ((v) => String(v));
+    return `
+      <div class="dl-card">
+        <a class="btn primary big" href="${esc(dl.url)}" download="${esc(dl.name)}" id="zip-download-link">⬇️ Download ${esc(dl.name)}</a>
+        <div class="dl-meta">${fmtBytes(dl.size)} · poora project (server + website) · koi dependency nahi</div>
+      </div>
+      <div class="guide">
+        <div class="dsec"><h4>Step 1 · ZIP download & extract</h4>
+          <ol>
+            <li>Upar wale button se ZIP download karo aur <b>extract</b> karo → folder <code>first-forward-dashboard</code> milega (andar <code>server.js</code>, <code>index.html</code>, <code>js/</code> folder…).</li>
+          </ol>
+        </div>
+        <div class="dsec"><h4>Step 2 · GitHub par repository</h4>
+          <ol>
+            <li><a href="https://github.com/new" target="_blank" rel="noopener">github.com/new</a> kholo → Repository name <code>First-Forward-Dashboard</code> → Public ya Private (dono chalega) → <b>Create repository</b>.</li>
+            <li>Nayi repo ke page par <b>"uploading an existing file"</b> link par click karo.</li>
+            <li>Extracted folder <b>ke andar</b> ki saari files/folders (<code>js</code> folder samet) drag-drop karo → <b>Commit changes</b>. <small>(Folder ko poora drag karoge to structure apne aap sahi rahega. <code>.gitignore</code> hidden hai — upload na ho to koi dikkat nahi.)</small></li>
+          </ol>
+          <details><summary>Git command line se karna ho to</summary>
+<pre>cd first-forward-dashboard
+git init
+git add .
+git commit -m "First Forward Dashboard"
+git branch -M main
+git remote add origin https://github.com/&lt;your-username&gt;/First-Forward-Dashboard.git
+git push -u origin main</pre></details>
+        </div>
+        <div class="dsec"><h4>Step 3 · Render par deploy (free)</h4>
+          <ol>
+            <li><a href="https://dashboard.render.com" target="_blank" rel="noopener">dashboard.render.com</a> → <b>Sign in with GitHub</b>.</li>
+            <li><b>New +</b> → <b>Blueprint</b> → apni <code>First-Forward-Dashboard</code> repo select karo → <b>Apply</b>. (Repo mein <code>render.yaml</code> hai, settings khud bhar jaayengi.)</li>
+            <li>Ya manual: <b>New +</b> → <b>Web Service</b> → repo connect →
+              <table class="kv">
+                <tr><td>Runtime</td><td><code>Node</code></td></tr>
+                <tr><td>Build Command</td><td><i>blank chhod do</i></td></tr>
+                <tr><td>Start Command</td><td><code>npm start</code></td></tr>
+                <tr><td>Instance Type</td><td><code>Free</code></td></tr>
+              </table>
+            </li>
+            <li>1–2 min mein live: <code>https://first-forward-dashboard.onrender.com</code> (naam aap choose karoge).</li>
+          </ol>
+        </div>
+        <div class="dsec"><h4>Step 4 · Zaroori baatein</h4>
+          <ol>
+            <li>Google Sheet ki sharing <b>"Anyone with the link → Viewer"</b> rehni chahiye (abhi hai). Sheet update → website 2 min mein update.</li>
+            <li>Password lagana ho: Render → service → <b>Environment</b> → <code>DASH_PASSWORD</code> = apna password (user: <code>admin</code>).</li>
+            <li>Free plan par 15 min idle ke baad pehla open 30–50 sec leta hai — normal hai.</li>
+            <li>Website mein badlaav (naya tab, column shift): sirf <code>js/config.js</code> edit karke GitHub par replace karo → Render auto-deploy.</li>
+          </ol>
+        </div>
+      </div>`;
+  }
+
+  async function setupDownload() {
+    try {
+      const res = await fetch('/api/health', { cache: 'no-store' });
+      if (!res.ok) return;
+      const health = await res.json();
+      const dl = health && health.download;
+      if (!dl || !dl.url) return;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.id = 'zip-btn';
+      btn.className = 'btn primary zip-btn';
+      btn.title = 'Project ZIP download + GitHub/Render steps';
+      btn.innerHTML = '⬇️ <span>Download ZIP</span>';
+      btn.addEventListener('click', () => openDrawer({
+        kicker: 'Project files',
+        title: 'First Forward Dashboard — ZIP',
+        sub: 'ZIP download karo → GitHub par upload → Render par deploy. Neeche poore steps hain.',
+        body: setupGuideHtml(dl)
+      }));
+      U.$('#top-actions').prepend(btn);
+      if (location.hash === '#setup' || location.search.includes('setup=1')) btn.click();
+    } catch { /* static hosting / offline → no button */ }
+  }
+
   function init() {
     U.$('#brand-name').textContent = FF.config.brand;
     U.$('#sheet-link').href = FF.config.sheetUrl();
@@ -152,6 +233,7 @@ window.FF = window.FF || {};
     U.initTooltip();
     bind();
     renderCurrent();
+    setupDownload();
   }
 
   FF.app = { navigate, updateParams, refresh, openDrawer, closeDrawer, get current() { return current; } };

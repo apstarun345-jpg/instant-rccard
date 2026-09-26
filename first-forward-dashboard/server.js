@@ -3,6 +3,7 @@
 // Run locally:  npm start   (PORT defaults to 8080; Render sets PORT automatically)
 import http from 'node:http';
 import fs from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -17,6 +18,10 @@ const GVIZ_BASE = process.env.GVIZ_BASE || 'https://docs.google.com'; // overrid
 const AUTH_USER = process.env.DASH_USER || 'admin';
 const AUTH_PASSWORD = process.env.DASH_PASSWORD || '';
 const FRAME_PROTECTION = process.env.FRAME_PROTECTION === '1';
+// Optional: DOWNLOAD_ZIP=/path/to/first-forward-dashboard.zip → app shows a "Download ZIP" button (project files + setup guide).
+// Used for the preview/hand-over only; leave it unset on Render.
+const DOWNLOAD_ZIP = process.env.DOWNLOAD_ZIP || '';
+const DOWNLOAD_PATH = '/download/first-forward-dashboard.zip';
 
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
@@ -132,12 +137,32 @@ async function serveStatic(res, pathname) {
   }
 }
 
+async function downloadInfo() {
+  if (!DOWNLOAD_ZIP) return null;
+  try {
+    const stat = await fs.stat(DOWNLOAD_ZIP);
+    return stat.isFile() ? { url: DOWNLOAD_PATH, name: path.basename(DOWNLOAD_PATH), size: stat.size, updatedAt: stat.mtime.toISOString() } : null;
+  } catch { return null; }
+}
+
+async function serveDownload(req, res) {
+  const info = await downloadInfo();
+  if (!info) return sendText(res, 404, 'Not found');
+  res.writeHead(200, headers({
+    'Content-Type': 'application/zip', 'Content-Length': info.size, 'Cache-Control': 'no-store',
+    'Content-Disposition': `attachment; filename="${info.name}"`
+  }));
+  if (req.method === 'HEAD') return res.end();
+  createReadStream(DOWNLOAD_ZIP).on('error', () => res.destroy()).pipe(res);
+}
+
 const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
     if (req.method !== 'GET' && req.method !== 'HEAD') return sendText(res, 405, 'Method not allowed');
-    if (url.pathname === '/api/health') return sendJson(res, 200, { ok: true, service: 'first-forward-dashboard', sheetId: SHEET_ID, cacheSeconds: CACHE_MS / 1000, cached: cache.size, protected: Boolean(AUTH_PASSWORD) });
+    if (url.pathname === '/api/health') return sendJson(res, 200, { ok: true, service: 'first-forward-dashboard', sheetId: SHEET_ID, cacheSeconds: CACHE_MS / 1000, cached: cache.size, protected: Boolean(AUTH_PASSWORD), download: await downloadInfo() });
     if (!authorized(req)) return sendText(res, 401, 'Login required', { 'WWW-Authenticate': 'Basic realm="First Forward Dashboard", charset="UTF-8"' });
+    if (url.pathname === DOWNLOAD_PATH) return await serveDownload(req, res);
     if (url.pathname === '/api/gviz') return await handleGviz(res, url.searchParams);
     return await serveStatic(res, url.pathname);
   } catch (error) {
@@ -148,5 +173,5 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`First Forward Dashboard → http://0.0.0.0:${PORT}`);
-  console.log(`Sheet ${SHEET_ID} · cache ${CACHE_MS / 1000}s · login ${AUTH_PASSWORD ? "ON" : "off"}${GVIZ_BASE !== "https://docs.google.com" ? ` · upstream ${GVIZ_BASE}` : ""}`);
+  console.log(`Sheet ${SHEET_ID} · cache ${CACHE_MS / 1000}s · login ${AUTH_PASSWORD ? "ON" : "off"}${GVIZ_BASE !== "https://docs.google.com" ? ` · upstream ${GVIZ_BASE}` : ""}${DOWNLOAD_ZIP ? ` · zip ${DOWNLOAD_ZIP}` : ""}`);
 });
