@@ -152,8 +152,9 @@ window.FF = window.FF || {};
     const esc = U.esc || ((v) => String(v));
     return `
       <div class="dl-card">
-        <a class="btn primary big" href="${esc(dl.url)}" download="${esc(dl.name)}" id="zip-download-link">⬇️ Download ${esc(dl.name)}</a>
+        <a class="btn primary big" href="${esc(dl.url)}" download="${esc(dl.name)}" target="_blank" rel="noopener" id="zip-download-link">⬇️ Download ${esc(dl.name)}</a>
         <div class="dl-meta">${fmtBytes(dl.size)} · poora project (server + website) · koi dependency nahi</div>
+        <div class="dl-meta">Download na chale to ye link nayi tab mein kholo:<br><code class="dl-url">${esc(location.origin + dl.url)}</code></div>
       </div>
       <div class="guide">
         <div class="dsec"><h4>Step 1 · ZIP download & extract</h4>
