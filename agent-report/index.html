@@ -5,9 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="theme-color" content="#1d4ed8" />
   <meta name="robots" content="noindex, nofollow" />
-  <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
+  <link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png" />
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="./icon-192.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="Agent Report" />
   <title>FASTag Agent Performance Report</title>
-  <link rel="stylesheet" href="/report.css" />
+  <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
   <div class="rp-shell">
@@ -114,7 +118,7 @@
 
     <footer class="rp-footer">
       <span>Source: Google Sheet “REPORT” tab · auto-refresh every 10 min · numbers exactly as in the sheet.</span>
-      <a href="/" class="rp-footer-link">← InstantRCcard</a>
+      <span id="rp-footer-meta"></span>
     </footer>
   </div>
 
@@ -135,6 +139,6 @@
 
   <div class="rp-toast" id="rp-toast" hidden></div>
 
-  <script src="/report.js"></script>
+  <script src="./app.js"></script>
 </body>
 </html>

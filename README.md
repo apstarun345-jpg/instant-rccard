@@ -21,26 +21,6 @@ A blue-and-white Node website for secure RC front-and-back downloads.
 - JSON storage as a local fallback/cache
 - Optional Google Sheet mirror for accounts, wallet/RC transactions and ads
 
-## Agent Performance Report (`/report`)
-
-A separate live dashboard built from the Google Sheet **REPORT** tab (FASTag agent / TL performance). It does not touch the RC Card flow.
-
-- URL: `/report` (also `/report.html`)
-- Data: the public Google Sheet is read live — sheet update → website update (no manual import). The sheet must stay shared as **Anyone with the link – Viewer**.
-- Flow: browser asks `GET /api/report` (server fetches the sheet CSV and caches it for `REPORT_CACHE_SECONDS`, default 180). If the server cannot reach Google, the browser fetches the sheet directly as a fallback.
-- Views: Overview (KPIs, 7-day chart, top agents/TLs, status & stock-alert distribution), Agents table (search, filters, sort, pagination, CSV export, agent detail drawer), TL Summary (TL-level stock/issuance/alerts, TL drawer with its agents), Alerts (dispatch needed, over-stocked, de-growth, went quiet, wrong VRN), WhatsApp summary button.
-- Column labels: sections are detected from the sheet's merged headers. A few sheet columns have no sub-header (I, J, K, L, M, AB, AD–AH, BR); name them in `LABEL_OVERRIDES` at the top of `report.js`.
-
-Environment variables:
-
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `REPORT_SHEET_ID` | the REPORT sheet | Google Sheet ID |
-| `REPORT_SHEET_GID` | `242489821` | Tab (gid) to read |
-| `REPORT_CACHE_SECONDS` | `180` | Server-side cache for the sheet CSV |
-| `REPORT_FIXTURE_FILE` | – | Local CSV file instead of Google (testing only) |
-| `ALLOW_FRAME_EMBED` | – | Set `1` only for iframe previews; removes `X-Frame-Options` |
-
 ## Run locally
 
 Node.js 20+ is recommended.
@@ -74,7 +54,6 @@ Open the HTTPS website in Chrome. Use the install icon in the address bar or cho
 - `GET /api/account/transactions`
 - `GET /api/ads`
 - `GET /api/public/stats`
-- `GET /api/report` (cached Google Sheet CSV for the `/report` dashboard; `?refresh=1` bypasses the cache)
 - `POST /api/rc/purchase`
 - `POST /api/admin/users/search`
 - `POST /api/admin/recharge`

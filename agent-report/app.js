@@ -1,5 +1,6 @@
-/* FASTag Agent Performance Report — reads the public Google Sheet "REPORT" tab and renders a dashboard.
-   No build step, no dependencies. Data flow: /api/report (server cache) → direct Google fetch fallback. */
+/* FASTag Agent Performance Report — standalone dashboard that reads the public Google Sheet "REPORT" tab.
+   No build step, no dependencies. Works as a pure static site (browser fetches the sheet directly) or behind
+   the bundled server.js, whose /api/report proxy caches the CSV. Data flow: /api/report → direct Google fetch. */
 (function () {
   'use strict';
 
@@ -620,6 +621,7 @@
     el.classList.toggle('stale', /stale/.test(state.meta.source));
     $('rp-subtitle').textContent = `${state.months.cur} report · ${state.agents.length} agents · Google Sheet`;
     $('rp-open-sheet').href = SHEET_VIEW_URL;
+    $('rp-footer-meta').textContent = `Sheet ${SHEET_ID.slice(0, 6)}… · gid ${SHEET_GID} · ${state.agents.length} rows`;
     const banner = $('rp-banner');
     if (state.meta.warning) {
       banner.hidden = false;

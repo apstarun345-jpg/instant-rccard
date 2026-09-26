@@ -1,0 +1,13 @@
+{
+  "name": "agent-performance-report",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Live FASTag agent / TL performance dashboard built from a public Google Sheet.",
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node server.js"
+  }
+}

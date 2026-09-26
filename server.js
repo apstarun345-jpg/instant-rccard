@@ -20,14 +20,6 @@ const RC_PRICES = Object.freeze({
   'rc-card': 15
 });
 const SESSION_SECONDS = 60 * 60 * 24 * 7;
-// Agent performance report (Google Sheet → /report dashboard)
-const REPORT_SHEET_ID = process.env.REPORT_SHEET_ID || '1ZHzmu7xtXl7trZDOXUbFmclJGffy98U4kz2QBSKsfwc';
-const REPORT_SHEET_GID = process.env.REPORT_SHEET_GID || '242489821';
-const REPORT_CACHE_MS = Math.max(0, Number(process.env.REPORT_CACHE_SECONDS || 180)) * 1000;
-const REPORT_FIXTURE_FILE = process.env.REPORT_FIXTURE_FILE || '';
-const REPORT_SHEET_HOSTS = ['https://docs.google.com', 'https://*.googleusercontent.com'];
-// Set ALLOW_FRAME_EMBED=1 only for preview/iframe hosting; production keeps X-Frame-Options.
-const ALLOW_FRAME_EMBED = process.env.ALLOW_FRAME_EMBED === '1';
 const MAX_BODY_BYTES = 5_000_000;
 const MAX_AD_BYTES = 40_000;
 const UPSTREAM_TIMEOUT_MS = 30_000;
@@ -111,14 +103,13 @@ function publicUser(user) {
   };
 }
 
-function securityHeaders(options = {}) {
-  const connectSrc = ["'self'", ...(options.connectSrc || [])].join(' ');
+function securityHeaders() {
   return {
     'X-Content-Type-Options': 'nosniff',
-    ...(ALLOW_FRAME_EMBED ? {} : { 'X-Frame-Options': 'SAMEORIGIN' }),
+    'X-Frame-Options': 'SAMEORIGIN',
     'Referrer-Policy': 'strict-origin-when-cross-origin',
     'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
-    'Content-Security-Policy': `default-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src ${connectSrc}`
+    'Content-Security-Policy': "default-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'"
   };
 }
 
@@ -890,56 +881,6 @@ async function handleAdminToggleAd(req, res, adId) {
   return sendJson(res, 200, { success: true, ad: publicAd(ad) });
 }
 
-// ---------- Agent performance report (Google Sheet proxy) ----------
-let reportCache = { csv: '', fetchedAt: 0 };
-
-function reportSheetUrls() {
-  return [
-    `https://docs.google.com/spreadsheets/d/${REPORT_SHEET_ID}/gviz/tq?tqx=out:csv&gid=${REPORT_SHEET_GID}`,
-    `https://docs.google.com/spreadsheets/d/${REPORT_SHEET_ID}/export?format=csv&gid=${REPORT_SHEET_GID}`
-  ];
-}
-
-async function fetchReportCsv() {
-  if (REPORT_FIXTURE_FILE) return fs.readFile(REPORT_FIXTURE_FILE, 'utf8');
-  let lastError;
-  for (const url of reportSheetUrls()) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
-    try {
-      const response = await fetch(url, { signal: controller.signal, redirect: 'follow', headers: { 'User-Agent': 'InstantRCcard-Report/1.0' } });
-      if (!response.ok) throw new Error(`Google Sheet responded ${response.status}`);
-      const text = await response.text();
-      if (!text.trim() || text.trim().startsWith('<')) throw new Error('Sheet returned HTML instead of CSV (is the sheet shared as "Anyone with the link"?)');
-      return text;
-    } catch (error) {
-      lastError = error;
-    } finally {
-      clearTimeout(timer);
-    }
-  }
-  throw lastError || new Error('Google Sheet fetch failed');
-}
-
-async function handleReportData(req, res, searchParams) {
-  const force = searchParams.get('refresh') === '1';
-  const isFresh = reportCache.csv && Date.now() - reportCache.fetchedAt < REPORT_CACHE_MS;
-  const meta = { sheetId: REPORT_SHEET_ID, gid: REPORT_SHEET_GID, cacheSeconds: REPORT_CACHE_MS / 1000 };
-  if (isFresh && !force) {
-    return sendJson(res, 200, { success: true, cached: true, fetchedAt: reportCache.fetchedAt, ...meta, csv: reportCache.csv });
-  }
-  try {
-    const csv = await fetchReportCsv();
-    reportCache = { csv, fetchedAt: Date.now() };
-    return sendJson(res, 200, { success: true, cached: false, fetchedAt: reportCache.fetchedAt, ...meta, csv });
-  } catch (error) {
-    if (reportCache.csv) {
-      return sendJson(res, 200, { success: true, cached: true, stale: true, fetchedAt: reportCache.fetchedAt, ...meta, warning: error.message, csv: reportCache.csv });
-    }
-    return sendError(res, 502, `Google Sheet se data nahi mila: ${error.message}`);
-  }
-}
-
 async function serveStatic(req, res, pathname) {
   const requested = pathname === '/' ? '/index.html' : pathname;
   // Supports both the packaged public/ layout and the flat GitHub upload layout.
@@ -956,9 +897,7 @@ async function serveStatic(req, res, pathname) {
     if (!stat.isFile()) throw new Error('not file');
     const content = await fs.readFile(candidate);
     const extension = path.extname(candidate).toLowerCase();
-    // The report page fetches the public Google Sheet directly from the browser as a fallback, so allow those hosts.
-    const headerOptions = path.basename(candidate) === 'report.html' ? { connectSrc: REPORT_SHEET_HOSTS } : {};
-    res.writeHead(200, { 'Content-Type': MIME_TYPES[extension] || 'application/octet-stream', 'Content-Length': content.length, 'Cache-Control': extension === '.html' ? 'no-cache' : 'public, max-age=3600', ...securityHeaders(headerOptions) });
+    res.writeHead(200, { 'Content-Type': MIME_TYPES[extension] || 'application/octet-stream', 'Content-Length': content.length, 'Cache-Control': extension === '.html' ? 'no-cache' : 'public, max-age=3600', ...securityHeaders() });
     return res.end(content);
   } catch {
     return sendError(res, 404, 'Not found');
@@ -983,8 +922,6 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && pathname === '/api/auth/logout') return sendJson(res, 200, { success: true }, { 'Set-Cookie': clearAuthCookie() });
     if (req.method === 'GET' && pathname === '/api/ads') return await handleGetAds(req, res);
     if (req.method === 'GET' && pathname === '/api/public/stats') return await handlePublicStats(req, res);
-    if (req.method === 'GET' && pathname === '/api/report') return await handleReportData(req, res, url.searchParams);
-    if (req.method === 'GET' && (pathname === '/report' || pathname === '/report/')) return await serveStatic(req, res, '/report.html');
     if (req.method === 'GET' && pathname === '/api/account/transactions') {
       const user = currentUser(req);
       if (!user) return sendError(res, 401, 'Session expire ho gaya.');
