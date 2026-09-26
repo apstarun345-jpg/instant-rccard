@@ -1,0 +1,693 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GV Partner - Dashboard & Tag Mapping</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🏷️</text></svg>">
+  <!-- Vendor libraries (local fallback + reliable CDN) -->
+  <script src="vendor/xlsx.full.min.js"></script>
+  <script src="vendor/chart.umd.min.js"></script>
+</head>
+<body>
+  <div class="app-container">
+    
+    <!-- LEFT SIDEBAR -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="brand-icon">🏷️</div>
+        <div class="brand-info">
+          <h1>GV Partner</h1>
+          <span>Operations & Tag Portal</span>
+        </div>
+      </div>
+
+      <ul class="sidebar-menu">
+        <li>
+          <a href="#overview" class="nav-link active" data-tab="overview">
+            <span>📊</span> Dashboard Overview
+          </a>
+        </li>
+        <li>
+          <a href="#tag-mapping" class="nav-link" data-tab="tag-mapping" id="menuTagMapping">
+            <span>🗺️</span> Tag Mapping
+            <span class="menu-badge-new">NEW</span>
+          </a>
+        </li>
+        <li>
+          <a href="#agent-report" class="nav-link" data-tab="agent-report">
+            <span>👥</span> Agent Report
+          </a>
+        </li>
+        <li>
+          <a href="#tag-assignment" class="nav-link" data-tab="tag-assignment">
+            <span>🏷️</span> Tag Assignment
+          </a>
+        </li>
+        <li>
+          <a href="#daily-trends" class="nav-link" data-tab="daily-trends">
+            <span>📈</span> Daily Trends
+          </a>
+        </li>
+        <li>
+          <a href="#tl-summary" class="nav-link" data-tab="tl-summary">
+            <span>👔</span> TL Summary
+          </a>
+        </li>
+        <li>
+          <a href="#settings" class="nav-link" data-tab="settings">
+            <span>⚙️</span> API Settings
+          </a>
+        </li>
+      </ul>
+
+      <div class="sidebar-footer">
+        <div class="status-pill">
+          <span class="status-dot" id="systemStatusDot"></span>
+          <span id="systemStatusText">Setup Mode (Demo)</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- MAIN CONTENT WRAPPER -->
+    <main class="main-wrapper">
+      
+      <!-- TOP BANNER -->
+      <div class="top-banner" id="topBanner">
+        <div class="banner-content">
+          <span id="bannerIcon">⚙️</span>
+          <span id="bannerText"><strong>SETUP MODE (Demo Data):</strong> Live Sheet ke liye <strong>API Settings</strong> me apna Google Apps Script Web App URL dalein.</span>
+        </div>
+        <div class="banner-actions">
+          <button class="btn btn-sm btn-outline" id="btnQuickConfig">API Configure</button>
+        </div>
+      </div>
+
+      <!-- TOP NAVBAR -->
+      <header class="top-navbar">
+        <div class="page-title">
+          <h2 id="currentTabTitle">🗺️ Tag Mapping (टैग मैपिंग)</h2>
+          <p id="currentTabSub">Excel file upload karke tags ko agent aur vehicle class ke sath map karein</p>
+        </div>
+
+        <div class="nav-actions">
+          <button class="btn btn-outline btn-sm" id="btnRefreshData" title="Refresh Live Data">
+            <span>↻</span> Auto-refresh: <strong id="refreshTimer">10:00</strong>
+          </button>
+          <a href="#tag-mapping" class="btn btn-primary btn-sm" id="btnNavTagMap">
+            <span>+</span> New Tag Mapping
+          </a>
+        </div>
+      </header>
+
+      <!-- CONTENT BODY -->
+      <div class="content-body">
+        
+        <!-- ========================================================
+             TAB 1: TAG MAPPING (REQUESTED FEATURE)
+             ======================================================== -->
+        <section id="tab-tag-mapping" class="tab-view">
+          
+          <!-- Subtabs Navigation -->
+          <div class="subtabs-nav">
+            <button class="subtab-btn active" data-subtab="bulk-mapping">📂 Bulk Excel Mapping</button>
+            <button class="subtab-btn" data-subtab="single-map">✏️ Single Tag Quick Map</button>
+            <button class="subtab-btn" data-subtab="apps-script-code">💻 Apps Script Backend Code</button>
+          </div>
+
+          <!-- SUBTAB: BULK EXCEL MAPPING -->
+          <div id="subtab-bulk-mapping" class="subtab-content">
+            
+            <!-- Step 1: Upload Excel File -->
+            <div class="card">
+              <div class="card-header">
+                <h3><span>📁</span> Step 1: Excel / CSV File Upload Karein</h3>
+                <div class="header-actions">
+                  <button class="btn btn-outline btn-sm" id="btnDownloadSampleXlsx">
+                    <span>📥</span> Download Sample Excel (.xlsx)
+                  </button>
+                  <button class="btn btn-outline btn-sm" id="btnDownloadSampleCsv">
+                    <span>📄</span> Download Sample CSV
+                  </button>
+                </div>
+              </div>
+              <div class="card-body">
+                <div class="dropzone" id="excelDropzone">
+                  <input type="file" id="excelFileInput" accept=".xlsx, .xls, .csv" class="file-input-hidden">
+                  <div class="dropzone-icon">📊</div>
+                  <h4>Excel ya CSV file yahan Drag & Drop karein ya Browse karein</h4>
+                  <p>Samarthit formats: <strong>.xlsx, .xls, .csv</strong> (Standard columns: TAG_ID, SERIAL_NUMBER, AGENT_ID, AGENT_NAME, VEHICLE_CLASS)</p>
+                  <button class="btn btn-primary" type="button" onclick="document.getElementById('excelFileInput').click()">
+                    <span>📂</span> Choose Excel File
+                  </button>
+                </div>
+
+                <!-- File Loaded Info -->
+                <div id="fileLoadedBanner" class="file-loaded-banner" style="display: none;">
+                  <div class="file-loaded-info">
+                    <span class="file-badge-icon">📗</span>
+                    <div>
+                      <div class="file-name" id="loadedFileName">filename.xlsx</div>
+                      <div class="file-stats" id="loadedFileStats">Total 0 rows detected</div>
+                    </div>
+                  </div>
+                  <button class="btn btn-outline btn-sm btn-danger" id="btnClearFile">Remove File</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Step 2: Column Auto-Matching & Preview -->
+            <div class="card" id="cardColumnMapping" style="display: none;">
+              <div class="card-header">
+                <h3><span>🔄</span> Step 2: Columns Match Karein (Auto-Detected)</h3>
+                <span class="badge-auto-matched">✨ Column names auto-matched</span>
+              </div>
+              <div class="card-body">
+                <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 14px;">
+                  Agar aapke Excel me column ke naam alag hain, toh niche diye dropdown se sahi column select kar sakte hain:
+                </p>
+
+                <div class="mapping-columns-grid">
+                  <div class="mapping-field-box">
+                    <label>TAG ID / Barcode *</label>
+                    <select id="colSelectTagId" class="form-control"></select>
+                  </div>
+                  <div class="mapping-field-box">
+                    <label>Serial Number *</label>
+                    <select id="colSelectSerial" class="form-control"></select>
+                  </div>
+                  <div class="mapping-field-box">
+                    <label>Agent ID</label>
+                    <select id="colSelectAgentId" class="form-control"></select>
+                  </div>
+                  <div class="mapping-field-box">
+                    <label>Agent Name</label>
+                    <select id="colSelectAgentName" class="form-control"></select>
+                  </div>
+                  <div class="mapping-field-box">
+                    <label>Vehicle Class (VC4, VC5...)</label>
+                    <select id="colSelectVehicleClass" class="form-control"></select>
+                  </div>
+                  <div class="mapping-field-box">
+                    <label>Supervisor / TL Name</label>
+                    <select id="colSelectSupervisor" class="form-control"></select>
+                  </div>
+                </div>
+
+                <!-- Preview Table -->
+                <div style="margin-top: 20px;">
+                  <h4 style="font-size: 13px; font-weight: 700; color: var(--text-muted); margin-bottom: 8px;">
+                    📋 File Preview (Pehle 5 Rows):
+                  </h4>
+                  <div class="table-responsive">
+                    <table class="custom-table" id="previewTable">
+                      <thead>
+                        <tr>
+                          <th>#</th>
+                          <th>TAG ID</th>
+                          <th>SERIAL NUMBER</th>
+                          <th>AGENT ID</th>
+                          <th>AGENT NAME</th>
+                          <th>VEHICLE CLASS</th>
+                          <th>SUPERVISOR</th>
+                        </tr>
+                      </thead>
+                      <tbody id="previewTableBody">
+                        <!-- Populated by JS -->
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <!-- Step 3: Mapping Options & Execute -->
+                <div style="margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--border);">
+                  <div style="display: flex; gap: 20px; align-items: center; justify-content: space-between; flex-wrap: wrap;">
+                    <div style="display: flex; gap: 18px; align-items: center; flex-wrap: wrap;">
+                      <label style="font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                        <input type="checkbox" id="chkOverwriteDuplicates">
+                        <span>Duplicate tags update/overwrite karein</span>
+                      </label>
+                      <div style="display: flex; align-items: center; gap: 8px;">
+                        <span style="font-size: 13px; color: var(--text-muted);">Default VC:</span>
+                        <select id="selectDefaultVc" class="form-control" style="width: 100px; padding: 4px 8px;">
+                          <option value="VC4">VC4</option>
+                          <option value="VC5">VC5</option>
+                          <option value="VC6">VC6</option>
+                          <option value="VC7">VC7</option>
+                          <option value="VC12">VC12</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <button class="btn btn-primary btn-lg" id="btnStartMapping">
+                      <span>🚀</span> Start Tag Mapping (मैपिंग शुरू करें)
+                    </button>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+
+            <!-- Live Progress Box -->
+            <div class="progress-card" id="cardProgress" style="display: none;">
+              <div class="progress-header">
+                <h4><span id="progressSpin">⚡</span> Tag Mapping In Progress...</h4>
+                <span id="progressPercent" style="font-size: 18px; font-weight: 800; color: #38bdf8;">0%</span>
+              </div>
+              <div class="progress-bar-track">
+                <div class="progress-bar-fill" id="progressBarFill"></div>
+              </div>
+              <div class="progress-stats-row">
+                <div class="progress-stat-pill">
+                  <span class="pill-dot info"></span>
+                  <span>Total Rows: <strong id="progStatTotal">0</strong></span>
+                </div>
+                <div class="progress-stat-pill">
+                  <span class="pill-dot success"></span>
+                  <span>Mapped (Success): <strong id="progStatSuccess">0</strong></span>
+                </div>
+                <div class="progress-stat-pill">
+                  <span class="pill-dot warning"></span>
+                  <span>Duplicates/Skipped: <strong id="progStatDuplicate">0</strong></span>
+                </div>
+                <div class="progress-stat-pill">
+                  <span class="pill-dot danger"></span>
+                  <span>Failed: <strong id="progStatFailed">0</strong></span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Results Table Card -->
+            <div class="card" id="cardResults" style="display: none;">
+              <div class="card-header">
+                <h3><span>📋</span> Mapping Results & Status Log</h3>
+                <div class="header-actions">
+                  <button class="btn btn-success btn-sm" id="btnExportResults">
+                    <span>⬇️</span> Export Results to Excel (.xlsx)
+                  </button>
+                  <button class="btn btn-outline btn-sm btn-danger" id="btnRetryFailed" style="display: none;">
+                    <span>🔁</span> Retry Failed Rows
+                  </button>
+                </div>
+              </div>
+              <div class="card-body">
+                
+                <div class="toolbar">
+                  <div class="search-box">
+                    <input type="text" id="resultSearchInput" placeholder="Search Tag ID, Serial, Agent...">
+                  </div>
+                  <div class="filter-pills">
+                    <button class="filter-pill-btn active" data-filter="all">All (<span id="countAll">0</span>)</button>
+                    <button class="filter-pill-btn" data-filter="SUCCESS">Success (<span id="countSuccess">0</span>)</button>
+                    <button class="filter-pill-btn" data-filter="DUPLICATE">Duplicates (<span id="countDuplicate">0</span>)</button>
+                    <button class="filter-pill-btn" data-filter="FAILED">Failed (<span id="countFailed">0</span>)</button>
+                  </div>
+                </div>
+
+                <div class="table-responsive">
+                  <table class="custom-table" id="resultsTable">
+                    <thead>
+                      <tr>
+                        <th>#</th>
+                        <th>TAG ID</th>
+                        <th>SERIAL NUMBER</th>
+                        <th>AGENT NAME</th>
+                        <th>VEHICLE CLASS</th>
+                        <th>STATUS</th>
+                        <th>SERVER RESPONSE / DETAILS</th>
+                        <th>ACTION</th>
+                      </tr>
+                    </thead>
+                    <tbody id="resultsTableBody">
+                      <!-- Results inserted here -->
+                    </tbody>
+                  </table>
+                </div>
+
+              </div>
+            </div>
+
+          </div>
+
+          <!-- SUBTAB: SINGLE TAG QUICK MAP -->
+          <div id="subtab-single-map" class="subtab-content" style="display: none;">
+            <div class="card" style="max-width: 680px; margin: 0 auto;">
+              <div class="card-header">
+                <h3><span>✏️</span> Single Tag Quick Mapping</h3>
+                <span style="font-size: 12px; color: var(--text-muted);">Bina Excel ke seedha single tag map karein</span>
+              </div>
+              <div class="card-body">
+                <form id="formSingleTagMap">
+                  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;">
+                    <div>
+                      <label style="display: block; font-weight: 600; font-size: 12px; margin-bottom: 6px;">TAG ID / Barcode *</label>
+                      <input type="text" id="singleTagId" class="form-control" placeholder="e.g. TAG600999" required>
+                    </div>
+                    <div>
+                      <label style="display: block; font-weight: 600; font-size: 12px; margin-bottom: 6px;">Serial Number *</label>
+                      <input type="text" id="singleSerialNo" class="form-control" placeholder="e.g. SRN888999" required>
+                    </div>
+                  </div>
+
+                  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;">
+                    <div>
+                      <label style="display: block; font-weight: 600; font-size: 12px; margin-bottom: 6px;">Agent ID</label>
+                      <input type="text" id="singleAgentId" class="form-control" placeholder="e.g. AG101">
+                    </div>
+                    <div>
+                      <label style="display: block; font-weight: 600; font-size: 12px; margin-bottom: 6px;">Agent Name *</label>
+                      <input type="text" id="singleAgentName" class="form-control" placeholder="e.g. Rahul Sharma" required>
+                    </div>
+                  </div>
+
+                  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px;">
+                    <div>
+                      <label style="display: block; font-weight: 600; font-size: 12px; margin-bottom: 6px;">Vehicle Class</label>
+                      <select id="singleVehicleClass" class="form-control">
+                        <option value="VC4">VC4 (Car / Jeep / Van)</option>
+                        <option value="VC5">VC5 (Light Commercial Vehicle)</option>
+                        <option value="VC6">VC6 (Bus 3 Axle)</option>
+                        <option value="VC7">VC7 (Truck 2 Axle / Bus 2 Axle)</option>
+                        <option value="VC12">VC12 (4-6 Axle Truck)</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label style="display: block; font-weight: 600; font-size: 12px; margin-bottom: 6px;">Supervisor / TL Name</label>
+                      <input type="text" id="singleSupervisorName" class="form-control" placeholder="e.g. Vikas Meena">
+                    </div>
+                  </div>
+
+                  <div style="margin-bottom: 20px;">
+                    <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer;">
+                      <input type="checkbox" id="singleOverwrite">
+                      <span>Agar pehle se exist kare toh update/overwrite karein</span>
+                    </label>
+                  </div>
+
+                  <button type="submit" class="btn btn-primary btn-lg" style="width: 100%;">
+                    <span>💾</span> Map This Tag to Sheet
+                  </button>
+                </form>
+              </div>
+            </div>
+          </div>
+
+          <!-- SUBTAB: BACKEND APPS SCRIPT CODE -->
+          <div id="subtab-apps-script-code" class="subtab-content" style="display: none;">
+            <div class="card">
+              <div class="card-header">
+                <h3><span>💻</span> Google Apps Script Backend Code (FINAL-API-Code-V4-With-TagMapping)</h3>
+                <button class="btn btn-primary btn-sm btn-copy-code" id="btnCopyAppsScriptCode">
+                  <span>📋</span> Copy Code
+                </button>
+              </div>
+              <div class="card-body">
+                <p style="margin-bottom: 12px; font-size: 13px; color: var(--text-muted);">
+                  Isko Google Sheet me <strong>Extensions > Apps Script</strong> me paste karein aur <strong>Deploy > New deployment (Web app)</strong> karein:
+                </p>
+                <div class="code-container" id="appsScriptCodeDisplay">
+                  <!-- Apps script code loaded here -->
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </section>
+
+        <!-- ========================================================
+             TAB 2: DASHBOARD OVERVIEW
+             ======================================================== -->
+        <section id="tab-overview" class="tab-view active">
+          
+          <!-- KPI Stat Cards -->
+          <div class="stats-grid">
+            <div class="stat-card green">
+              <div class="stat-title">Total Agents</div>
+              <div class="stat-value" id="kpiTotalAgents">48</div>
+              <div class="stat-sub">Registered partner agents</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-title">Active Agents</div>
+              <div class="stat-value" id="kpiActiveAgents">39</div>
+              <div class="stat-sub">Issuance > 0 this month</div>
+            </div>
+            <div class="stat-card indigo">
+              <div class="stat-title">Total Issuance</div>
+              <div class="stat-value" id="kpiTotalIssuance">1,482</div>
+              <div class="stat-sub">All-time mapped & issued tags</div>
+            </div>
+            <div class="stat-card amber">
+              <div class="stat-title">VC4 Current</div>
+              <div class="stat-value" id="kpiVc4Current">1,120</div>
+              <div class="stat-sub">Car/Jeep/Van 75.5% share</div>
+            </div>
+            <div class="stat-card rose">
+              <div class="stat-title">Today Issued</div>
+              <div class="stat-value" id="kpiTodayIssued">34</div>
+              <div class="stat-sub">Live today tag activity</div>
+            </div>
+            <div class="stat-card green">
+              <div class="stat-title">Month Target Hit</div>
+              <div class="stat-value" id="kpiMonthTarget">84%</div>
+              <div class="stat-sub">Target: 1,800 tags</div>
+            </div>
+          </div>
+
+          <!-- Charts Grid -->
+          <div class="charts-grid">
+            <!-- Top Agents Chart -->
+            <div class="card">
+              <div class="card-header">
+                <h3><span>🏆</span> Top 10 Agents — Current Month Issuance</h3>
+              </div>
+              <div class="card-body">
+                <canvas id="chartTopAgents" height="240"></canvas>
+              </div>
+            </div>
+
+            <!-- VC Distribution Donut -->
+            <div class="card">
+              <div class="card-header">
+                <h3><span>🍩</span> VC-Wise Distribution (Current Month)</h3>
+              </div>
+              <div class="card-body">
+                <canvas id="chartVcDistribution" height="240"></canvas>
+              </div>
+            </div>
+          </div>
+
+          <!-- Quick Action Banner -->
+          <div class="card" style="background: linear-gradient(135deg, #eff6ff, #dbeafe); border-color: #bfdbfe;">
+            <div class="card-body" style="display: flex; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap;">
+              <div>
+                <h3 style="font-size: 16px; font-weight: 700; color: #1e3a8a; margin-bottom: 4px;">
+                  🚀 Naya Tag Mapping Feature Live Hai!
+                </h3>
+                <p style="font-size: 13px; color: #1d4ed8;">
+                  Apni Excel file direct upload karein aur sekdo tags ko kuch hi seconds me Google Sheet me map karein.
+                </p>
+              </div>
+              <a href="#tag-mapping" class="btn btn-primary" onclick="switchMainTab('tag-mapping')">
+                <span>🗺️</span> Open Tag Mapping Module
+              </a>
+            </div>
+          </div>
+
+        </section>
+
+        <!-- ========================================================
+             TAB 3: AGENT REPORT
+             ======================================================== -->
+        <section id="tab-agent-report" class="tab-view">
+          <div class="card">
+            <div class="card-header">
+              <h3><span>👥</span> GV Partner Agent Report</h3>
+              <div class="header-actions">
+                <button class="btn btn-outline btn-sm" id="btnExportAgentReport">
+                  <span>⬇️</span> Export CSV
+                </button>
+              </div>
+            </div>
+            <div class="card-body">
+              <div class="toolbar">
+                <div class="search-box">
+                  <input type="text" id="agentSearchInput" placeholder="Search Agent ID or Name...">
+                </div>
+              </div>
+              <div class="table-responsive">
+                <table class="custom-table" id="agentReportTable">
+                  <thead>
+                    <tr>
+                      <th>AGENT ID</th>
+                      <th>AGENT NAME</th>
+                      <th>SUPERVISOR</th>
+                      <th>CURRENT MONTH</th>
+                      <th>LAST MONTH</th>
+                      <th>GROWTH</th>
+                      <th>VC4 SHARE</th>
+                      <th>STATUS</th>
+                    </tr>
+                  </thead>
+                  <tbody id="agentReportBody">
+                    <!-- Populated by JS -->
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ========================================================
+             TAB 4: TAG ASSIGNMENT
+             ======================================================== -->
+        <section id="tab-tag-assignment" class="tab-view">
+          <div class="card">
+            <div class="card-header">
+              <h3><span>🏷️</span> Tag Assignment & Inventory Snapshot</h3>
+              <div class="header-actions">
+                <a href="#tag-mapping" class="btn btn-primary btn-sm" onclick="switchMainTab('tag-mapping')">
+                  <span>+</span> Map More Tags with Excel
+                </a>
+              </div>
+            </div>
+            <div class="card-body">
+              <div class="toolbar">
+                <div class="search-box">
+                  <input type="text" id="tagAssignSearch" placeholder="Search Tag ID, Serial Number...">
+                </div>
+              </div>
+              <div class="table-responsive">
+                <table class="custom-table" id="tagAssignTable">
+                  <thead>
+                    <tr>
+                      <th>TAG ID</th>
+                      <th>SERIAL NUMBER</th>
+                      <th>ASSIGNED AGENT</th>
+                      <th>VEHICLE CLASS</th>
+                      <th>SUPERVISOR</th>
+                      <th>MAPPED AT</th>
+                      <th>STATUS</th>
+                    </tr>
+                  </thead>
+                  <tbody id="tagAssignBody">
+                    <!-- Populated by JS -->
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ========================================================
+             TAB 5: DAILY TRENDS
+             ======================================================== -->
+        <section id="tab-daily-trends" class="tab-view">
+          <div class="card">
+            <div class="card-header">
+              <h3><span>📈</span> Daily Issuance Trends (30-Day Live)</h3>
+              <div class="header-actions">
+                <button class="filter-pill-btn active">30 Days</button>
+                <button class="filter-pill-btn">90 Days</button>
+              </div>
+            </div>
+            <div class="card-body">
+              <canvas id="chartDailyTrends" height="260"></canvas>
+            </div>
+          </div>
+        </section>
+
+        <!-- ========================================================
+             TAB 6: TL SUMMARY
+             ======================================================== -->
+        <section id="tab-tl-summary" class="tab-view">
+          <div class="card">
+            <div class="card-header">
+              <h3><span>👔</span> Team Leader & Supervisor Performance</h3>
+            </div>
+            <div class="card-body">
+              <div class="table-responsive">
+                <table class="custom-table">
+                  <thead>
+                    <tr>
+                      <th>TL / SUPERVISOR NAME</th>
+                      <th>TOTAL AGENTS</th>
+                      <th>ACTIVE AGENTS</th>
+                      <th>TOTAL TAGS MAPPED</th>
+                      <th>VC4 SHARE</th>
+                      <th>TODAY ISSUED</th>
+                    </tr>
+                  </thead>
+                  <tbody id="tlSummaryBody">
+                    <!-- Populated by JS -->
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ========================================================
+             TAB 7: API SETTINGS
+             ======================================================== -->
+        <section id="tab-settings" class="tab-view">
+          <div class="card" style="max-width: 760px; margin: 0 auto;">
+            <div class="card-header">
+              <h3><span>⚙️</span> Google Apps Script API Configuration</h3>
+            </div>
+            <div class="card-body">
+              <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 18px;">
+                Apna Google Sheet Apps Script Web App URL yahan paste karein jisse Tag Mapping aur live data sync ho sake:
+              </p>
+
+              <div style="margin-bottom: 18px;">
+                <label style="display: block; font-weight: 700; font-size: 13px; margin-bottom: 6px;">
+                  Google Apps Script Web App URL:
+                </label>
+                <input type="url" id="inputApiUrl" class="form-control" placeholder="https://script.google.com/macros/s/AKfycb.../exec">
+                <span style="font-size: 11px; color: var(--text-muted); margin-top: 4px; display: block;">
+                  Example: https://script.google.com/macros/s/AKfycbx.../exec
+                </span>
+              </div>
+
+              <div style="display: flex; gap: 12px; align-items: center; margin-bottom: 24px;">
+                <button class="btn btn-primary" id="btnSaveApiConfig">
+                  <span>💾</span> Save & Test Connection
+                </button>
+                <button class="btn btn-outline" id="btnResetToDemo">
+                  Reset to Demo Mode
+                </button>
+              </div>
+
+              <div id="apiTestStatus" style="display: none; padding: 12px 16px; border-radius: var(--radius-sm); font-size: 13px; margin-bottom: 20px;">
+                <!-- Status text -->
+              </div>
+
+              <div style="background-color: #f8fafc; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 16px;">
+                <h4 style="font-size: 13px; font-weight: 700; margin-bottom: 8px;">💡 Google Apps Script Deploy Steps (Hindi):</h4>
+                <ol style="margin-left: 20px; font-size: 12px; color: var(--text-muted); line-height: 1.8;">
+                  <li>Google Sheet me <strong>Extensions > Apps Script</strong> kholein.</li>
+                  <li><strong>Tag Mapping > Apps Script Backend Code</strong> tab se code copy karein aur wahan paste karein.</li>
+                  <li><strong>Deploy > New deployment</strong> par click karein.</li>
+                  <li>Type me <strong>Web app</strong> chunein.</li>
+                  <li><strong>Who has access: Anyone</strong> zaroor karein.</li>
+                  <li>Deploy hone ke baad jo <strong>Web App URL</strong> mile use yahan paste karke Save karein!</li>
+                </ol>
+              </div>
+
+            </div>
+          </div>
+        </section>
+
+      </div>
+    </main>
+
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <!-- Main JavaScript Logic -->
+  <script src="app.js"></script>
+</body>
+</html>
