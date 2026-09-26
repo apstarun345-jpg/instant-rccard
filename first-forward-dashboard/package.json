@@ -1,0 +1,12 @@
+{
+  "name": "first-forward-dashboard",
+  "version": "1.0.0",
+  "private": true,
+  "description": "First Forward FASTag dashboard — live issuance, stock, trends and agent performance from a Google Sheet.",
+  "type": "module",
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "PORT=8080 node server.js"
+  }
+}

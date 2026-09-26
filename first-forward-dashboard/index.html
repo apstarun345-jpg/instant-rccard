@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>First Forward Dashboard</title>
+  <meta name="description" content="First Forward FASTag dashboard — live issuance, stock, trends and agent performance from Google Sheets.">
+  <meta name="theme-color" content="#4f46e5">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <div class="brand-logo">FF</div>
+      <div class="brand-text"><b id="brand-name">First Forward</b><small>Dashboard</small></div>
+    </div>
+    <nav id="nav" class="nav"></nav>
+    <div class="side-foot">
+      <div id="status" class="status"><span class="dot"></span> Connecting…</div>
+      <a id="sheet-link" class="side-link" href="#" target="_blank" rel="noopener">Open Google Sheet ↗</a>
+    </div>
+  </aside>
+  <div class="side-backdrop" id="side-backdrop"></div>
+
+  <div class="content">
+    <header class="topbar">
+      <button class="icon-btn" id="menu-btn" aria-label="Menu">☰</button>
+      <div class="top-title" id="top-title">Dashboard</div>
+      <div class="top-actions">
+        <button class="icon-btn" id="top-refresh" title="Refresh data" aria-label="Refresh">↻</button>
+      </div>
+    </header>
+    <main id="main" class="main"></main>
+  </div>
+
+  <div class="drawer-backdrop" id="drawer-backdrop" hidden></div>
+  <aside class="drawer" id="drawer" aria-hidden="true">
+    <div class="drawer-head">
+      <div><div class="drawer-kicker" id="drawer-kicker"></div><h2 id="drawer-title"></h2><div class="drawer-sub" id="drawer-sub"></div></div>
+      <button class="icon-btn" id="drawer-close" aria-label="Close">✕</button>
+    </div>
+    <div class="drawer-body" id="drawer-body"></div>
+  </aside>
+
+  <script src="js/config.js"></script>
+  <script src="js/util.js"></script>
+  <script src="js/data.js"></script>
+  <script src="js/charts.js"></script>
+  <script src="js/model.js"></script>
+  <script src="js/sheets.js"></script>
+  <script src="js/dashboard.js"></script>
+  <script src="js/trend.js"></script>
+  <script src="js/stock.js"></script>
+  <script src="js/performance.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

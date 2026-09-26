@@ -1,0 +1,14 @@
+# Render Blueprint (optional): "New +" → "Blueprint" → select this repo. Or create a Web Service manually (see README).
+services:
+  - type: web
+    name: first-forward-dashboard
+    runtime: node
+    plan: free
+    buildCommand: ""
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: CACHE_SECONDS
+        value: "120"
